@@ -95,4 +95,4 @@ These choices go beyond, or resolve ambiguity in, SRS draft v1.0:
 
 ## Planned
 
-- **AI-written text between charts.** The AI would write headings, paragraphs and lists from the card's own figures and place them between the user's charts and tables, as a proposal to review. Not built yet; see [docs/planned-ai-layout.md](docs/planned-ai-layout.md).
+- **AI-written text between charts.** The AI would write headings, paragraphs and lists from the card's own figures and place them between the user's charts and tables, as a proposal to review. Not built yet; see [docs/ai-assisted-cards.md](docs/ai-assisted-cards.md).

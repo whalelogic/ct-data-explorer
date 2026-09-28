@@ -20,8 +20,8 @@
 Run everything from the `ct-civic-data-explorer/` folder.
 
 ```sh
-git clone <repo-url>
-cd <repo-name>/ct-civic-data-explorer
+git clone https://github.com/whalelogic/ct-data-explorer.git
+cd ct-data-explorer/ct-civic-data-explorer
 
 cp .env.example .env        # Windows PowerShell: copy .env.example .env
 ```
