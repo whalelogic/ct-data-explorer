@@ -15,3 +15,6 @@ Thumbs.db
 .vscode/
 *.swp
 ~$*
+
+# Shared privately, not in the repo
+CLAUDE.md

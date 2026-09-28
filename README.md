@@ -11,7 +11,6 @@
 | [`ct-civic-data-explorer/`](ct-civic-data-explorer/) | The application. Its [README](ct-civic-data-explorer/README.md) explains how it works. |
 | [`sample-data/`](sample-data/) | The ACS 2024 sample CSV used by `npm run seed` and the tests |
 | `SRS.docx` | The software requirements specification |
-| `CLAUDE.md` | Project conventions and architecture notes |
 
 ## Local setup
 
