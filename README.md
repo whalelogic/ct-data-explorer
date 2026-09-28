@@ -1,6 +1,10 @@
-# CT Civic Data Explorer
+# CT Data Explorer
 
-An internal web app for CTData Collaborative staff: upload Connecticut town-level datasets, build data cards (text, charts and tables for chosen towns), and export them as PDFs. CSC400 project, Fall 2026.
+#### A capstone project for the SCSU Computer Science program: an internal web app for CTData Collaborative staff to upload Connecticut town-level datasets, build data cards (text, charts and tables for chosen towns), and export them as PDFs.
+
+#### __Contributors:__
+
+- Names here
 
 | Path | What it is |
 | --- | --- |
