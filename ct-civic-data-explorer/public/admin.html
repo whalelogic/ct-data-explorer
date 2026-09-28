@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Admin · CT Civic Data Explorer</title>
+  <link rel="stylesheet" href="/css/app.css">
+  <script type="module" src="/js/admin.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site"><a class="brand" href="/">CT Civic Data Explorer</a></header>
+  <main id="main" class="container">
+    <h1>Admin</h1>
+    <p id="page-status" class="status" role="alert" hidden></p>
+
+    <section class="panel" aria-labelledby="datasets-heading">
+      <h2 id="datasets-heading">Datasets</h2>
+      <form id="upload-form" class="grid-form" novalidate>
+        <div><label for="ds-name">Dataset name</label><input id="ds-name" name="name" required placeholder="ACS 5-Year Town Profile"></div>
+        <div><label for="ds-source">Source</label><input id="ds-source" name="source" required placeholder="U.S. Census Bureau, ACS"></div>
+        <div><label for="ds-vintage">Vintage</label><input id="ds-vintage" name="vintage" required placeholder="2024"></div>
+        <div><label for="ds-file">CSV file</label><input id="ds-file" name="file" type="file" accept=".csv,text/csv" required></div>
+        <label class="check"><input type="checkbox" id="ds-activate" name="activate"> Activate this version after upload</label>
+        <div class="button-row"><button type="submit">Upload</button></div>
+      </form>
+      <p class="muted small">
+        The file needs a <code>town</code> column and one column per indicator key. A file with any problem is
+        rejected whole. Uploading the same name and vintage again creates a new version; nothing is overwritten.
+      </p>
+      <p id="upload-status" class="status" role="status" hidden></p>
+      <ul id="upload-errors" class="errors" hidden></ul>
+      <p id="datasets-status" class="status" role="status" hidden></p>
+      <div class="table-wrap">
+        <table class="data">
+          <thead>
+            <tr>
+              <th scope="col">Name</th><th scope="col">Vintage</th><th scope="col" class="num">Version</th>
+              <th scope="col" class="num">Rows</th><th scope="col">Uploaded by</th><th scope="col">Uploaded</th>
+              <th scope="col">Status</th><th scope="col"><span class="sr-only">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody id="datasets-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="indicators-heading">
+      <h2 id="indicators-heading">Indicators</h2>
+      <div class="table-wrap">
+        <table class="data">
+          <thead>
+            <tr><th scope="col">Key</th><th scope="col">Label</th><th scope="col">Unit</th><th scope="col" class="num">Decimals</th><th scope="col">Value</th></tr>
+          </thead>
+          <tbody id="indicators-body"></tbody>
+        </table>
+      </div>
+      <h3>Add an indicator</h3>
+      <form id="indicator-form" class="grid-form" novalidate>
+        <div><label for="ind-key">Key (CSV column)</label><input id="ind-key" name="key" required pattern="[A-Za-z0-9_]+"></div>
+        <div><label for="ind-label">Label</label><input id="ind-label" name="label" required></div>
+        <div>
+          <label for="ind-unit">Unit</label>
+          <select id="ind-unit" name="unit">
+            <option value="count">Count</option><option value="currency">Currency</option><option value="percent">Percent</option>
+            <option value="density">Density</option><option value="area">Area</option>
+          </select>
+        </div>
+        <div><label for="ind-decimals">Decimals</label><input id="ind-decimals" name="decimals" type="number" min="0" max="4" value="0"></div>
+        <div>
+          <label for="ind-derivation">Value</label>
+          <select id="ind-derivation" name="derivation">
+            <option value="direct">Uploaded in the CSV</option><option value="ratio">Computed ratio</option>
+          </select>
+        </div>
+        <div class="ratio-field" hidden><label for="ind-num">Numerator key</label><input id="ind-num" name="numeratorKey"></div>
+        <div class="ratio-field" hidden><label for="ind-den">Denominator key</label><input id="ind-den" name="denominatorKey"></div>
+        <div class="button-row"><button type="submit">Add indicator</button></div>
+      </form>
+      <p id="indicator-status" class="status" role="status" hidden></p>
+    </section>
+
+    <section class="panel" aria-labelledby="cards-heading">
+      <div class="panel-head">
+        <h2 id="cards-heading">Saved cards</h2>
+        <input type="search" id="card-search" placeholder="Search by title or town" aria-label="Search saved cards">
+      </div>
+      <p id="cards-status" class="status" role="status" hidden></p>
+      <div class="table-wrap">
+        <table class="data">
+          <thead>
+            <tr>
+              <th scope="col">Title</th>
+              <th scope="col">Towns</th>
+              <th scope="col">Dataset</th>
+              <th scope="col">Created by</th>
+              <th scope="col">Updated</th>
+              <th scope="col"><span class="sr-only">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody id="cards-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="users-heading">
+      <h2 id="users-heading">Users</h2>
+      <form id="invite-form" class="grid-form" novalidate>
+        <div><label for="user-first">First name</label><input id="user-first" name="firstName" required autocomplete="off"></div>
+        <div><label for="user-last">Last name</label><input id="user-last" name="lastName" required autocomplete="off"></div>
+        <div><label for="user-email">Email</label><input id="user-email" name="email" type="email" required autocomplete="off"></div>
+        <div>
+          <label for="user-role">Role</label>
+          <select id="user-role" name="role"><option value="staff">Staff</option><option value="admin">Admin</option></select>
+        </div>
+        <div class="button-row"><button type="submit">Invite user</button></div>
+      </form>
+      <p class="muted small">No email is sent. Copy the one-time link and send it to the person yourself.</p>
+      <p id="users-status" class="status" role="status" hidden></p>
+      <div id="user-link" class="status" hidden></div>
+      <div class="table-wrap">
+        <table class="data">
+          <thead>
+            <tr><th scope="col">Name</th><th scope="col">Email</th><th scope="col">Role</th><th scope="col">Status</th><th scope="col"><span class="sr-only">Actions</span></th></tr>
+          </thead>
+          <tbody id="users-body"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

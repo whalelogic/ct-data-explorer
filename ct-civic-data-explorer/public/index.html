@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dashboard · CT Civic Data Explorer</title>
+  <link rel="stylesheet" href="/css/app.css">
+  <script type="module" src="/js/dashboard.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site"><a class="brand" href="/">CT Civic Data Explorer</a></header>
+  <main id="main" class="container">
+    <h1>Dashboard</h1>
+    <p id="page-status" class="status" role="alert" hidden></p>
+
+    <section class="panel" aria-labelledby="town-search-heading">
+      <h2 id="town-search-heading">Find a town</h2>
+      <form id="town-search" class="inline-form" novalidate>
+        <label for="town-input" class="sr-only">Town name</label>
+        <input id="town-input" list="town-options" placeholder="Start typing a town name" autocomplete="off">
+        <datalist id="town-options"></datalist>
+        <button type="submit">View town</button>
+        <a class="button secondary" href="/builder.html">Start a new card</a>
+      </form>
+      <p id="town-status" class="status" role="alert" hidden></p>
+      <p id="dataset-badge" class="muted small"></p>
+    </section>
+
+    <section class="panel" aria-labelledby="cards-heading">
+      <div class="panel-head">
+        <h2 id="cards-heading">Saved cards</h2>
+        <input type="search" id="card-search" placeholder="Search by title or town" aria-label="Search saved cards">
+      </div>
+      <p id="cards-status" class="status" role="status" hidden></p>
+      <ul id="cards-grid" class="card-grid" role="list"></ul>
+    </section>
+  </main>
+</body>
+</html>
