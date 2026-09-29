@@ -65,3 +65,9 @@ CI runs the same checks, plus `npm audit`, on every pull request.
 - **Schema changes go in a new file** `migrations/NNN_description.sql`. Never edit a migration that has already been pushed.
 - **On Windows,** `npm run reset-password` is a bash script, so run it from Git Bash or WSL.
 - **AI summaries are optional.** To try them, set `AI_PROVIDER=anthropic` and your own `ANTHROPIC_API_KEY` in `.env`. Never commit `.env`.
+
+
+### DB Tables 
+
+<img width="926" height="586" alt="image" src="https://github.com/user-attachments/assets/c4088302-cbd2-4ddd-96b5-656d27e8a23b" />
+
