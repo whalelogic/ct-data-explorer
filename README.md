@@ -7,7 +7,8 @@
 ##### Paul, Kieran and Keith
 
 
-### To Run the Demo
+### To Run the Demo (demo branch)
+
 
 ```bash
 git clone -b demo https://github.com/whalelogic/ct-data-explorer.git
