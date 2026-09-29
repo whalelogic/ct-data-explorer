@@ -7,14 +7,4 @@
 ##### Paul, Kieran and Keith
 
 
-### To Run the Demo (demo branch)
-
-
-```bash
-git clone -b demo https://github.com/whalelogic/ct-data-explorer.git
-```
-Then
-```bash
-cd ct-data-explorer/ct-civic-data-explorer
-```
-Then follow instructions in `Demo` branch `README.md`
+> To run the demo, switch to `demo` branch and follow instructions in `README.md`
