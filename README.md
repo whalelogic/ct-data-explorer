@@ -4,6 +4,13 @@
 
 #### __Contributors:__ 
 
+<<<<<<< HEAD
 - Paul 
 - Kieran
 - Keith
+=======
+##### Paul, Kieran and Keith
+
+
+> To run the demo, switch to `demo` branch and follow instructions in `README.md`
+>>>>>>> 2160c5bb2689482c23f99adaca6b2adb19f6baec
