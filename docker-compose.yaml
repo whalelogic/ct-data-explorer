@@ -1,0 +1,51 @@
+# CT Civic Data Explorer: local dev stack (Node, Express + MySQL)
+# Usage:
+#   cp .env.example .env      # then set real passwords
+#   docker compose up -d --build
+#   docker compose logs -f app
+
+services:
+  db:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${DB_NAME:-ctdata}
+      MYSQL_USER: ${DB_USER:-ctdata}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?Set DB_ROOT_PASSWORD in .env}
+    ports:
+      # Bound to localhost only, so teammates can use a DB client
+      # on their own machine without exposing MySQL to the network.
+      - "127.0.0.1:${DB_HOST_PORT:-3306}:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+      # Any .sql / .sh files here run ONCE, on first start with an empty volume.
+      # ",z" relabels for SELinux on Fedora; it is ignored on macOS.
+      - ./db/init:/docker-entrypoint-initdb.d:ro,z
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy   # wait until MySQL accepts connections
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3000
+      DB_HOST: db                    # the service name, NOT localhost
+      DB_PORT: 3306
+      DB_NAME: ${DB_NAME:-ctdata}
+      DB_USER: ${DB_USER:-ctdata}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DATABASE_URL: mysql://${DB_USER:-ctdata}:${DB_PASSWORD}@db:3306/${DB_NAME:-ctdata}
+    ports:
+      - "${APP_PORT:-3000}:3000"
+
+volumes:
+  db_data:
