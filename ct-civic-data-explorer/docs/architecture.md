@@ -23,7 +23,7 @@ flowchart TB
     Cards -->|"card data"| Ai
   end
 
-  DB[("PostgreSQL<br/>users · sessions · sources · datasets<br/>towns · indicators · observations · cards")]
+  DB[("MySQL 8.4<br/>users · sessions · sources · datasets<br/>towns · indicators · observations · cards")]
   Claude[["Claude API"]]
 
   Browser -->|"pages · JSON API"| Middleware

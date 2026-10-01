@@ -9,7 +9,7 @@ export async function list(db = pool) {
 }
 
 export async function findById(id, db = pool) {
-  const { rows } = await db.query(`SELECT ${COLUMNS} FROM towns WHERE id = $1`, [id]);
+  const { rows } = await db.query(`SELECT ${COLUMNS} FROM towns WHERE id = ?`, [id]);
   return rows[0] ?? null;
 }
 
@@ -20,7 +20,8 @@ export async function findState(db = pool) {
 
 /** Case-insensitive lookup by name. */
 export async function findByNames(names, db = pool) {
-  const { rows } = await db.query(`SELECT ${COLUMNS} FROM towns WHERE lower(name) = ANY($1::text[])`, [
+  if (names.length === 0) return []; // MySQL rejects an empty IN ()
+  const { rows } = await db.query(`SELECT ${COLUMNS} FROM towns WHERE LOWER(name) IN (?)`, [
     names.map((n) => n.toLowerCase()),
   ]);
   return rows;

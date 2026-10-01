@@ -9,7 +9,7 @@ Requires Node.js 22+ and Docker.
 ```sh
 cp .env.example .env               # set DB_PASSWORD and SESSION_SECRET (openssl rand -hex 32)
 npm install
-docker compose up -d --wait db     # PostgreSQL 16 on 127.0.0.1:${DB_PORT}
+docker compose up -d --wait db     # MySQL 8.4 on 127.0.0.1:${DB_PORT}
 npm run migrate
 npm run create-admin -- --email you@example.org --first First --last Last
 npm run seed                       # loads ../sample-data/acs2024_sample.csv and activates it
@@ -38,9 +38,16 @@ To run the app and database together in containers, use `docker compose up --bui
 **Layers.** Code is split into routes, services and repositories, and each layer calls only the one below it:
 - `src/routes/*` handles HTTP, with zod validation at the boundary.
 - `src/services/*` holds the logic.
-- `src/repositories/*` holds hand-written, parameterized SQL through one `pg` pool. There is no ORM.
+- `src/repositories/*` holds hand-written, parameterized SQL through one `mysql2` pool (`src/db/pool.js`). There is no ORM.
 
 `src/app.js` puts middleware in this order: helmet, request log, static files, JSON body parsing, session, then `/api/auth`, then `requireAuth` and CSRF for the rest of `/api`. Role checks (`requireRole`) and ownership checks are applied per route. One central error handler returns safe messages; `HttpError` messages are shown to users.
+
+**MySQL.** The app targets MySQL 8.4 (8.0.19 or later works). A few things differ from what you might assume:
+- Every table uses the `utf8mb4_0900_as_cs` collation, so comparisons and unique keys are case-sensitive. Case-insensitive matching is written out explicitly: `LOWER()` for town names, emails and sources, and a `_ci` collation for card search.
+- Each connection is set to UTC and READ COMMITTED isolation (`src/db/pool.js`). `DATETIME` values are always UTC.
+- "One active version per name and vintage" and "source names unique ignoring case" are functional unique indexes, since MySQL has no partial indexes.
+- MySQL commits `CREATE`/`ALTER` statements immediately, so a migration that fails partway can leave some of its schema changes behind. Keep each migration file to one logical step, and check for partial changes before re-running a failed one.
+- `key` is a reserved word, so the `indicators.key` column is always written as `` `key` ``.
 
 **Long-format data.** Tables are `sources` (the agency or survey a dataset comes from, unique ignoring case), `datasets` (one row per uploaded version, referencing its source), `towns` (169 towns plus one `state` row), `indicators` and `observations` (one value per dataset × indicator × town). A new dataset or indicator is an insert, never a schema change. Uploads are validated in full before anything is written (`csv-validation.js`), and every problem is reported at once. Each upload becomes a new version. Versions are activated or deactivated, never edited or deleted, and only one version per name and vintage can be active.
 
@@ -57,7 +64,7 @@ To run the app and database together in containers, use `docker compose up --bui
 **Accounts and security.**
 - Accounts are invite-only; there is no self-registration. Passwords are hashed with bcrypt (cost 12, 12 characters to 72 bytes).
 - Invite and reset links are single-use. Only their hash is stored, and the token travels in the URL fragment so it never reaches server logs.
-- Sessions are stored server-side in PostgreSQL behind an HttpOnly cookie. They expire after 30 minutes idle or 8 hours total.
+- Sessions are stored server-side in MySQL (`src/db/session-store.js`) behind an HttpOnly cookie. They expire after 30 minutes idle or 8 hours total.
 - Five failed sign-ins in 15 minutes lock the account for 15 minutes, and there is a per-IP rate limit on credential endpoints.
 - State-changing requests need a synchronizer CSRF token in `X-CSRF-Token`.
 - Chart.js is served from `node_modules`, not a CDN, so pages make no third-party requests.

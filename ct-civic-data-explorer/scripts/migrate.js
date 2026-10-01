@@ -4,7 +4,7 @@ import { pool } from '../src/db/pool.js';
 import { runMigrations } from '../src/db/migrate.js';
 
 try {
-  await runMigrations(pool);
+  await runMigrations();
 } catch (err) {
   console.error(err.message);
   process.exitCode = 1;

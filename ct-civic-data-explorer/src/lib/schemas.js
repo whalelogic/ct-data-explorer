@@ -3,7 +3,11 @@ import { z } from 'zod';
 
 export const idParams = z.object({ id: z.coerce.number().int().positive('Invalid id') });
 
-export const emailSchema = z.string().trim().toLowerCase().pipe(z.email('Enter a valid email address'));
+export const emailSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .pipe(z.email('Enter a valid email address').max(254, 'Email addresses can be at most 254 characters'));
 
 export const newPasswordSchema = z
   .string()

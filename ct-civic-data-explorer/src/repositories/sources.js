@@ -8,12 +8,13 @@ export async function list(db = pool) {
 
 /**
  * Return the id of the source with this name (ignoring case), creating it if needed.
- * Two statements rather than one CTE, so a row committed by a concurrent insert is
- * visible to the SELECT.
+ * The no-op update only fires on the LOWER(name) unique key (the only one besides
+ * the primary key), and the SELECT then sees a row committed by a concurrent insert
+ * because connections run at READ COMMITTED.
  * @returns {Promise<number>}
  */
 export async function findOrCreate(name, db = pool) {
-  await db.query('INSERT INTO sources (name) VALUES ($1) ON CONFLICT ((lower(name))) DO NOTHING', [name]);
-  const { rows } = await db.query('SELECT id FROM sources WHERE lower(name) = lower($1)', [name]);
+  await db.query('INSERT INTO sources (name) VALUES (?) ON DUPLICATE KEY UPDATE id = id', [name]);
+  const { rows } = await db.query('SELECT id FROM sources WHERE LOWER(name) = LOWER(?)', [name]);
   return rows[0].id;
 }

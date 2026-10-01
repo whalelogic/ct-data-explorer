@@ -7,12 +7,12 @@
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import connectPgSimple from 'connect-pg-simple';
 import express from 'express';
 import session from 'express-session';
 import helmet from 'helmet';
 import { config } from './config.js';
 import { pool } from './db/pool.js';
+import { MySqlSessionStore } from './db/session-store.js';
 import { requireAuth } from './middleware/auth.js';
 import { csrfProtection } from './middleware/csrf.js';
 import { apiNotFound, errorHandler } from './middleware/errors.js';
@@ -51,14 +51,13 @@ export function createApp({ sessionStore, logRequests = config.env !== 'test' } 
     }
   });
 
-  const PgStore = connectPgSimple(session);
   app.use(
     '/api',
     express.json({ limit: '200kb' }),
     session({
       name: config.session.cookieName,
       secret: config.session.secret,
-      store: sessionStore ?? new PgStore({ pool, tableName: 'session', createTableIfMissing: false }),
+      store: sessionStore ?? new MySqlSessionStore(),
       resave: false,
       saveUninitialized: false,
       rolling: true, // every response renews the cookie, so maxAge acts as the idle timeout

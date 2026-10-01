@@ -29,7 +29,7 @@ Open `.env` and set `DB_PASSWORD` to anything you like. It is only for your loca
 
 ```sh
 npm install
-docker compose up -d --wait db     # starts PostgreSQL 16 in Docker on port 5433
+docker compose up -d --wait db     # starts MySQL 8.4 in Docker on port 3307
 npm run migrate                    # creates the tables
 npm run create-admin -- --email you@example.org --first First --last Last
 npm run seed                       # loads the sample ACS data for all 169 towns
@@ -60,7 +60,7 @@ CI runs the same checks, plus `npm audit`, on every pull request.
 ### Good to know
 
 - **Your database is yours alone.** Accounts, uploads and saved cards live only on your machine, so each person creates their own admin.
-- **Port 5433 already in use?** Change `DB_PORT` in `.env`.
+- **Port 3307 already in use?** Change `DB_PORT` in `.env`.
 - **To start the database over:** `docker compose down -v` deletes all local data. Then run `migrate`, `create-admin` and `seed` again.
 - **Schema changes go in a new file** `migrations/NNN_description.sql`. Never edit a migration that has already been pushed.
 - **On Windows,** `npm run reset-password` is a bash script, so run it from Git Bash or WSL.

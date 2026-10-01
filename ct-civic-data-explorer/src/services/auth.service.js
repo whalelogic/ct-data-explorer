@@ -47,7 +47,7 @@ export async function inviteUser({ email, firstName, lastName, role }) {
     try {
       user = await users.create({ email, firstName, lastName, role }, client);
     } catch (err) {
-      if (err.code === '23505') throw new HttpError(409, `A user with email ${email} already exists`);
+      if (err.code === 'ER_DUP_ENTRY') throw new HttpError(409, `A user with email ${email} already exists`);
       throw err;
     }
     const link = await issueLink(user.id, 'invite', client);

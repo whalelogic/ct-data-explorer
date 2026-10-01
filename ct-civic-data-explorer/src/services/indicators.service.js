@@ -22,7 +22,7 @@ export async function createIndicator(input) {
   try {
     return await indicators.create(definition);
   } catch (err) {
-    if (err.code === '23505') throw new HttpError(409, `An indicator with key "${definition.key}" already exists`);
+    if (err.code === 'ER_DUP_ENTRY') throw new HttpError(409, `An indicator with key "${definition.key}" already exists`);
     throw err;
   }
 }

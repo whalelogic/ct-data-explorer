@@ -1,7 +1,7 @@
 -- Indicator definitions for the ACS 2024 sample extract columns, plus the derived
 -- poverty rate. Keys are the lowercased CSV column names. Poverty rate is computed
 -- from its components at read time and is never uploaded or stored.
-INSERT INTO indicators (key, label, unit, decimals, derivation, numerator_key, denominator_key) VALUES
+INSERT INTO indicators (`key`, label, unit, decimals, derivation, numerator_key, denominator_key) VALUES
   ('pop',                'Population',                                        'count',    0, 'direct', NULL, NULL),
   ('households',         'Households',                                        'count',    0, 'direct', NULL, NULL),
   ('medhouseholdincome', 'Median Household Income',                           'currency', 0, 'direct', NULL, NULL),
