@@ -27,7 +27,7 @@ export function cardActionButtons(card, { user, status, reload }) {
   };
 
   const rename = () => {
-    const title = prompt('New name for this card', card.title)?.trim();
+    const title = prompt('New name for this report', card.title)?.trim();
     if (title && title !== card.title) act(() => api(`/cards/${card.id}`, { method: 'PUT', json: { title } }));
   };
 

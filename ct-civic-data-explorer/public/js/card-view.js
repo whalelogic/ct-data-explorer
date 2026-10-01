@@ -31,6 +31,12 @@ export function renderCard(container, card) {
       }
       case 'table':
         return renderTable(card.places, block.indicators);
+      case 'records':
+        return h('div', { class: 'table-wrap', tabindex: '0', role: 'region', 'aria-label': 'Source rows' },
+          h('table', { class: 'data' },
+            h('thead', {}, h('tr', {}, ...block.columns.map((column) => h('th', { scope: 'col' }, column.label)))),
+            h('tbody', {}, ...block.records.map((record) => h('tr', {}, ...record.values.map((value, index) =>
+              h('td', { class: block.columns[index].type === 'number' ? 'num' : null }, value)))))));
       default:
         return null;
     }

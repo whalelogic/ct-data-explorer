@@ -5,9 +5,9 @@ import { h } from './dom.js';
 export function renderHeader(user) {
   const links = [
     ['/', 'Dashboard'],
-    ['/builder.html', 'New card'],
+    ['/builder.html', 'Make report'],
   ];
-  if (user.role === 'admin') links.push(['/admin.html', 'Admin']);
+  if (user.role === 'admin') links.push(['/admin.html', 'Upload dataset']);
 
   const nav = h(
     'nav',

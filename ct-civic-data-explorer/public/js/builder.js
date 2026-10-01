@@ -15,14 +15,21 @@ boot(async () => {
   const { user, features } = await loadSession();
   renderHeader(user);
 
-  const [datasets, towns, indicators] = await Promise.all([api('/datasets'), api('/towns'), api('/indicators')]);
+  const [datasets, towns, allIndicators] = await Promise.all([api('/datasets'), api('/towns'), api('/indicators')]);
+  let indicators = allIndicators;
   const activeDatasets = datasets.filter((d) => d.isActive);
-  const indicatorByKey = new Map(indicators.map((i) => [i.key, i]));
+  let indicatorByKey = new Map(indicators.map((i) => [i.key, i]));
+  let optionsRequest = 0;
   const params = new URLSearchParams(location.search);
+  const requestedDataset = activeDatasets.find((dataset) => String(dataset.id) === params.get('dataset'));
+  const initialDataset = requestedDataset ?? activeDatasets[0];
+  if (params.has('dataset') && !requestedDataset && !params.has('card')) {
+    throw new Error('This dataset is no longer active. Choose another dataset from the dashboard.');
+  }
 
   let saved = null; // { id, ownerId, title } once the card exists
   let selection = {
-    dataset: activeDatasets[0] ? { name: activeDatasets[0].name, vintage: activeDatasets[0].vintage } : null,
+    dataset: initialDataset ? { name: initialDataset.name, vintage: initialDataset.vintage } : null,
     towns: params.get('town') ? [params.get('town')] : [],
     benchmark: true,
     indicators: [],
@@ -30,6 +37,7 @@ boot(async () => {
     title: '',
     subtitle: '',
     layout: [newBlock('chart'), newBlock('table')],
+    recordFilters: {},
   };
 
   if (params.has('card')) {
@@ -59,6 +67,7 @@ boot(async () => {
   $('card-name').value = saved?.title ?? '';
   $('ai-panel').hidden = !features.aiSummary;
   updateHeading();
+  await loadDatasetColumns();
   renderIndicators();
   renderLayout();
 
@@ -72,6 +81,8 @@ boot(async () => {
     selection.showTitle = $('show-title').checked;
     selection.title = $('title').value;
     selection.subtitle = $('subtitle').value;
+    selection.recordFilters = Object.fromEntries([...$('record-filters').querySelectorAll('select')]
+      .filter((input) => input.value !== '').map((input) => [input.dataset.column, input.value]));
     // selection.layout is updated directly by the layout editor's controls.
   }
 
@@ -82,8 +93,46 @@ boot(async () => {
     form.addEventListener(type, (event) => {
       if (event.target.closest('[data-no-preview]')) return;
       readControls();
+      if (event.target.id === 'dataset') return;
       schedulePreview();
     });
+  }
+
+  $('dataset').addEventListener('change', async () => {
+    readControls();
+    selection.recordFilters = {};
+    await loadDatasetColumns();
+    renderIndicators();
+    renderLayout();
+    await refreshPreview();
+  });
+
+  async function loadDatasetColumns() {
+    const request = ++optionsRequest;
+    const dataset = activeDatasets.find((item) => selection.dataset && sameDataset(item, selection.dataset));
+    let options = { columns: allIndicators, filters: [], hasState: true };
+    if (dataset?.dataFormat === 'records') {
+      options = await api(`/datasets/${dataset.id}/report-options`);
+      if (request !== optionsRequest) return;
+    }
+    indicators = options.columns;
+    indicatorByKey = new Map(indicators.map((indicator) => [indicator.key, indicator]));
+    selection.indicators = selection.indicators.filter((key) => indicatorByKey.has(key));
+    if (dataset?.dataFormat === 'records' && !selection.indicators.length) {
+      selection.indicators = indicators.slice(0, 25).map((indicator) => indicator.key);
+    }
+    for (const block of selection.layout) {
+      if (block.indicators) block.indicators = block.indicators.filter((key) => selection.indicators.includes(key));
+    }
+    $('benchmark').disabled = !options.hasState;
+    if (!options.hasState) { selection.benchmark = false; $('benchmark').checked = false; }
+    $('record-filter-panel').hidden = options.filters.length === 0;
+    $('record-filters').replaceChildren(...options.filters.map((filter) => {
+      const select = h('select', { id: `filter-${filter.key}`, 'data-column': filter.key },
+        h('option', { value: '' }, 'All source rows'), ...filter.values.map((value) => h('option', { value }, value)));
+      select.value = selection.recordFilters?.[filter.key] ?? '';
+      return h('div', {}, h('label', { for: select.id }, filter.label), select);
+    }));
   }
 
   // ---- Indicators ----
@@ -193,7 +242,8 @@ boot(async () => {
       });
     }
 
-    const chosen = selection.indicators.filter((key) => indicatorByKey.has(key));
+    const chosen = selection.indicators.filter((key) => indicatorByKey.has(key)
+      && (block.type !== 'chart' || indicatorByKey.get(key).type !== 'text'));
     const checkboxes =
       chosen.length === 0
         ? h('p', { class: 'muted small' }, 'Select indicators first.')
@@ -284,9 +334,9 @@ boot(async () => {
     const problem = !selection.dataset
       ? 'No active dataset is available. An administrator needs to upload and activate one.'
       : selection.towns.length === 0
-        ? 'Choose a town to start the card.'
+        ? 'Choose a town to start the report.'
         : selection.indicators.length === 0
-          ? 'Select at least one indicator for the card.'
+          ? 'Select at least one indicator for the report.'
           : null;
     if (problem) {
       clearCard($('preview'));
@@ -307,15 +357,15 @@ boot(async () => {
 
   function updateHeading() {
     const own = !saved || saved.ownerId === user.id;
-    $('builder-heading').textContent = saved ? `Card: ${saved.title}` : 'New card';
-    $('save').textContent = own ? 'Save card' : 'Save as my copy';
+    $('builder-heading').textContent = saved ? `Report: ${saved.title}` : 'Make report';
+    $('save').textContent = own ? 'Save report' : 'Save as my copy';
   }
 
   $('save').addEventListener('click', async () => {
     readControls();
     const title = $('card-name').value.trim();
     if (!title) {
-      showStatus($('builder-status'), 'Give the card a name before saving.', 'error');
+      showStatus($('builder-status'), 'Give the report a name before saving.', 'error');
       $('card-name').focus();
       return;
     }

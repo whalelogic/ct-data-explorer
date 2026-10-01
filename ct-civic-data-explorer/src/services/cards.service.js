@@ -16,6 +16,7 @@ import { computeValue } from './compute.js';
 import { parseMarkup } from './markup.js';
 import { presentDataset, presentIndicator, presentPlace } from './presenters.js';
 import { selectionSchema } from './selection.js';
+import { buildRecordReport } from './record-reports.js';
 
 const TIME_ZONE = 'America/New_York';
 
@@ -26,6 +27,7 @@ const TIME_ZONE = 'America/New_York';
 export async function buildCard(selection, { now = new Date() } = {}) {
   const dataset = await requireActiveDataset(selection.dataset);
   const places = await resolvePlaces(selection);
+  if (dataset.data_format === 'records') return buildRecordReport(selection, dataset, places, now);
   const ordered = await resolveIndicators(selection.indicators);
 
   const raw = await observations.valuesByTown(dataset.id, places.map((p) => p.id));

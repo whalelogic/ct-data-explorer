@@ -56,6 +56,7 @@ export const selectionSchema = z.preprocess(
       showTitle: z.boolean().default(true),
       title: z.string().trim().max(200).default(''),
       subtitle: z.string().trim().max(300).default(''),
+      recordFilters: z.record(z.string().regex(/^c\d+$/), z.string().max(4000)).default({}),
       layout: z
         .array(blockSchema)
         .max(MAX_LAYOUT_BLOCKS, `A card can hold at most ${MAX_LAYOUT_BLOCKS} blocks`)

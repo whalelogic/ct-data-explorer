@@ -1,4 +1,4 @@
-// CT Civic Data Explorer database schema (MySQL 8.4), as built by migrations/001-003.
+// CT Civic Data Explorer database schema (MySQL 8.4), as built by migrations/001-004.
 // Paste into https://dbdiagram.io to render the entity relationship diagram.
 //
 // The enums below are drawn as enums for readability; in MySQL they are VARCHAR
@@ -95,6 +95,9 @@ Table datasets {
   uploaded_by int [not null, ref: > users.id]
   uploaded_at datetime(3) [not null, default: `CURRENT_TIMESTAMP(3)`]
   is_active boolean [not null, default: false]
+  data_format varchar(20) [not null, default: 'indicators', note: 'indicators or records']
+  column_definitions json [note: 'source headings, keys, types and display rules']
+  import_notes json [note: 'row preservation and town-label matching notes']
 
   indexes {
     (name, vintage, version) [unique]
@@ -111,6 +114,19 @@ Table towns {
 
   indexes {
     (name, geo_type) [unique]
+  }
+}
+
+Table dataset_records {
+  id int [pk, increment]
+  dataset_id int [not null, ref: > datasets.id]
+  town_id int [not null, ref: > towns.id]
+  source_row int [not null]
+  cell_values json [not null, note: 'typed source values; repeated towns remain separate rows']
+
+  indexes {
+    (dataset_id, source_row) [unique]
+    (dataset_id, town_id)
   }
 }
 

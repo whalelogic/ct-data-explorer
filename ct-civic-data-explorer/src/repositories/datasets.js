@@ -3,7 +3,8 @@ import { pool } from '../db/pool.js';
 
 const SELECT = `
   SELECT d.id, d.name, d.source_id, s.name AS source, d.vintage, d.version, d.row_count, d.uploaded_at,
-         d.is_active, d.uploaded_by, CONCAT(u.first_name, ' ', u.last_name) AS uploaded_by_name
+         d.is_active, d.uploaded_by, d.data_format, d.column_definitions, d.import_notes,
+         CONCAT(u.first_name, ' ', u.last_name) AS uploaded_by_name
   FROM datasets d
   JOIN sources s ON s.id = d.source_id
   JOIN users u ON u.id = d.uploaded_by`;
@@ -38,11 +39,11 @@ export async function nextVersion(name, vintage, db = pool) {
   return rows[0].version;
 }
 
-export async function insert({ name, sourceId, vintage, version, rowCount, uploadedBy }, db = pool) {
+export async function insert({ name, sourceId, vintage, version, rowCount, uploadedBy, dataFormat = 'indicators', columns = [], notes = [] }, db = pool) {
   const { insertId } = await db.query(
-    `INSERT INTO datasets (name, source_id, vintage, version, row_count, uploaded_by)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    [name, sourceId, vintage, version, rowCount, uploadedBy],
+    `INSERT INTO datasets (name, source_id, vintage, version, row_count, uploaded_by, data_format, column_definitions, import_notes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [name, sourceId, vintage, version, rowCount, uploadedBy, dataFormat, JSON.stringify(columns), JSON.stringify(notes)],
   );
   return { id: insertId };
 }

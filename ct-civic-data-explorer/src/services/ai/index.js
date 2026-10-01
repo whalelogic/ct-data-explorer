@@ -38,10 +38,10 @@ export function isSummaryAvailable() {
 export function summaryFacts(card) {
   return {
     dataset: { name: card.dataset.name, source: card.dataset.source, vintage: card.dataset.vintage },
-    places: card.places.map((p) => ({ name: p.name, type: p.geoType === 'state' ? 'statewide' : 'town' })),
+    places: card.places.map((p) => ({ name: card.rowBased ? p.label : p.name, type: p.geoType === 'state' ? 'statewide' : 'town' })),
     indicators: card.indicators.map((row) => ({
       label: row.displayLabel,
-      values: Object.fromEntries(row.cells.map((cell, i) => [card.places[i].name, cell.display])),
+      values: Object.fromEntries(row.cells.map((cell, i) => [card.rowBased ? card.places[i].label : card.places[i].name, cell.display])),
     })),
   };
 }

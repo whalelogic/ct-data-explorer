@@ -10,7 +10,7 @@ const SELECT = `
   JOIN datasets d ON d.id = c.dataset_id`;
 
 /**
- * Newest first; optional case-insensitive search on title and town names.
+ * Newest first; optional case-insensitive search on report title and dataset name.
  * The _as_ci collation matches regardless of case but not accents, like PostgreSQL's ILIKE.
  */
 export async function list(query, db = pool) {
@@ -19,9 +19,7 @@ export async function list(query, db = pool) {
     `${SELECT}
      WHERE ? IS NULL
         OR c.title COLLATE utf8mb4_0900_as_ci LIKE ?
-        OR EXISTS (
-          SELECT 1 FROM JSON_TABLE(c.selection, '$.towns[*]' COLUMNS (name VARCHAR(100) PATH '$')) AS t
-          WHERE t.name COLLATE utf8mb4_0900_as_ci LIKE ?)
+        OR d.name COLLATE utf8mb4_0900_as_ci LIKE ?
      ORDER BY c.updated_at DESC
      LIMIT 200`,
     [pattern, pattern, pattern],

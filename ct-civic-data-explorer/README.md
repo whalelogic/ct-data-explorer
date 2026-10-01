@@ -18,7 +18,15 @@ npm run dev                        # http://localhost:3000
 
 `create-admin` prints a one-time link. Open it to set your password.
 
-To run the app and database together in containers, use `docker compose up --build`. Migrations run on startup. Create the admin with `docker compose exec app node scripts/create-admin.js --email … --first … --last …`, then upload data on the Admin page.
+To run the app and database together in containers, use `docker compose up --build`. Migrations run on startup. Create the admin with `docker compose exec app node scripts/create-admin.js --email … --first … --last …`, then choose **Upload dataset** in the header. Selecting a CSV or `.xlsx` workbook reveals its name, source and period fields. A successful upload opens the dataset overview; clicking an existing dataset row opens the same page with its metadata, available indicators and paginated data preview.
+
+Excel uploads import the first worksheet by default; enter a worksheet name to import another sheet. Include exactly one `Town` header (case-insensitive) and any named text or numeric columns. Towns can repeat: each nonblank source row is retained separately. Blank rows are skipped and numeric cells use their underlying values rather than display formatting. Formula cells use values saved by Excel; the server does not recalculate formulas. Save the workbook in Excel before uploading. Files are limited to 10 MB, 10,000 rows and 100 columns. Legacy `.xls` files should be saved as `.xlsx` first.
+
+**Repeated rows and mixed data.** The importer detects column types without requiring registration. `dataset_records` stores the original row number, matched town and JSON cell values; `datasets.column_definitions` keeps headings, types and display rules. Text employer names, missing values and populated unnamed columns are retained. Parenthetical town labels are matched only when the base name is a known town, with an import note and the original label retained. The overview displays source rows rather than merging them by town. Known single-row numeric indicator datasets still populate `observations`, preserving existing calculated indicators and reports.
+
+For example, Industry Jobs retains five industry rows for each town; its repeated Total Jobs value is never summed. Key Employers retains the employer names and Bridgewater's note explaining its blank entries. Population Within 45 Minutes detects the numeric population column despite its descriptive heading. A header explicitly indicating a decimal-format percentage is displayed as a percentage without changing its stored fraction.
+
+Reports over source rows offer category filters and select columns from that dataset. Charts use numeric columns; text-only datasets render as tables. Wide PDF tables repeat the town and category in successive column groups. Reports are limited to 1,000 matching source rows and charts to 40; use category filters for larger selections. No implicit sums, averages or cross-dataset joins are performed.
 
 ## Commands
 
@@ -85,15 +93,15 @@ To run the app and database together in containers, use `docker compose up --bui
 
 ## Extending
 
-- **New data with known columns:** upload it on the Admin page (a `town` column plus one column per indicator key).
-- **A new column:** add the indicator on the Admin page first. It can be uploaded directly or computed as a ratio of two uploaded indicators.
+- **New data:** choose **Upload dataset** and select a CSV or `.xlsx` file with a Town column. Repeated towns and new column headings are supported automatically.
+- **Optional indicator definitions:** define known numeric keys when custom units or calculated ratios are needed. Definitions can also be added in the dataset overview. A ratio appears for compatible indicator datasets when both inputs have values.
 - **Schema change:** add `migrations/NNN_description.sql`. Migrations are forward-only; never edit one that has been applied.
 
 ## Decisions to review with the client
 
 These choices go beyond, or resolve ambiguity in, SRS draft v1.0:
 
-- **No email is sent.** Admins copy invite and password-reset links from the Admin page. The SRS assumes emailed reset tokens.
+- **No email is sent.** Admins choose **Manage users** on the upload page to copy invite and password-reset links. The SRS assumes emailed reset tokens.
 - **Dataset upload is admin-only.** This follows SRS §4.2 (CRUD), although US003 says "staff member".
 - **Duplicating cards.** Any signed-in user can duplicate any card, and the copy belongs to them. Only the creator can rename, edit or delete a card.
 - **Source footer is mandatory.** It appears on every card and PDF page and cannot be removed from the layout.
