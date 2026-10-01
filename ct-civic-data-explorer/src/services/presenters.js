@@ -37,6 +37,9 @@ export function presentDataset(d) {
     isActive: d.is_active,
     uploadedAt: d.uploaded_at,
     uploadedBy: d.uploaded_by_name,
+    dataFormat: d.data_format ?? 'indicators',
+    columns: d.column_definitions ?? [],
+    importNotes: d.import_notes ?? [],
   };
 }
 

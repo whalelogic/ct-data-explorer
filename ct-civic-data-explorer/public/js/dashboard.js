@@ -6,38 +6,48 @@ import { boot, debounce, formatDate, renderHeader, showStatus } from './layout.j
 boot(async () => {
   const { user } = await loadSession();
   renderHeader(user);
-  const [towns, datasets] = await Promise.all([api('/towns'), api('/datasets')]);
-
-  // Town search
-  const townInput = document.getElementById('town-input');
-  const townStatus = document.getElementById('town-status');
-  document.getElementById('town-options').replaceChildren(...towns.map((t) => h('option', { value: t.name })));
-  document.getElementById('town-search').addEventListener('submit', (event) => {
-    event.preventDefault();
-    const typed = townInput.value.trim();
-    const town = towns.find((t) => t.name.toLowerCase() === typed.toLowerCase());
-    if (town) location.assign(`/town.html?id=${town.id}`);
-    else showStatus(townStatus, typed ? `No Connecticut town is named "${typed}".` : 'Type a town name.', 'error');
-  });
-
+  const datasets = await api('/datasets');
   const active = datasets.filter((d) => d.isActive);
-  document.getElementById('dataset-badge').textContent = active.length
-    ? `Active data: ${active.map((d) => `${d.name}, ${d.vintage} (version ${d.version})`).join('; ')}`
-    : `No active dataset yet. ${user.role === 'admin' ? 'Upload one on the Admin page.' : 'Ask an administrator to upload one.'}`;
-
-  // Saved card library
+  const datasetGrid = document.getElementById('datasets-grid');
+  const datasetStatus = document.getElementById('datasets-status');
   const grid = document.getElementById('cards-grid');
   const cardsStatus = document.getElementById('cards-status');
-  const search = document.getElementById('card-search');
+  const search = document.getElementById('search-input');
+  let reportRequest = 0;
+
+  function renderDatasets() {
+    const query = search.value.trim().toLowerCase();
+    const matches = active.filter((dataset) => dataset.name.toLowerCase().includes(query));
+    datasetGrid.replaceChildren(...matches.map(datasetTile));
+    const empty = query ? 'No datasets match this name.'
+      : `No active datasets yet. ${user.role === 'admin' ? 'Select Upload dataset to add one.' : 'Ask an administrator to upload one.'}`;
+    showStatus(datasetStatus, matches.length ? '' : empty);
+  }
+
+  function datasetTile(dataset) {
+    const href = `/builder.html?dataset=${dataset.id}`;
+    return h('li', { class: 'saved-card' },
+      h('div', { class: 'saved-card-body' },
+        h('h3', { class: 'saved-card-title' }, h('a', { href: `/dataset.html?id=${dataset.id}`, class: 'stretched-link' }, dataset.name)),
+        h('p', { class: 'muted small' }, `${dataset.vintage} · Version ${dataset.version} · ${dataset.rowCount} rows`),
+        h('p', { class: 'small' }, dataset.source),
+      ),
+      h('div', { class: 'saved-card-actions' }, h('a', { href }, 'Make report')),
+    );
+  }
 
   async function loadCards() {
+    const request = ++reportRequest;
     try {
       const query = search.value.trim();
       const cards = await fetchCards(query);
+      if (request !== reportRequest) return;
       grid.replaceChildren(...cards.map(cardTile));
-      const empty = query ? 'No saved cards match your search.' : 'No saved cards yet. Start a new card to build one.';
+      const empty = query ? 'No reports match this dataset or report name.' : 'No saved reports yet. Choose a dataset or select Make report to begin.';
       showStatus(cardsStatus, cards.length ? '' : empty);
     } catch (err) {
+      if (request !== reportRequest) return;
+      grid.replaceChildren();
       showStatus(cardsStatus, err.message, 'error');
     }
   }
@@ -67,6 +77,17 @@ boot(async () => {
     );
   }
 
-  search.addEventListener('input', debounce(loadCards, 250));
+  const scheduleReports = debounce(loadCards, 250);
+  search.addEventListener('input', () => {
+    reportRequest++;
+    renderDatasets();
+    scheduleReports();
+  });
+  document.getElementById('dashboard-search').addEventListener('submit', (event) => {
+    event.preventDefault();
+    renderDatasets();
+    loadCards();
+  });
+  renderDatasets();
   await loadCards();
 });

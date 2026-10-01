@@ -44,13 +44,13 @@ test('reports every row problem at once and returns no observations', () => {
 test('rejects unknown, computed, duplicate and missing columns', () => {
   const result = validateDatasetCsv('town,foo,poverty_rate,pop,POP\nHamden,1,2,3,4\n', known);
   assert.deepEqual(result.problems, [
-    'Column "foo" is not a defined indicator. Add it on the Admin page before uploading.',
+    'Column "foo" is not a defined indicator. Define it in the upload form before uploading.',
     'Column "poverty_rate" is computed by the system and must not be uploaded',
     'Column "POP" appears more than once',
   ]);
   assert.deepEqual(validateDatasetCsv('name,pop\nHamden,1\n', known).problems, [
     'Missing required column "town"',
-    'Column "name" is not a defined indicator. Add it on the Admin page before uploading.',
+    'Column "name" is not a defined indicator. Define it in the upload form before uploading.',
   ]);
   assert.deepEqual(validateDatasetCsv('', known).problems, ['The file is empty']);
   assert.deepEqual(validateDatasetCsv('town,pop\n', known).problems, ['The file has no data rows']);

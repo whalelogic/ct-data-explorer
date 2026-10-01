@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Card builder · CT Civic Data Explorer</title>
+  <title>Report builder · CT Civic Data Explorer</title>
   <link rel="stylesheet" href="/css/app.css">
   <script defer src="/vendor/chart.js/chart.umd.min.js"></script>
   <script type="module" src="/js/builder.js"></script>
@@ -12,7 +12,7 @@
   <a class="skip-link" href="#main">Skip to content</a>
   <header class="site"><a class="brand" href="/">CT Civic Data Explorer</a></header>
   <main id="main" class="container">
-    <h1 id="builder-heading">New card</h1>
+    <h1 id="builder-heading">Make report</h1>
     <p id="page-status" class="status" role="alert" hidden></p>
 
     <div class="builder-grid">
@@ -38,6 +38,12 @@
           <ul id="indicator-list" class="indicator-list"></ul>
         </fieldset>
 
+        <fieldset id="record-filter-panel" hidden>
+          <legend>Source row filters</legend>
+          <p class="muted small">Choose categories to focus the report. Each matching row stays separate; repeated town totals are not added together.</p>
+          <div id="record-filters"></div>
+        </fieldset>
+
         <fieldset>
           <legend>Title</legend>
           <label class="check"><input type="checkbox" id="show-title"> Show the title and subtitle</label>
@@ -48,8 +54,8 @@
         </fieldset>
 
         <fieldset>
-          <legend>Layout</legend>
-          <p class="muted small">Blocks appear on the card in this order. Add as many text, chart and table blocks as you need. The source footer is always included.</p>
+          <legend>Data card layout</legend>
+          <p class="muted small">The data card is part of your report. Arrange its text, charts and tables below. The source footer is always included in the report.</p>
           <details class="markup-help">
             <summary>Formatting text blocks</summary>
             <ul class="small">
@@ -84,10 +90,10 @@
 
         <fieldset data-no-preview>
           <legend>Save and export</legend>
-          <label for="card-name">Card name</label>
-          <input id="card-name" maxlength="200" placeholder="Name used in the saved card library">
+          <label for="card-name">Report name</label>
+          <input id="card-name" maxlength="200" placeholder="Name used in the saved report library">
           <div class="button-row">
-            <button type="button" id="save">Save card</button>
+            <button type="button" id="save">Save report</button>
             <button type="button" id="pdf">Generate PDF</button>
           </div>
         </fieldset>
@@ -95,7 +101,7 @@
       </form>
 
       <section class="preview-pane" aria-labelledby="preview-heading">
-        <h2 id="preview-heading" class="sr-only">Card preview</h2>
+        <h2 id="preview-heading" class="sr-only">Report preview</h2>
         <p id="preview-status" class="status" role="status" aria-live="polite" hidden></p>
         <div id="preview"></div>
       </section>

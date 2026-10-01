@@ -14,23 +14,25 @@
     <h1>Dashboard</h1>
     <p id="page-status" class="status" role="alert" hidden></p>
 
-    <section class="panel" aria-labelledby="town-search-heading">
-      <h2 id="town-search-heading">Find a town</h2>
-      <form id="town-search" class="inline-form" novalidate>
-        <label for="town-input" class="sr-only">Town name</label>
-        <input id="town-input" list="town-options" placeholder="Start typing a town name" autocomplete="off">
-        <datalist id="town-options"></datalist>
-        <button type="submit">View town</button>
-        <a class="button secondary" href="/builder.html">Start a new card</a>
+    <section class="panel" aria-labelledby="search-heading">
+      <h2 id="search-heading">Find a dataset or report</h2>
+      <form id="dashboard-search" class="inline-form" role="search">
+        <label for="search-input" class="sr-only">Dataset or report name</label>
+        <input type="search" id="search-input" maxlength="100" placeholder="Search by dataset or report name" autocomplete="off">
+        <button type="submit">Search</button>
+        <a class="button secondary" href="/builder.html">Make report</a>
       </form>
-      <p id="town-status" class="status" role="alert" hidden></p>
-      <p id="dataset-badge" class="muted small"></p>
+    </section>
+
+    <section class="panel" aria-labelledby="datasets-heading">
+      <h2 id="datasets-heading">Available datasets</h2>
+      <p id="datasets-status" class="status" role="status" hidden></p>
+      <ul id="datasets-grid" class="card-grid" role="list"></ul>
     </section>
 
     <section class="panel" aria-labelledby="cards-heading">
       <div class="panel-head">
-        <h2 id="cards-heading">Saved cards</h2>
-        <input type="search" id="card-search" placeholder="Search by title or town" aria-label="Search saved cards">
+        <h2 id="cards-heading">Saved reports</h2>
       </div>
       <p id="cards-status" class="status" role="status" hidden></p>
       <ul id="cards-grid" class="card-grid" role="list"></ul>

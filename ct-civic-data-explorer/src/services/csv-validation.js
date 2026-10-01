@@ -27,6 +27,11 @@ export function validateDatasetCsv(input, { towns, indicators }) {
   } catch (err) {
     return result([`The file could not be read as CSV: ${err.message}`]);
   }
+  return validateDatasetRecords(records, { towns, indicators });
+}
+
+/** Both file formats use the same validation, with original row numbers retained. */
+export function validateDatasetRecords(records, { towns, indicators }) {
   if (records.length === 0) return result(['The file is empty']);
 
   const problems = [];
@@ -46,7 +51,7 @@ export function validateDatasetCsv(input, { towns, indicators }) {
     seen.add(key);
     const indicator = indicatorByKey.get(key);
     if (!indicator) {
-      problems.push(`Column "${name}" is not a defined indicator. Add it on the Admin page before uploading.`);
+      problems.push(`Column "${name}" is not a defined indicator. Define it in the upload form before uploading.`);
     } else if (indicator.derivation !== 'direct') {
       problems.push(`Column "${name}" is computed by the system and must not be uploaded`);
     } else {

@@ -58,6 +58,7 @@ function drawBody(doc, card) {
     if (block.type === 'text') drawText(doc, block.nodes);
     else if (block.type === 'chart') drawChart(doc, block.chart);
     else if (block.type === 'table') drawTable(doc, card.places, block.indicators);
+    else if (block.type === 'records') drawRecordTables(doc, block);
     doc.x = MARGIN;
     doc.moveDown(1);
   });
@@ -249,6 +250,59 @@ function drawTable(doc, places, rows) {
   for (const row of rows) {
     if (ensureSpace(doc, 28)) drawRow(header, { bold: true, fill: TABLE_HEADER_FILL });
     drawRow([row.displayLabel, ...row.cells.map((cell) => cell.display)]);
+  }
+}
+
+/** Wide source data is split into readable tables, repeating Town in each part. */
+function drawRecordTables(doc, block) {
+  const repeated = block.repeatColumns ?? [0];
+  const otherColumns = block.columns.map((_, i) => i).filter((i) => !repeated.includes(i));
+  const perPart = 4 - repeated.length;
+  for (let start = 0; start < otherColumns.length; start += perPart) {
+    const indices = [...repeated, ...otherColumns.slice(start, start + perPart)];
+    const cellWidth = contentWidth(doc) / indices.length;
+    const header = indices.map((i) => block.columns[i].label);
+    const measure = (text) => doc.heightOfString(text || ' ', { width: cellWidth - 10 });
+    const draw = (values, bold = false) => {
+      doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(9);
+      const height = Math.max(...values.map(measure)) + 10;
+      const top = doc.y;
+      if (bold) doc.rect(MARGIN, top, contentWidth(doc), height).fill(TABLE_HEADER_FILL);
+      values.forEach((value, i) => doc.fillColor(INK).text(value, MARGIN + i * cellWidth + 5, top + 5, { width: cellWidth - 10 }));
+      doc.moveTo(MARGIN, top + height).lineTo(MARGIN + contentWidth(doc), top + height).strokeColor(RULE).stroke();
+      doc.x = MARGIN;
+      doc.y = top + height;
+    };
+    doc.font('Helvetica-Bold').fontSize(9);
+    const headerHeight = Math.max(...header.map(measure)) + 10;
+    ensureSpace(doc, headerHeight + 35);
+    draw(header, true);
+    for (const record of block.records) {
+      let remaining = indices.map((i) => record.values[i]);
+      while (remaining.some((value) => value.length)) {
+        doc.font('Helvetica').fontSize(9);
+        let available = doc.page.height - doc.page.margins.bottom - doc.y - 10;
+        if (available < 25) { doc.addPage(); draw(header, true); doc.font('Helvetica').fontSize(9); available = doc.page.height - doc.page.margins.bottom - doc.y - 10; }
+        const fullHeight = Math.max(...remaining.map(measure));
+        const pageCapacity = doc.page.height - doc.page.margins.top - doc.page.margins.bottom - headerHeight - 10;
+        if (fullHeight > available && fullHeight <= pageCapacity) {
+          doc.addPage(); draw(header, true); continue;
+        }
+        const parts = remaining.map((text) => {
+          if (measure(text) <= available) return text;
+          let low = 0, high = text.length;
+          while (low < high) {
+            const middle = Math.ceil((low + high) / 2);
+            if (measure(text.slice(0, middle)) <= available) low = middle;
+            else high = middle - 1;
+          }
+          return text.slice(0, Math.max(1, low));
+        });
+        draw(parts);
+        remaining = remaining.map((text, i) => text.slice(parts[i].length));
+      }
+    }
+    doc.moveDown(1);
   }
 }
 

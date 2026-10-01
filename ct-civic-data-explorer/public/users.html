@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Users · CT Civic Data Explorer</title>
+  <link rel="stylesheet" href="/css/app.css">
+  <script type="module" src="/js/users.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site"><a class="brand" href="/">CT Civic Data Explorer</a></header>
+  <main id="main" class="container">
+    <h1>Users</h1>
+    <p><a href="/admin.html">← Back to datasets</a></p>
+    <p id="page-status" class="status" role="alert" hidden></p>
+
+    <section class="panel" aria-labelledby="users-heading">
+      <h2 id="users-heading">Users</h2>
+      <form id="invite-form" class="grid-form" novalidate>
+        <div><label for="user-first">First name</label><input id="user-first" name="firstName" required autocomplete="off"></div>
+        <div><label for="user-last">Last name</label><input id="user-last" name="lastName" required autocomplete="off"></div>
+        <div><label for="user-email">Email</label><input id="user-email" name="email" type="email" required autocomplete="off"></div>
+        <div>
+          <label for="user-role">Role</label>
+          <select id="user-role" name="role"><option value="staff">Staff</option><option value="admin">Admin</option></select>
+        </div>
+        <div class="button-row"><button type="submit">Invite user</button></div>
+      </form>
+      <p class="muted small">No email is sent. Copy the one-time link and send it to the person yourself.</p>
+      <p id="users-status" class="status" role="status" hidden></p>
+      <div id="user-link" class="status" hidden></div>
+      <div class="table-wrap">
+        <table class="data">
+          <thead>
+            <tr><th scope="col">Name</th><th scope="col">Email</th><th scope="col">Role</th><th scope="col">Status</th><th scope="col"><span class="sr-only">Actions</span></th></tr>
+          </thead>
+          <tbody id="users-body"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
