@@ -4,7 +4,7 @@ An internal web app for CTData Collaborative staff. Staff upload town-level data
 
 ## Quick start
 
-Requires Node.js 22+ and Docker.
+Requires Node.js 22+ and Docker, which runs MySQL 8.4. The app connects with the `mysql2` driver that `npm install` adds. To use a MySQL server you already have instead, see "Using your own MySQL" in the [root README](../README.md).
 
 ```sh
 cp .env.example .env               # set DB_PASSWORD and SESSION_SECRET (openssl rand -hex 32)
@@ -75,7 +75,8 @@ To run the app and database together in containers, use `docker compose up --bui
 | --- | --- | --- |
 | `PORT` | `3000` | |
 | `APP_BASE_URL` | `http://localhost:$PORT` | Used to build invite and reset links |
-| `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` | | `DB_PORT` is also the host port docker compose publishes |
+| `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` | `localhost`, `3306` | MySQL connection. `.env.example` uses port `3307`, which is also the host port docker compose publishes |
+| `DB_POOL_MAX` | `10` | Maximum MySQL connections in the pool |
 | `SESSION_SECRET` | random per start (dev only) | Required when `NODE_ENV=production` |
 | `COOKIE_SECURE` | `true` in production | Set `false` only for plain-HTTP local development |
 | `TRUST_PROXY` | `false` | Set `true` behind Nginx |
