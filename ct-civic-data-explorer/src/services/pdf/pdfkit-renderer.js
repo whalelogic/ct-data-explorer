@@ -1,7 +1,7 @@
 /**
- * pdfkit renderer: draws card data (title, then text, chart and table blocks in order, and the source footer) with
+ * pdfkit renderer: draws report data (title, then text, chart and table blocks in order, and the source footer) with
  * vector primitives. No headless browser and no network access. Output depends only
- * on the card data, so the same card and dataset version produce the same file.
+ * on the report data, so the same report and dataset version produce the same file.
  */
 import PDFDocument from 'pdfkit';
 import { formatAxisValue, unitLabel } from '../../shared/format.js';
@@ -15,15 +15,15 @@ const BODY_SIZE = 10.5;
 const HEADING_SIZES = { 1: 15, 2: 13, 3: 11.5 };
 
 /** @returns {Promise<Buffer>} */
-export function renderWithPdfkit(card) {
+export function renderWithPdfkit(report) {
   return new Promise((resolve, reject) => {
-    const date = new Date(`${card.generatedOn}T12:00:00Z`);
+    const date = new Date(`${report.generatedOn}T12:00:00Z`);
     const doc = new PDFDocument({
       size: 'LETTER',
       margins: { top: MARGIN, left: MARGIN, right: MARGIN, bottom: MARGIN + FOOTER_HEIGHT },
       bufferPages: true,
       info: {
-        Title: card.title,
+        Title: report.title,
         Author: 'CTData Collaborative',
         Creator: 'CT Civic Data Explorer',
         CreationDate: date,
@@ -36,8 +36,8 @@ export function renderWithPdfkit(card) {
     doc.on('error', reject);
 
     try {
-      drawBody(doc, card);
-      drawFooters(doc, card);
+      drawBody(doc, report);
+      drawFooters(doc, report);
       doc.end();
     } catch (err) {
       reject(err);
@@ -45,19 +45,19 @@ export function renderWithPdfkit(card) {
   });
 }
 
-function drawBody(doc, card) {
+function drawBody(doc, report) {
   const width = contentWidth(doc);
-  if (card.showTitle) {
-    doc.font('Helvetica-Bold').fontSize(20).fillColor(INK).text(card.title, MARGIN, doc.y, { width });
-    if (card.subtitle) doc.moveDown(0.2).font('Helvetica').fontSize(12).fillColor(MUTED).text(card.subtitle, { width });
+  if (report.showTitle) {
+    doc.font('Helvetica-Bold').fontSize(20).fillColor(INK).text(report.title, MARGIN, doc.y, { width });
+    if (report.subtitle) doc.moveDown(0.2).font('Helvetica').fontSize(12).fillColor(MUTED).text(report.subtitle, { width });
     doc.moveDown(1);
   }
-  card.blocks.forEach((block, i) => {
-    const next = card.blocks[i + 1];
+  report.blocks.forEach((block, i) => {
+    const next = report.blocks[i + 1];
     if (block.type === 'text' && next?.type === 'chart') keepWithChart(doc, block.nodes);
     if (block.type === 'text') drawText(doc, block.nodes);
     else if (block.type === 'chart') drawChart(doc, block.chart);
-    else if (block.type === 'table') drawTable(doc, card.places, block.indicators);
+    else if (block.type === 'table') drawTable(doc, report.places, block.indicators);
     else if (block.type === 'records') drawRecordTables(doc, block);
     doc.x = MARGIN;
     doc.moveDown(1);
@@ -307,7 +307,7 @@ function drawRecordTables(doc, block) {
 }
 
 /** Source attribution and page number on every page. */
-function drawFooters(doc, card) {
+function drawFooters(doc, report) {
   const range = doc.bufferedPageRange();
   for (let i = range.start; i < range.start + range.count; i++) {
     doc.switchToPage(i);
@@ -317,7 +317,7 @@ function drawFooters(doc, card) {
     const width = contentWidth(doc);
     doc.moveTo(MARGIN, y - 6).lineTo(MARGIN + width, y - 6).lineWidth(0.5).strokeColor(RULE).stroke();
     doc.font('Helvetica').fontSize(8).fillColor(MUTED);
-    doc.text(card.sourceLine, MARGIN, y, { width: width - 70 });
+    doc.text(report.sourceLine, MARGIN, y, { width: width - 70 });
     doc.text(`Page ${i + 1} of ${range.count}`, MARGIN + width - 60, y, { width: 60, align: 'right' });
     doc.page.margins.bottom = bottomMargin;
   }

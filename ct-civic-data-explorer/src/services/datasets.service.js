@@ -100,7 +100,7 @@ export async function getReportOptions(id, user) {
     })).filter((filter) => filter.values.length <= 250) : [] };
 }
 
-/** Versions are deactivated rather than deleted, so saved cards keep working. */
+/** Versions are deactivated rather than deleted, so saved reports keep working. */
 export async function setDatasetActive(id, isActive) {
   return withTransaction(async (client) => {
     if (!(await datasets.setActive(id, isActive, client))) throw new HttpError(404, 'Dataset not found');

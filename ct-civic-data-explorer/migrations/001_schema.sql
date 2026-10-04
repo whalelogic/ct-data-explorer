@@ -115,7 +115,7 @@ CREATE TABLE observations (
   CONSTRAINT observations_town_fk FOREIGN KEY (town_id) REFERENCES towns (id)
 ) DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_as_cs;
 
-CREATE TABLE cards (
+CREATE TABLE reports (
   id         INT AUTO_INCREMENT PRIMARY KEY,
   title      VARCHAR(200) NOT NULL,
   selection  JSON         NOT NULL,              -- towns, benchmark, indicators, title, layout (SRS §5.4)
@@ -123,7 +123,7 @@ CREATE TABLE cards (
   dataset_id INT          NOT NULL,              -- the version active when last saved
   created_at DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   updated_at DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-  KEY cards_updated_at_idx (updated_at DESC),
-  CONSTRAINT cards_created_by_fk FOREIGN KEY (created_by) REFERENCES users (id),
-  CONSTRAINT cards_dataset_fk FOREIGN KEY (dataset_id) REFERENCES datasets (id)
+  KEY reports_updated_at_idx (updated_at DESC),
+  CONSTRAINT reports_created_by_fk FOREIGN KEY (created_by) REFERENCES users (id),
+  CONSTRAINT reports_dataset_fk FOREIGN KEY (dataset_id) REFERENCES datasets (id)
 ) DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_as_cs;

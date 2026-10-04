@@ -1,6 +1,6 @@
 # CT Civic Data Explorer
 
-An internal web app for CTData Collaborative staff. Staff upload town-level datasets, build a data card for one or more Connecticut towns, and export it as a PDF. Every card carries its dataset name, vintage and source. The specification is `SRS.docx` at the repository root.
+An internal web app for CTData Collaborative staff. Staff upload town-level datasets, build a data report for one or more Connecticut towns, and export it as a PDF. Every report carries its dataset name, source, and uploader. The specification is `SRS.docx` at the repository root.
 
 ## Quick start
 
@@ -51,7 +51,7 @@ Reports over source rows offer category filters and select columns from that dat
 `src/app.js` puts middleware in this order: helmet, request log, static files, JSON body parsing, session, then `/api/auth`, then `requireAuth` and CSRF for the rest of `/api`. Role checks (`requireRole`) and ownership checks are applied per route. One central error handler returns safe messages; `HttpError` messages are shown to users.
 
 **MySQL.** The app targets MySQL 8.4 (8.0.19 or later works). A few things differ from what you might assume:
-- Every table uses the `utf8mb4_0900_as_cs` collation, so comparisons and unique keys are case-sensitive. Case-insensitive matching is written out explicitly: `LOWER()` for town names, emails and sources, and a `_ci` collation for card search.
+- Every table uses the `utf8mb4_0900_as_cs` collation, so comparisons and unique keys are case-sensitive. Case-insensitive matching is written out explicitly: `LOWER()` for town names, emails and sources, and a `_ci` collation for report search.
 - Each connection is set to UTC and READ COMMITTED isolation (`src/db/pool.js`). `DATETIME` values are always UTC.
 - "One active version per name and vintage" and "source names unique ignoring case" are functional unique indexes, since MySQL has no partial indexes.
 - MySQL commits `CREATE`/`ALTER` statements immediately, so a migration that fails partway can leave some of its schema changes behind. Keep each migration file to one logical step, and check for partial changes before re-running a failed one.
@@ -59,15 +59,15 @@ Reports over source rows offer category filters and select columns from that dat
 
 **Long-format data.** Tables are `sources` (the agency or survey a dataset comes from, unique ignoring case), `datasets` (one row per uploaded version, referencing its source), `towns` (169 towns plus one `state` row), `indicators` and `observations` (one value per dataset × indicator × town). A new dataset or indicator is an insert, never a schema change. Uploads are validated in full before anything is written (`csv-validation.js`), and every problem is reported at once. Each upload becomes a new version. Versions are activated or deactivated, never edited or deleted, and only one version per name and vintage can be active.
 
-**Derived values are computed on the server.** Ratio indicators, such as poverty rate = `povnumerator / povdenominator`, are computed in `services/compute.js` when a card is built. They are never stored or computed in the browser. `src/shared/format.js` holds the number formatting rules. The browser (preview) and pdfkit (PDF) import the same file, so a figure looks identical on screen and on paper.
+**Derived values are computed on the server.** Ratio indicators, such as poverty rate = `povnumerator / povdenominator`, are computed in `services/compute.js` when a report is built. They are never stored or computed in the browser. `src/shared/format.js` holds the number formatting rules. The browser (preview) and pdfkit (PDF) import the same file, so a figure looks identical on screen and on paper.
 
-**One selection object.** The card builder produces a *selection*: dataset, towns, benchmark, indicators, title, subtitle and a *layout*. The layout is an ordered list of text, chart and table blocks, and a card can hold any number of each (up to 30 blocks). `services/selection.js` validates it and `cards.selection` stores it. `buildCard()` resolves it into card data, and that one object is returned as JSON for the live preview and passed to the PDF renderer. Saved cards store only the selection, so reopening a card re-renders it against the currently active dataset version.
+**One selection object.** The report builder produces a *selection*: dataset, towns, benchmark, indicators, title, subtitle and a *layout*. The layout is an ordered list of text, chart and table blocks, and a report can hold any number of each (up to 30 blocks). `services/selection.js` validates it and `reports.selection` stores it. `buildReport()` resolves it into report data, and that one object is returned as JSON for the live preview and passed to the PDF renderer. Saved reports store only the selection, so reopening a report re-renders it against the currently active dataset version.
 
-**Text blocks.** Text uses a small Markdown subset: `#`/`##`/`###` headings, paragraphs, `-` and `1.` lists, `**bold**`, `*italic*` and `[links](https://…)` (http, https and mailto only). `services/markup.js` parses it on the server into a node tree, which the preview renders with text-only DOM calls and the PDF draws with pdfkit, so user text never becomes HTML. Anything else (nested lists, images, raw HTML) shows as plain text. Cards saved before layouts existed are converted when read: their chart, table and notes become blocks in that order.
+**Text blocks.** Text uses a small Markdown subset: `#`/`##`/`###` headings, paragraphs, `-` and `1.` lists, `**bold**`, `*italic*` and `[links](https://…)` (http, https and mailto only). `services/markup.js` parses it on the server into a node tree, which the preview renders with text-only DOM calls and the PDF draws with pdfkit, so user text never becomes HTML. Anything else (nested lists, images, raw HTML) shows as plain text. Reports saved before layouts existed are converted when read: their chart, table and notes become blocks in that order.
 
-**PDF.** `services/pdf/index.js` is the boundary. The current renderer draws with pdfkit vector primitives, needs no headless browser, and gives the same bytes for the same card data. Swap the renderer there if faithful HTML-to-PDF output is ever needed (SRS OQ-4).
+**PDF.** `services/pdf/index.js` is the boundary. The current renderer draws with pdfkit vector primitives, needs no headless browser, and gives the same bytes for the same report data. Swap the renderer there if faithful HTML-to-PDF output is ever needed (SRS OQ-4).
 
-**AI summary (optional).** `services/ai/` drafts two to four sentences, which the user can add to the card as a text block. It is outside the render path: figures, tables and charts always come from the database. Only public aggregate figures and labels are sent. Every number in the draft is checked against the card's computed values, and mismatches are flagged before the user accepts the text. With `AI_PROVIDER=none` (the default), the button is hidden and text is written by hand. With `AI_PROVIDER=anthropic`, the server calls Claude (`claude-opus-5` by default, with server-side refusal fallback enabled) using `ANTHROPIC_API_KEY`. To add another provider, add a module exposing `draft(facts) => Promise<string>` and register it in `services/ai/index.js`.
+**AI summary (optional).** `services/ai/` drafts two to four sentences, which the user can add to the report as a text block. It is outside the render path: figures, tables and charts always come from the database. Only public aggregate figures and labels are sent. Every number in the draft is checked against the report's computed values, and mismatches are flagged before the user accepts the text. With `AI_PROVIDER=none` (the default), the button is hidden and text is written by hand. With `AI_PROVIDER=anthropic`, the server calls Claude (`claude-opus-5` by default, with server-side refusal fallback enabled) using `ANTHROPIC_API_KEY`. To add another provider, add a module exposing `draft(facts) => Promise<string>` and register it in `services/ai/index.js`.
 
 **Accounts and security.**
 - Accounts are invite-only; there is no self-registration. Passwords are hashed with bcrypt (cost 12, 12 characters to 72 bytes).
@@ -103,12 +103,12 @@ These choices go beyond, or resolve ambiguity in, SRS draft v1.0:
 
 - **No email is sent.** Admins choose **Manage users** on the upload page to copy invite and password-reset links. The SRS assumes emailed reset tokens.
 - **Dataset upload is admin-only.** This follows SRS §4.2 (CRUD), although US003 says "staff member".
-- **Duplicating cards.** Any signed-in user can duplicate any card, and the copy belongs to them. Only the creator can rename, edit or delete a card.
-- **Source footer is mandatory.** It appears on every card and PDF page and cannot be removed from the layout.
+- **Duplicating reports.** Any signed-in user can duplicate any report, and the copy belongs to them. Only the creator can rename, edit or delete a report.
+- **Source footer is mandatory.** It appears on every report and PDF page and cannot be removed from the layout.
 - **One unit per chart.** A chart plots one unit, so mixed units are refused with a message naming the indicators.
 - **New unit and schema columns.** An `area` unit was added for land area. `users.password_hash` is nullable until an invite is accepted, and lockout state lives on `users`.
 - **Top-coded values shown as-is.** Values such as Darien's $250,001 median income are displayed unchanged; automatic data-quality notes (US013) are not built yet.
 
 ## Planned
 
-- **AI-written text between charts.** The AI would write headings, paragraphs and lists from the card's own figures and place them between the user's charts and tables, as a proposal to review. Not built yet; see [docs/ai-assisted-cards.md](docs/ai-assisted-cards.md).
+- **AI-written text between charts.** The AI would write headings, paragraphs and lists from the report's own figures and place them between the user's charts and tables, as a proposal to review. Not built yet; see [docs/ai-assisted-reports.md](docs/ai-assisted-reports.md).

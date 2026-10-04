@@ -1,10 +1,10 @@
 /**
- * The card selection: the single JSON object the builder produces, cards.selection
+ * The report selection: the single JSON object the builder produces, reports.selection
  * stores, the preview renders, and the PDF generator consumes (SRS §5.4). Because
  * every consumer reads the same object, an exported PDF cannot disagree with the preview.
  *
- * The card body is `layout`, an ordered list of blocks: text (a Markdown subset, see
- * markup.js), chart and table. A card may hold any number of each.
+ * The report body is `layout`, an ordered list of blocks: text (a Markdown subset, see
+ * markup.js), chart and table. A report may hold any number of each.
  */
 import { z } from 'zod';
 
@@ -27,7 +27,7 @@ const chartBlock = z.object({
 });
 const tableBlock = z.object({
   type: z.literal('table'),
-  indicators: z.array(z.string()).max(25).default([]), // empty: every indicator on the card
+  indicators: z.array(z.string()).max(25).default([]), // empty: every indicator on the report
 });
 
 export const blockSchema = z.discriminatedUnion('type', [textBlock, chartBlock, tableBlock], {
@@ -52,14 +52,14 @@ export const selectionSchema = z.preprocess(
         .min(1, 'Choose a town')
         .max(1 + MAX_COMPARISON_TOWNS, `Choose at most ${MAX_COMPARISON_TOWNS} comparison towns`),
       benchmark: z.boolean().default(true),
-      indicators: z.array(requiredText('Indicator', 100)).min(1, 'Select at least one indicator for the card').max(25),
+      indicators: z.array(requiredText('Indicator', 100)).min(1, 'Select at least one indicator for the report').max(25),
       showTitle: z.boolean().default(true),
       title: z.string().trim().max(200).default(''),
       subtitle: z.string().trim().max(300).default(''),
       recordFilters: z.record(z.string().regex(/^c\d+$/), z.string().max(4000)).default({}),
       layout: z
         .array(blockSchema)
-        .max(MAX_LAYOUT_BLOCKS, `A card can hold at most ${MAX_LAYOUT_BLOCKS} blocks`)
+        .max(MAX_LAYOUT_BLOCKS, `A report can hold at most ${MAX_LAYOUT_BLOCKS} blocks`)
         .default(() => DEFAULT_LAYOUT.map((block) => ({ ...block, indicators: [] }))),
     })
     .superRefine((s, ctx) => {
@@ -76,19 +76,19 @@ export const selectionSchema = z.preprocess(
         const unselected = block.indicators.find((key) => !s.indicators.includes(key));
         if (unselected) {
           const what = block.type === 'chart' ? 'Chart' : 'Table';
-          ctx.addIssue({ code: 'custom', path: ['layout', i, 'indicators'], message: `${what} indicator "${unselected}" is not on the card` });
+          ctx.addIssue({ code: 'custom', path: ['layout', i, 'indicators'], message: `${what} indicator "${unselected}" is not on the report` });
         }
       });
 
       if (!s.layout.some((block) => block.type !== 'text')) {
-        ctx.addIssue({ code: 'custom', path: ['layout'], message: 'Include a chart or a table so the card shows its figures' });
+        ctx.addIssue({ code: 'custom', path: ['layout'], message: 'Include a chart or a table so the report shows its figures' });
       }
     }),
 );
 
 /**
  * Convert the pre-layout selection shape ({ blocks: ['title', 'chart', 'table',
- * 'notes', 'source'], chart: { type, indicators }, notes }) so saved cards and the
+ * 'notes', 'source'], chart: { type, indicators }, notes }) so saved reports and the
  * SRS example keep working. Selections that already have a layout pass through.
  */
 export function upgradeLegacySelection(input) {

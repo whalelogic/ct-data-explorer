@@ -56,7 +56,7 @@ export function presentIndicator(i) {
   };
 }
 
-export function presentCard(c) {
+export function presentReport(c) {
   return {
     id: c.id,
     title: c.title,
@@ -69,7 +69,7 @@ export function presentCard(c) {
   };
 }
 
-/** Saved cards may predate the layout; the builder always receives the current shape. */
+/** Saved reports may predate the layout; the builder always receives the current shape. */
 function currentSelection(stored) {
   const parsed = selectionSchema.safeParse(stored);
   return parsed.success ? parsed.data : upgradeLegacySelection(stored);

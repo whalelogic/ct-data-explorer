@@ -9,7 +9,7 @@ const { createApp } = await import('../src/app.js');
 const app = createApp({ sessionStore: new session.MemoryStore() });
 
 test('API routes require a session', async () => {
-  for (const path of ['/api/cards', '/api/towns', '/api/users', '/api/not-a-route']) {
+  for (const path of ['/api/reports', '/api/towns', '/api/users', '/api/not-a-route']) {
     const res = await request(app).get(path).expect(401);
     assert.equal(res.body.error, 'Please sign in');
   }

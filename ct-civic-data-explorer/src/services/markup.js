@@ -1,5 +1,5 @@
 /**
- * A small Markdown subset for card text blocks, parsed on the server into a plain
+ * A small Markdown subset for report text blocks, parsed on the server into a plain
  * node tree. The preview renders the tree with text-only DOM calls and the PDF
  * renderer draws it with pdfkit, so user text never becomes HTML anywhere.
  *

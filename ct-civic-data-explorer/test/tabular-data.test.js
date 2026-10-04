@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { prepareTabularDataset, formatDatasetCell } from '../src/services/tabular-data.js';
 import { renderRecordReport } from '../src/services/record-reports.js';
 import { selectionSchema } from '../src/services/selection.js';
-import { renderCardPdf } from '../src/services/pdf/index.js';
+import { renderReportPdf } from '../src/services/pdf/index.js';
 
 const known = { towns: [{ id: 1, name: 'Andover' }, { id: 2, name: 'Bridgewater' }],
   indicators: [{ id: 1, key: 'pop', label: 'Population', unit: 'count', decimals: 0, derivation: 'direct' }] };
@@ -95,7 +95,7 @@ test('record reports filter categories without summing and render tables to PDF'
   assert.equal(report.blocks[1].records.length, 2);
   const filtered = renderRecordReport({ ...selection, recordFilters: { c1: 'Government' } }, dataset, rows);
   assert.equal(filtered.blocks[1].records.length, 1);
-  assert.match((await renderCardPdf(report)).toString('ascii', 0, 8), /^%PDF-/);
+  assert.match((await renderReportPdf(report)).toString('ascii', 0, 8), /^%PDF-/);
   assert.throws(() => renderRecordReport({ ...selection, recordFilters: { c99: 'Anything' } }, dataset, rows), /Unknown category/);
 });
 
@@ -106,5 +106,5 @@ test('text-only reports include the original note and no fabricated chart', asyn
   const report = renderRecordReport(selection, dataset, rows);
   assert.ok(!report.blocks.some((block) => block.type === 'chart'));
   assert.deepEqual(report.blocks[0].records[0].values, ['Bridgewater', 'N/A', 'Blank by request']);
-  assert.ok((await renderCardPdf(report)).length > 1000);
+  assert.ok((await renderReportPdf(report)).length > 1000);
 });
