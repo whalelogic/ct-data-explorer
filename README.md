@@ -1,6 +1,6 @@
 # CT Data Explorer
 
-#### A capstone project for the SCSU Computer Science program: an internal web app for CTData Collaborative staff to upload Connecticut town-level datasets, build data cards (text, charts and tables for chosen towns), and export them as PDFs.
+#### A capstone project for the SCSU Computer Science program: an internal web app for CTData Collaborative staff to upload datasets, build reports (text, charts and tables for chosen towns), and publish them as interactive web pages.
 
 #### __Contributors:__
 
@@ -88,7 +88,7 @@ CI runs the same checks, plus `npm audit`, on every pull request.
 
 ### Good to know
 
-- **Your database is yours alone.** Accounts, uploads and saved cards live only on your machine, so each person creates their own admin.
+- **Your database is yours alone.** Accounts, uploads and saved reports live only on your machine, so each person creates their own admin.
 - **Port 3307 already in use?** Change `DB_PORT` in `.env`.
 - **To start the database over:** `docker compose down -v` deletes all local data. Then run `migrate`, `create-admin` and `seed` again.
 - **Schema changes go in a new file** `migrations/NNN_description.sql`. Never edit a migration that has already been pushed.

@@ -1,5 +1,5 @@
 /**
- * Renders card data from the API (the same object the PDF renderer consumes) as
+ * Renders report data from the API (the same object the PDF renderer consumes) as
  * HTML with a Chart.js chart. Chart.js is loaded as a global from /vendor/chart.js.
  */
 import { formatAxisValue, formatValue, unitLabel } from '/shared/format.js';
@@ -7,30 +7,30 @@ import { BENCHMARK_COLOR, SERIES_COLORS } from '/shared/theme.js';
 import { h } from './dom.js';
 
 const charts = new WeakMap(); // container -> Chart.js instances to destroy on re-render
-const HEADING_TAGS = { 1: 'h3', 2: 'h4', 3: 'h5' }; // the card title is the h2
+const HEADING_TAGS = { 1: 'h3', 2: 'h4', 3: 'h5' }; // the report title is the h2
 
-export function renderCard(container, card) {
-  clearCard(container);
+export function renderReport(container, report) {
+  clearReport(container);
   const pending = []; // [canvas, chart data] pairs, drawn once attached to the page
-  const rowByKey = new Map(card.indicators.map((row) => [row.key, row]));
+  const rowByKey = new Map(report.indicators.map((row) => [row.key, row]));
 
-  const body = card.blocks.map((block) => {
+  const body = report.blocks.map((block) => {
     switch (block.type) {
       case 'text':
-        return h('section', { class: 'card-text' }, ...block.nodes.map(renderNode));
+        return h('section', { class: 'report-text' }, ...block.nodes.map(renderNode));
       case 'chart': {
         const canvas = h('canvas', { role: 'img', 'aria-label': describeChart(block.chart) });
         pending.push([canvas, block.chart]);
         return h(
           'figure',
-          { class: 'card-chart' },
+          { class: 'report-chart' },
           h('div', { class: 'chart-box' }, canvas),
           // A chart alone is not accessible, so each one carries its values as a table.
-          h('details', { class: 'chart-data' }, h('summary', {}, 'Show the chart data as a table'), renderTable(card.places, block.chart.series.map((series) => rowByKey.get(series.key)))),
+          h('details', { class: 'chart-data' }, h('summary', {}, 'Show the chart data as a table'), renderTable(report.places, block.chart.series.map((series) => rowByKey.get(series.key)))),
         );
       }
       case 'table':
-        return renderTable(card.places, block.indicators);
+        return renderTable(report.places, block.indicators);
       case 'records':
         return h('div', { class: 'table-wrap', tabindex: '0', role: 'region', 'aria-label': 'Source rows' },
           h('table', { class: 'data' },
@@ -45,19 +45,19 @@ export function renderCard(container, card) {
   container.append(
     h(
       'article',
-      { class: 'card' },
-      card.showTitle
-        ? h('header', {}, h('h2', { class: 'card-title' }, card.title), card.subtitle ? h('p', { class: 'card-subtitle' }, card.subtitle) : null)
+      { class: 'report' },
+      report.showTitle
+        ? h('header', {}, h('h2', { class: 'report-title' }, report.title), report.subtitle ? h('p', { class: 'report-subtitle' }, report.subtitle) : null)
         : null,
       ...body,
-      h('footer', { class: 'card-source' }, card.sourceLine),
+      h('footer', { class: 'report-source' }, report.sourceLine),
     ),
   );
 
   charts.set(container, pending.map(([canvas, chart]) => drawChart(canvas, chart)).filter(Boolean));
 }
 
-export function clearCard(container) {
+export function clearReport(container) {
   for (const chart of charts.get(container) ?? []) chart.destroy();
   charts.delete(container);
   container.replaceChildren();

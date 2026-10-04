@@ -24,7 +24,7 @@ const uploadFields = z.object({
 
 export const datasetsRouter = Router();
 
-/** Staff see active versions (what cards can use); admins see every version. */
+/** Staff see active versions (what reports can use); admins see every version. */
 datasetsRouter.get('/', async (req, res) => {
   const rows = await listDatasets({ activeOnly: req.user.role !== 'admin' });
   res.json(rows.map(presentDataset));

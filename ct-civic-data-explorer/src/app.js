@@ -18,7 +18,7 @@ import { csrfProtection } from './middleware/csrf.js';
 import { apiNotFound, errorHandler } from './middleware/errors.js';
 import { requestLog } from './middleware/request-log.js';
 import { authRouter } from './routes/auth.routes.js';
-import { cardsRouter } from './routes/cards.routes.js';
+import { reportsRouter } from './routes/reports.routes.js';
 import { datasetsRouter } from './routes/datasets.routes.js';
 import { indicatorsRouter } from './routes/indicators.routes.js';
 import { townsRouter } from './routes/towns.routes.js';
@@ -75,7 +75,7 @@ export function createApp({ sessionStore, logRequests = config.env !== 'test' } 
   app.use('/api/towns', townsRouter);
   app.use('/api/indicators', indicatorsRouter);
   app.use('/api/datasets', datasetsRouter);
-  app.use('/api/cards', cardsRouter);
+  app.use('/api/reports', reportsRouter);
   app.use('/api/users', usersRouter);
   app.use('/api', apiNotFound);
 

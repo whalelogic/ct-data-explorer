@@ -26,7 +26,7 @@ test('the SRS example selection (the pre-layout shape) is upgraded to a layout',
   ]);
 });
 
-test('saved cards with notes keep them as a text block after the figures', () => {
+test('saved reports with notes keep them as a text block after the figures', () => {
   const parsed = selectionSchema.parse({ ...base, blocks: ['chart', 'notes'], chart: { type: 'bar', indicators: ['pop'] }, notes: 'Hello' });
   assert.equal(parsed.showTitle, false);
   assert.deepEqual(parsed.layout, [
@@ -48,8 +48,8 @@ test('a layout can hold several charts, tables and text blocks in any order', ()
   assert.deepEqual(selectionSchema.parse({ ...base, layout }).layout, layout);
 });
 
-test('a card cannot be built with zero indicators, and the error says so', () => {
-  assert.equal(firstError({ ...base, indicators: [] }), 'Select at least one indicator for the card');
+test('a report cannot be built with zero indicators, and the error says so', () => {
+  assert.equal(firstError({ ...base, indicators: [] }), 'Select at least one indicator for the report');
 });
 
 test('one town plus at most three comparisons', () => {
@@ -58,10 +58,10 @@ test('one town plus at most three comparisons', () => {
   assert.equal(firstError({ ...base, towns: ['Hamden', 'hamden'] }), '"hamden" is selected more than once');
 });
 
-test('block indicators must be on the card, and figures need a chart or a table', () => {
-  assert.equal(firstError({ ...base, layout: [{ type: 'chart', indicators: ['households'] }] }), 'Chart indicator "households" is not on the card');
-  assert.equal(firstError({ ...base, layout: [{ type: 'table', indicators: ['households'] }] }), 'Table indicator "households" is not on the card');
-  assert.equal(firstError({ ...base, layout: [{ type: 'text', text: 'Only words' }] }), 'Include a chart or a table so the card shows its figures');
-  assert.equal(firstError({ ...base, blocks: ['title', 'notes'] }), 'Include a chart or a table so the card shows its figures');
+test('block indicators must be on the report, and figures need a chart or a table', () => {
+  assert.equal(firstError({ ...base, layout: [{ type: 'chart', indicators: ['households'] }] }), 'Chart indicator "households" is not on the report');
+  assert.equal(firstError({ ...base, layout: [{ type: 'table', indicators: ['households'] }] }), 'Table indicator "households" is not on the report');
+  assert.equal(firstError({ ...base, layout: [{ type: 'text', text: 'Only words' }] }), 'Include a chart or a table so the report shows its figures');
+  assert.equal(firstError({ ...base, blocks: ['title', 'notes'] }), 'Include a chart or a table so the report shows its figures');
   assert.match(firstError({ ...base, layout: [{ type: 'image' }] }), /Each block must be one of: text, chart, table/);
 });

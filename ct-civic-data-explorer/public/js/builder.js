@@ -1,9 +1,9 @@
 /**
- * Card builder (SRS US005–US009). The page keeps one `selection` object, the same
+ * Report builder (SRS US005–US009). The page keeps one `selection` object, the same
  * shape the API validates and stores, and sends it for the preview, PDF, summary and save.
  */
 import { api, loadSession } from './api.js';
-import { clearCard, renderCard } from './card-view.js';
+import { clearReport, renderReport } from './report-view.js';
 import { h } from './dom.js';
 import { boot, debounce, downloadBlob, renderHeader, showStatus } from './layout.js';
 
@@ -23,11 +23,11 @@ boot(async () => {
   const params = new URLSearchParams(location.search);
   const requestedDataset = activeDatasets.find((dataset) => String(dataset.id) === params.get('dataset'));
   const initialDataset = requestedDataset ?? activeDatasets[0];
-  if (params.has('dataset') && !requestedDataset && !params.has('card')) {
+  if (params.has('dataset') && !requestedDataset && !params.has('report')) {
     throw new Error('This dataset is no longer active. Choose another dataset from the dashboard.');
   }
 
-  let saved = null; // { id, ownerId, title } once the card exists
+  let saved = null; // { id, ownerId, title } once the report exists
   let selection = {
     dataset: initialDataset ? { name: initialDataset.name, vintage: initialDataset.vintage } : null,
     towns: params.get('town') ? [params.get('town')] : [],
@@ -40,10 +40,10 @@ boot(async () => {
     recordFilters: {},
   };
 
-  if (params.has('card')) {
-    const card = await api(`/cards/${encodeURIComponent(params.get('card'))}`);
-    saved = { id: card.id, ownerId: card.createdBy.id, title: card.title };
-    selection = { ...selection, ...card.selection };
+  if (params.has('report')) {
+    const report = await api(`/reports/${encodeURIComponent(params.get('report'))}`);
+    saved = { id: report.id, ownerId: report.createdBy.id, title: report.title };
+    selection = { ...selection, ...report.selection };
   }
 
   // ---- Controls ← selection ----
@@ -64,7 +64,7 @@ boot(async () => {
   $('show-title').checked = selection.showTitle;
   $('title').value = selection.title;
   $('subtitle').value = selection.subtitle;
-  $('card-name').value = saved?.title ?? '';
+  $('report-name').value = saved?.title ?? '';
   $('ai-panel').hidden = !features.aiSummary;
   updateHeading();
   await loadDatasetColumns();
@@ -218,7 +218,7 @@ boot(async () => {
       }),
     );
     if (selection.layout.length === 0) {
-      $('layout-list').replaceChildren(h('li', { class: 'muted small' }, 'Add a chart or a table so the card shows its figures.'));
+      $('layout-list').replaceChildren(h('li', { class: 'muted small' }, 'Add a chart or a table so the report shows its figures.'));
     }
     if (focusId) {
       const target = $(focusId);
@@ -339,15 +339,15 @@ boot(async () => {
           ? 'Select at least one indicator for the report.'
           : null;
     if (problem) {
-      clearCard($('preview'));
+      clearReport($('preview'));
       showStatus($('preview-status'), problem);
       return;
     }
     try {
-      const card = await api('/cards/preview', { method: 'POST', json: selection });
+      const report = await api('/reports/preview', { method: 'POST', json: selection });
       if (request !== previewRequest) return;
       showStatus($('preview-status'), '');
-      renderCard($('preview'), card);
+      renderReport($('preview'), report);
     } catch (err) {
       if (request === previewRequest) showStatus($('preview-status'), err.message, 'error');
     }
@@ -363,21 +363,21 @@ boot(async () => {
 
   $('save').addEventListener('click', async () => {
     readControls();
-    const title = $('card-name').value.trim();
+    const title = $('report-name').value.trim();
     if (!title) {
       showStatus($('builder-status'), 'Give the report a name before saving.', 'error');
-      $('card-name').focus();
+      $('report-name').focus();
       return;
     }
     try {
-      const card =
+      const report =
         saved && saved.ownerId === user.id
-          ? await api(`/cards/${saved.id}`, { method: 'PUT', json: { title, selection } })
-          : await api('/cards', { method: 'POST', json: { title, selection } });
-      saved = { id: card.id, ownerId: card.createdBy.id, title: card.title };
-      history.replaceState(null, '', `/builder.html?card=${card.id}`);
+          ? await api(`/reports/${saved.id}`, { method: 'PUT', json: { title, selection } })
+          : await api('/reports', { method: 'POST', json: { title, selection } });
+      saved = { id: report.id, ownerId: report.createdBy.id, title: report.title };
+      history.replaceState(null, '', `/builder.html?report=${report.id}`);
       updateHeading();
-      showStatus($('builder-status'), `Saved "${card.title}".`, 'ok');
+      showStatus($('builder-status'), `Saved "${report.title}".`, 'ok');
     } catch (err) {
       showStatus($('builder-status'), err.message, 'error');
     }
@@ -389,7 +389,7 @@ boot(async () => {
     button.disabled = true;
     showStatus($('builder-status'), 'Generating PDF…');
     try {
-      const { blob, filename } = await api('/cards/pdf', { method: 'POST', json: selection, expect: 'blob' });
+      const { blob, filename } = await api('/reports/pdf', { method: 'POST', json: selection, expect: 'blob' });
       downloadBlob(blob, filename);
       showStatus($('builder-status'), `Downloaded ${filename}.`, 'ok');
     } catch (err) {
@@ -399,7 +399,7 @@ boot(async () => {
     }
   });
 
-  // ---- AI-drafted summary: a proposal the user reviews; nothing reaches the card until accepted ----
+  // ---- AI-drafted summary: a proposal the user reviews; nothing reaches the report until accepted ----
 
   async function draftSummary() {
     readControls();
@@ -407,13 +407,13 @@ boot(async () => {
     buttons.forEach((b) => (b.disabled = true));
     showStatus($('builder-status'), 'Drafting a summary…');
     try {
-      const { text, mismatches } = await api('/cards/summary', { method: 'POST', json: selection });
+      const { text, mismatches } = await api('/reports/summary', { method: 'POST', json: selection });
       $('draft-text').value = text;
       $('draft-warnings').replaceChildren(...mismatches.map((m) => h('li', {}, m.message)));
       $('draft').hidden = false;
       showStatus(
         $('builder-status'),
-        mismatches.length ? 'Draft ready. Some figures could not be verified against the card; check them first.' : 'Draft ready for review.',
+        mismatches.length ? 'Draft ready. Some figures could not be verified against the report; check them first.' : 'Draft ready for review.',
         mismatches.length ? 'error' : 'ok',
       );
       $('draft-text').focus();
