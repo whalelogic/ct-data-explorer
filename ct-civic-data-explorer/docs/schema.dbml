@@ -1,0 +1,169 @@
+// CT Civic Data Explorer database schema (MySQL 8.4), as built by migrations/001-004.
+// Paste into https://dbdiagram.io to render the entity relationship diagram.
+//
+// The enums below are drawn as enums for readability; in MySQL they are VARCHAR
+// columns with CHECK constraints. Every table uses utf8mb4 with the case-sensitive
+// utf8mb4_0900_as_cs collation, and DATETIME values are UTC. schema_migrations
+// (migration bookkeeping) is omitted.
+
+Project ct_civic_data_explorer {
+  database_type: 'MySQL'
+  Note: 'Long-format data model: a new dataset or indicator is an insert, never a migration.'
+}
+
+Enum user_role {
+  admin
+  staff
+}
+
+Enum token_purpose {
+  invite
+  reset
+}
+
+Enum geo_type {
+  town
+  state
+}
+
+Enum indicator_unit {
+  count
+  currency
+  percent
+  density
+  area
+}
+
+Enum indicator_derivation {
+  direct
+  ratio
+}
+
+Table users {
+  id int [pk, increment]
+  email varchar(254) [not null, unique, note: 'stored lowercase (CHECK)']
+  password_hash varchar(255) [note: 'NULL until the invite is accepted']
+  first_name varchar(100) [not null]
+  last_name varchar(100) [not null]
+  role user_role [not null]
+  is_active boolean [not null, default: true]
+  failed_login_count int [not null, default: 0]
+  first_failed_login_at datetime(3)
+  locked_until datetime(3)
+  created_at datetime(3) [not null, default: `CURRENT_TIMESTAMP(3)`]
+}
+
+Table user_tokens {
+  id int [pk, increment]
+  user_id int [not null, ref: > users.id, note: 'ON DELETE CASCADE']
+  purpose token_purpose [not null]
+  token_hash char(64) [not null, unique, note: 'SHA-256 of the one-time token']
+  expires_at datetime(3) [not null]
+  used_at datetime(3)
+  created_at datetime(3) [not null, default: `CURRENT_TIMESTAMP(3)`]
+}
+
+Table session {
+  sid varchar(255) [pk]
+  sess json [not null]
+  expire datetime(3) [not null]
+
+  indexes {
+    expire [name: 'session_expire_idx']
+  }
+
+  Note: 'Server-side sessions (src/db/session-store.js). No foreign key; the user id lives inside sess.'
+}
+
+Table sources {
+  id int [pk, increment]
+  name varchar(300) [not null, note: 'trimmed, non-empty']
+  created_at datetime(3) [not null, default: `CURRENT_TIMESTAMP(3)`]
+
+  indexes {
+    `LOWER(name)` [unique, name: 'sources_name_lower_idx', note: 'functional index']
+  }
+}
+
+Table datasets {
+  id int [pk, increment]
+  name varchar(200) [not null, note: "e.g. 'ACS 5-Year Town Profile'"]
+  source_id int [not null, ref: > sources.id]
+  vintage varchar(50) [not null, note: "e.g. '2024'"]
+  version int [not null]
+  row_count int [not null]
+  uploaded_by int [not null, ref: > users.id]
+  uploaded_at datetime(3) [not null, default: `CURRENT_TIMESTAMP(3)`]
+  is_active boolean [not null, default: false]
+  data_format varchar(20) [not null, default: 'indicators', note: 'indicators or records']
+  column_definitions json [note: 'source headings, keys, types and display rules']
+  import_notes json [note: 'row preservation and town-label matching notes']
+
+  indexes {
+    (name, vintage, version) [unique]
+    (name, vintage, `IF(is_active, 1, NULL)`) [unique, name: 'datasets_one_active_idx', note: 'at most one active version per name and vintage']
+    source_id [name: 'datasets_source_id_idx']
+  }
+}
+
+Table towns {
+  id int [pk, increment]
+  name varchar(100) [not null]
+  geo_type geo_type [not null, note: "169 towns plus one 'state' row (Connecticut)"]
+  square_miles decimal(10,2)
+
+  indexes {
+    (name, geo_type) [unique]
+  }
+}
+
+Table dataset_records {
+  id int [pk, increment]
+  dataset_id int [not null, ref: > datasets.id]
+  town_id int [not null, ref: > towns.id]
+  source_row int [not null]
+  cell_values json [not null, note: 'typed source values; repeated towns remain separate rows']
+
+  indexes {
+    (dataset_id, source_row) [unique]
+    (dataset_id, town_id)
+  }
+}
+
+Table indicators {
+  id int [pk, increment]
+  key varchar(60) [not null, unique, note: 'lowercased CSV column name, ^[a-z0-9_]+$; KEY is reserved in MySQL, so it is quoted']
+  label varchar(120) [not null]
+  unit indicator_unit [not null]
+  decimals smallint [not null, default: 0, note: '0-4']
+  derivation indicator_derivation [not null, default: 'direct']
+  numerator_key varchar(60) [note: 'required when derivation = ratio']
+  denominator_key varchar(60) [note: 'required when derivation = ratio']
+}
+
+Table observations {
+  id int [pk, increment]
+  dataset_id int [not null, ref: > datasets.id]
+  indicator_id int [not null, ref: > indicators.id]
+  town_id int [not null, ref: > towns.id]
+  value decimal(18,4) [not null]
+
+  indexes {
+    (dataset_id, indicator_id, town_id) [unique]
+    (dataset_id, town_id) [name: 'observations_dataset_town_idx']
+  }
+}
+
+Table reports {
+  id int [pk, increment]
+  title varchar(200) [not null]
+  selection json [not null, note: 'towns, benchmark, indicators, title, layout (text, chart and table blocks)']
+  created_by int [not null, ref: > users.id]
+  dataset_id int [not null, ref: > datasets.id, note: 'version active when last saved']
+  created_at datetime(3) [not null, default: `CURRENT_TIMESTAMP(3)`]
+  updated_at datetime(3) [not null, default: `CURRENT_TIMESTAMP(3)`]
+
+  indexes {
+    updated_at [name: 'reports_updated_at_idx', note: 'DESC']
+  }
+}

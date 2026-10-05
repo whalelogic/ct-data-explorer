@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Upload dataset · CT Civic Data Explorer</title>
+  <link rel="stylesheet" href="/css/app.css">
+  <script type="module" src="/js/admin.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site"><a class="brand" href="/">CT Civic Data Explorer</a></header>
+  <main id="main" class="container">
+    <div class="panel-head"><h1>Upload dataset</h1><a href="/users.html">Manage users</a></div>
+    <p id="page-status" class="status" role="alert" hidden></p>
+    <section class="panel" aria-labelledby="datasets-heading">
+      <h2 id="datasets-heading">Datasets</h2>
+      <p class="muted">Upload a CSV or Excel workbook, then open a dataset to see its information, indicators and data.</p>
+      <form id="upload-form" novalidate>
+        <label for="ds-file">Upload a CSV or Excel file</label>
+        <input id="ds-file" name="file" type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required aria-controls="upload-details">
+        <div id="upload-details" hidden>
+          <div class="grid-form">
+            <div><label for="ds-name">Dataset name</label><input id="ds-name" name="name" maxlength="200" required></div>
+            <div><label for="ds-source">Source</label><input id="ds-source" name="source" maxlength="300" required></div>
+            <div><label for="ds-vintage">Year or period</label><input id="ds-vintage" name="vintage" maxlength="50" required></div>
+          </div>
+          <div id="worksheet-field" hidden>
+            <label for="ds-worksheet">Worksheet name (optional)</label>
+            <input id="ds-worksheet" name="worksheet" maxlength="100" placeholder="Leave blank to use the first sheet" disabled>
+            <p class="muted small">The first row contains column names. Import one sheet at a time. Formula cells use their saved values; save the workbook in Excel before uploading.</p>
+          </div>
+          <label class="check"><input type="checkbox" name="activate" checked> Make this version available for reports</label>
+          <p class="muted small">Include a Town column. Towns may appear on multiple rows; text and numeric columns are detected automatically. Uploading the same name and period creates a new version.</p>
+          <div class="button-row"><button type="submit">Upload dataset</button></div>
+        </div>
+      </form>
+      <details id="column-setup" hidden>
+        <summary>Optional indicator definitions</summary>
+        <p class="muted small">New columns do not need registration. Use a definition for known indicator keys when you need a particular unit or a computed ratio.</p>
+        <div id="upload-indicator-editor"></div>
+      </details>
+      <p id="upload-status" class="status" role="status" hidden></p>
+      <ul id="upload-errors" class="errors" hidden></ul>
+      <div class="table-wrap">
+        <table class="data">
+          <caption class="sr-only">Uploaded datasets. Open a dataset name to see its overview.</caption>
+          <thead><tr><th scope="col">Dataset</th><th scope="col">Year or period</th><th scope="col" class="num">Version</th><th scope="col" class="num">Rows</th><th scope="col">Uploaded</th><th scope="col">Status</th></tr></thead>
+          <tbody id="datasets-body"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
