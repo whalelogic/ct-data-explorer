@@ -36,7 +36,7 @@ boot(async () => {
     );
   }
 
-  async function loadrReports() {
+  async function loadReports() {
     const request = ++reportRequest;
     try {
       const query = search.value.trim();
