@@ -1,1 +1,20 @@
+# Secrets and local config
 .env
+.env.*
+!.env.example
+
+# Dependencies and build output
+node_modules/
+coverage/
+*.log
+
+# Editor and OS files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+~$*
+
+# Shared privately, not in the repo
+CLAUDE.md

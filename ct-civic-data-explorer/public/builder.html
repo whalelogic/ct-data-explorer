@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Report builder · CT Civic Data Explorer</title>
+  <link rel="stylesheet" href="/css/app.css">
+  <script defer src="/vendor/chart.js/chart.umd.min.js"></script>
+  <script type="module" src="/js/builder.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site"><a class="brand" href="/">CT Civic Data Explorer</a></header>
+  <main id="main" class="container">
+    <h1 id="builder-heading">Make report</h1>
+    <p id="page-status" class="status" role="alert" hidden></p>
+
+    <div class="builder-grid">
+      <form id="builder-form" class="panel" novalidate>
+        <fieldset>
+          <legend>Places and data</legend>
+          <label for="dataset">Dataset</label>
+          <select id="dataset"></select>
+
+          <label for="town-primary">Town</label>
+          <input id="town-primary" list="town-options" autocomplete="off" placeholder="Start typing a town name">
+          <label for="comparison-1">Comparison towns <span class="muted small">(optional, up to 3)</span></label>
+          <input id="comparison-1" class="comparison-town" list="town-options" autocomplete="off">
+          <input id="comparison-2" class="comparison-town" list="town-options" autocomplete="off" aria-label="Comparison town 2" style="margin-top:.4rem">
+          <input id="comparison-3" class="comparison-town" list="town-options" autocomplete="off" aria-label="Comparison town 3" style="margin-top:.4rem">
+          <datalist id="town-options"></datalist>
+          <label class="check"><input type="checkbox" id="benchmark"> Include the Connecticut statewide benchmark</label>
+        </fieldset>
+
+        <fieldset>
+          <legend>Indicators</legend>
+          <p class="muted small">Check the indicators to include. Use the arrows to set their order.</p>
+          <ul id="indicator-list" class="indicator-list"></ul>
+        </fieldset>
+
+        <fieldset id="record-filter-panel" hidden>
+          <legend>Source row filters</legend>
+          <p class="muted small">Choose categories to focus the report. Each matching row stays separate; repeated town totals are not added together.</p>
+          <div id="record-filters"></div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Title</legend>
+          <label class="check"><input type="checkbox" id="show-title"> Show the title and subtitle</label>
+          <label for="title">Title</label>
+          <input id="title" maxlength="200" placeholder="Defaults to the town names">
+          <label for="subtitle">Subtitle</label>
+          <input id="subtitle" maxlength="300" placeholder="Defaults to the dataset name and vintage">
+        </fieldset>
+
+        <fieldset>
+          <legend>Report layout</legend>
+          <p class="muted small">Arrange text, charts and tables below. The source footer is always included in the report.</p>
+          <details class="markup-help">
+            <summary>Formatting text blocks</summary>
+            <ul class="small">
+              <li><code># Heading</code>, <code>## Smaller heading</code>, <code>### Smallest heading</code></li>
+              <li>A blank line starts a new paragraph</li>
+              <li><code>- item</code> for a bulleted list, <code>1. item</code> for a numbered list</li>
+              <li><code>**bold**</code>, <code>*italic*</code>, <code>[link text](https://example.org)</code></li>
+              <li><code>\*</code> shows a literal asterisk</li>
+            </ul>
+          </details>
+          <ol id="layout-list" class="layout-list"></ol>
+          <div class="button-row">
+            <button type="button" class="secondary" data-add-block="text">Add text</button>
+            <button type="button" class="secondary" data-add-block="chart">Add chart</button>
+            <button type="button" class="secondary" data-add-block="table">Add table</button>
+          </div>
+
+          <div id="ai-panel" hidden>
+            <div class="button-row"><button type="button" id="draft-summary" class="secondary">Draft summary</button></div>
+            <div id="draft" class="draft" data-no-preview hidden>
+              <label for="draft-text">Drafted summary <span class="muted small">(review and edit before using)</span></label>
+              <textarea id="draft-text" rows="5"></textarea>
+              <ul id="draft-warnings" class="errors"></ul>
+              <div class="button-row">
+                <button type="button" id="draft-accept">Add as a text block</button>
+                <button type="button" id="draft-regenerate" class="secondary">Regenerate</button>
+                <button type="button" id="draft-discard" class="link">Discard</button>
+              </div>
+            </div>
+          </div>
+        </fieldset>
+
+        <fieldset data-no-preview>
+          <legend>Save and export</legend>
+          <label for="report-name">Report name</label>
+          <input id="report-name" maxlength="200" placeholder="Name used in the saved report library">
+          <div class="button-row">
+            <button type="button" id="save">Save report</button>
+            <button type="button" id="pdf">Generate PDF</button>
+          </div>
+        </fieldset>
+        <p id="builder-status" class="status" role="status" aria-live="polite" hidden></p>
+      </form>
+
+      <section class="preview-pane" aria-labelledby="preview-heading">
+        <h2 id="preview-heading" class="sr-only">Report preview</h2>
+        <p id="preview-status" class="status" role="status" aria-live="polite" hidden></p>
+        <div id="preview"></div>
+      </section>
+    </div>
+  </main>
+</body>
+</html>
