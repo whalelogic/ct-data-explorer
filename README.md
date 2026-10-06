@@ -4,9 +4,7 @@
 
 #### __Contributors:__
 
-- Paul
-- Kieran
-- Keith
+- Names here
 
 | Path | What it is |
 | --- | --- |
