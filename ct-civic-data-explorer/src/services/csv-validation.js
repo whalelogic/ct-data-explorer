@@ -5,7 +5,8 @@
 import { parse } from 'csv-parse/sync';
 
 const MAX_REPORTED_PROBLEMS = 200;
-const NUMBER = /^-?\d+(\.\d+)?$/;
+/** Shared with tabular-data.js so both parsers agree on what counts as a number. */
+export const NUMBER = /^-?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i;
 const MAX_ABS_VALUE = 1e14; // observations.value is NUMERIC(18,4)
 
 /**

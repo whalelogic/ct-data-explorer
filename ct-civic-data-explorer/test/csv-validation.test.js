@@ -71,3 +71,10 @@ test('the ACS 2024 sample extract validates cleanly', { skip: !existsSync(sample
   assert.equal(result.rowCount, 170);
   assert.equal(result.observations.length, 170 * 7);
 });
+
+test('accepts the same number forms as the tabular parser (.5, 1., scientific notation)', () => {
+  const csv = 'town,squaremiles,pop\nHamden,.5,1e3\nWest Hartford,1.,2.5E1\n';
+  const result = validateDatasetCsv(csv, known);
+  assert.deepEqual(result.problems, []);
+  assert.deepEqual(result.observations.map((o) => o.value), [0.5, 1000, 1, 25]);
+});

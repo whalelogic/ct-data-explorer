@@ -50,6 +50,11 @@ export function summaryFacts(report) {
 export async function draftSummary(report) {
   const active = getProvider();
   if (!active) throw new HttpError(503, 'AI summary drafting is not configured. You can write the text by hand.');
+  // Row-based reports show the uploaded file's own rows (names, notes), not public
+  // aggregates, so they stay on the server.
+  if (report.rowBased) {
+    throw new HttpError(422, 'AI summaries are not available for record-based datasets. You can write the text by hand.');
+  }
 
   let text;
   try {
