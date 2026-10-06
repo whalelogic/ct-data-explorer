@@ -79,6 +79,7 @@ export async function getReport(id) {
 
 export async function createReport({ title, selection }, user) {
   const dataset = await requireActiveDataset(selection.dataset);
+  await buildReport(selection); // reject a selection that saves fine but can never be built
   const id = await reports.insert({ title, selection, createdBy: user.id, datasetId: dataset.id });
   return reports.findById(id);
 }
@@ -86,6 +87,7 @@ export async function createReport({ title, selection }, user) {
 export async function updateReport(id, { title, selection }, user) {
   const report = await getOwnedReport(id, user);
   const datasetId = selection ? (await requireActiveDataset(selection.dataset)).id : report.dataset_id;
+  if (selection) await buildReport(selection);
   await reports.update(id, { title: title ?? report.title, selection: selection ?? report.selection, datasetId });
   return reports.findById(id);
 }
