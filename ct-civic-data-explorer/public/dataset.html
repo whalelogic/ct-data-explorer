@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dataset overview · CT Civic Data Explorer</title>
+  <link rel="stylesheet" href="/css/app.css">
+  <script type="module" src="/js/dataset.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site"><a class="brand" href="/">CT Civic Data Explorer</a></header>
+  <main id="main" class="container">
+    <p><a id="back-link" href="/">← Back to datasets</a></p>
+    <h1 id="dataset-heading">Dataset overview</h1>
+    <p id="page-status" class="status" role="alert" hidden></p>
+    <button id="retry" type="button" class="secondary" hidden>Retry</button>
+    <div id="dataset-content" hidden>
+      <section class="panel" aria-labelledby="overview-heading">
+        <h2 id="overview-heading">Overview</h2>
+        <dl id="dataset-metadata" class="saved-report-meta"></dl>
+        <div class="button-row">
+          <a id="make-report" class="button" hidden>Make report</a>
+          <button id="toggle-active" type="button" class="secondary" hidden></button>
+        </div>
+        <p id="dataset-status" class="status" role="status" hidden></p>
+      </section>
+      <section class="panel" aria-labelledby="indicators-heading">
+        <h2 id="indicators-heading">Dataset indicators</h2>
+        <p class="muted small">Columns and values belong to this dataset version. Text, repeated town rows and missing values are preserved.</p>
+        <div class="table-wrap">
+          <table class="data">
+            <caption class="sr-only">Indicators available in this dataset</caption>
+            <thead><tr><th scope="col">Column key</th><th scope="col">Label</th><th scope="col">Unit</th><th scope="col">Decimals</th><th scope="col">Value</th></tr></thead>
+            <tbody id="indicators-body"></tbody>
+          </table>
+        </div>
+        <details id="indicator-setup" hidden>
+          <summary>Add an indicator definition</summary>
+          <div id="dataset-indicator-editor"></div>
+        </details>
+      </section>
+      <section class="panel" aria-labelledby="preview-heading">
+        <h2 id="preview-heading">Data preview</h2>
+        <p id="preview-summary" class="muted small" role="status"></p>
+        <div id="data-preview" class="table-wrap" tabindex="0" role="region" aria-label="Dataset values, scroll horizontally for more columns"></div>
+        <div class="button-row">
+          <button id="previous" type="button" class="secondary">Previous rows</button>
+          <button id="next" type="button" class="secondary">Next rows</button>
+        </div>
+      </section>
+    </div>
+  </main>
+</body>
+</html>
