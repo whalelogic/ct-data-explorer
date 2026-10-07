@@ -3,14 +3,16 @@
 #### A capstone project for the SCSU Computer Science program: an internal web app for CTData Collaborative staff to upload datasets, build reports (text, charts and tables for chosen towns), and publish them as interactive web pages.
 
 #### __Contributors:__
-
-- Names here
+- [@whalelogic](Keith Thomson) - Systems architecture, configurations, docker, and CI/CD
+- [@pjr8](Paul Robinson) - Backend, database, and API
+- [@marsh-meadows](Kieran Veter) - Frontend, UI/UX, Reports and charts
 
 | Path | What it is |
 | --- | --- |
 | [`ct-civic-data-explorer/`](ct-civic-data-explorer/) | The application. Its [README](ct-civic-data-explorer/README.md) explains how it works. |
 | [`sample-data/`](sample-data/) | The ACS 2024 sample CSV used by `npm run seed` and the tests |
 | `SRS.docx` | The software requirements specification |
+| [`ct-civic-data-explorer/docs/api-routes.md`](ct-civic-data-explorer/docs/api-routes.md) | All HTTP routes, methods and callers |
 
 ## Local setup
 
