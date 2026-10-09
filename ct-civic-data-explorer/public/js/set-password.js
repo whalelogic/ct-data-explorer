@@ -1,5 +1,7 @@
 import { api, setCsrfToken } from './api.js';
-import { showStatus } from './layout.js';
+import { renderFooter, showStatus } from './layout.js';
+
+renderFooter();
 
 const form = document.getElementById('password-form');
 const status = document.getElementById('status');

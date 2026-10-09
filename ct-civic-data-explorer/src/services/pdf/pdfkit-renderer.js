@@ -3,9 +3,34 @@
  * vector primitives. No headless browser and no network access. Output depends only
  * on the report data, so the same report and dataset version produce the same file.
  */
+import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import PDFDocument from 'pdfkit';
 import { formatAxisValue, unitLabel } from '../../shared/format.js';
-import { BENCHMARK_COLOR, INK, LINK_COLOR, MUTED, RULE, SERIES_COLORS, TABLE_HEADER_FILL } from '../../shared/theme.js';
+import { ACCENT, BENCHMARK_COLOR, HEADING, INK, LINK_COLOR, MUTED, RULE, SERIES_COLORS, TABLE_HEADER_FILL } from '../../shared/theme.js';
+
+const require = createRequire(import.meta.url);
+const here = path.dirname(fileURLToPath(import.meta.url));
+
+/**
+ * Brand fonts (Poppins, SIL OFL 1.1, from @fontsource/poppins), embedded and subset by
+ * pdfkit. WOFF rather than WOFF2, because fontkit cannot subset WOFF2 glyph tables.
+ * Read once at startup. Names: Body = Regular, Bold = SemiBold, Heading = ExtraBold.
+ */
+const FONT_FILES = {
+  Body: 'poppins-latin-400-normal.woff',
+  'Body-Italic': 'poppins-latin-400-italic.woff',
+  'Body-Bold': 'poppins-latin-600-normal.woff',
+  'Body-BoldItalic': 'poppins-latin-600-italic.woff',
+  Heading: 'poppins-latin-800-normal.woff',
+};
+const FONTS = Object.fromEntries(
+  Object.entries(FONT_FILES).map(([name, file]) => [name, readFileSync(require.resolve(`@fontsource/poppins/files/${file}`))]),
+);
+const LOGO = readFileSync(path.join(here, '..', '..', '..', 'public', 'img', 'ctdata-logo.png'));
+const LOGO_HEIGHT = 30;
 
 const MARGIN = 54;
 const FOOTER_HEIGHT = 40;
@@ -24,7 +49,7 @@ export function renderWithPdfkit(report) {
       bufferPages: true,
       info: {
         Title: report.title,
-        Author: 'CTData Collaborative',
+        Author: 'CT Data Collaborative',
         Creator: 'CT Civic Data Explorer',
         CreationDate: date,
         ModDate: date,
@@ -36,6 +61,8 @@ export function renderWithPdfkit(report) {
     doc.on('error', reject);
 
     try {
+      for (const [name, data] of Object.entries(FONTS)) doc.registerFont(name, data);
+      drawLetterhead(doc);
       drawBody(doc, report);
       drawFooters(doc, report);
       doc.end();
@@ -45,11 +72,20 @@ export function renderWithPdfkit(report) {
   });
 }
 
+/** Logo and an orange separator rule at the top of the first page. */
+function drawLetterhead(doc) {
+  doc.image(LOGO, MARGIN, MARGIN - 18, { height: LOGO_HEIGHT });
+  const y = MARGIN - 18 + LOGO_HEIGHT + 8;
+  doc.moveTo(MARGIN, y).lineTo(MARGIN + contentWidth(doc), y).lineWidth(2).strokeColor(ACCENT).stroke();
+  doc.x = MARGIN;
+  doc.y = y + 16;
+}
+
 function drawBody(doc, report) {
   const width = contentWidth(doc);
   if (report.showTitle) {
-    doc.font('Helvetica-Bold').fontSize(20).fillColor(INK).text(report.title, MARGIN, doc.y, { width });
-    if (report.subtitle) doc.moveDown(0.2).font('Helvetica').fontSize(12).fillColor(MUTED).text(report.subtitle, { width });
+    doc.font('Heading').fontSize(20).fillColor(HEADING).text(report.title, MARGIN, doc.y, { width });
+    if (report.subtitle) doc.moveDown(0.1).font('Body-Bold').fontSize(12).fillColor(INK).text(report.subtitle, { width });
     doc.moveDown(1);
   }
   report.blocks.forEach((block, i) => {
@@ -81,13 +117,13 @@ function measureText(doc, nodes) {
   let height = 0;
   for (const node of nodes) {
     if (node.type === 'heading') {
-      doc.font('Helvetica-Bold').fontSize(HEADING_SIZES[node.level]);
+      doc.font('Body-Bold').fontSize(HEADING_SIZES[node.level]);
       height += doc.heightOfString(plain(node.runs), { width, lineGap: 2 });
     } else if (node.type === 'paragraph') {
-      doc.font('Helvetica').fontSize(BODY_SIZE);
+      doc.font('Body').fontSize(BODY_SIZE);
       height += doc.heightOfString(plain(node.runs), { width, lineGap: 2 });
     } else if (node.type === 'list') {
-      doc.font('Helvetica').fontSize(BODY_SIZE);
+      doc.font('Body').fontSize(BODY_SIZE);
       for (const runs of node.items) height += doc.heightOfString(plain(runs), { width: width - 18, lineGap: 2 }) + 3;
     }
     height += BODY_SIZE; // the half-line gap between nodes, rounded up
@@ -103,7 +139,7 @@ function drawText(doc, nodes) {
     if (node.type === 'heading') {
       const size = HEADING_SIZES[node.level];
       ensureSpace(doc, size * 1.4 + 40); // keep a heading with the first lines after it
-      drawRuns(doc, node.runs, { x: MARGIN, width, size, bold: true });
+      drawRuns(doc, node.runs, { x: MARGIN, width, size, bold: true, color: HEADING });
     } else if (node.type === 'paragraph') {
       ensureSpace(doc, 30);
       drawRuns(doc, node.runs, { x: MARGIN, width, size: BODY_SIZE });
@@ -114,7 +150,7 @@ function drawText(doc, nodes) {
         if (i > 0) doc.moveDown(0.15);
         const y = doc.y;
         const marker = node.ordered ? `${node.start + i}.` : '\u2022';
-        doc.font('Helvetica').fontSize(BODY_SIZE).fillColor(INK).text(marker, MARGIN, y, { width: indent - 4, align: 'right', lineBreak: false });
+        doc.font('Body').fontSize(BODY_SIZE).fillColor(INK).text(marker, MARGIN, y, { width: indent - 4, align: 'right', lineBreak: false });
         doc.y = y;
         drawRuns(doc, runs, { x: MARGIN + indent, width: width - indent, size: BODY_SIZE });
       });
@@ -123,11 +159,11 @@ function drawText(doc, nodes) {
 }
 
 /** Styled runs as one wrapped paragraph. pdfkit carries layout options across `continued` calls. */
-function drawRuns(doc, runs, { x, width, size, bold = false }) {
+function drawRuns(doc, runs, { x, width, size, bold = false, color = INK }) {
   const visible = runs.filter((run) => run.text !== '');
-  doc.fillColor(INK).fontSize(size);
+  doc.fillColor(color).fontSize(size);
   visible.forEach((run, i) => {
-    doc.font(fontFor(bold || run.bold, run.italic)).fillColor(run.href ? LINK_COLOR : INK);
+    doc.font(fontFor(bold || run.bold, run.italic)).fillColor(run.href ? LINK_COLOR : color);
     const options = { continued: i < visible.length - 1, link: run.href ?? null, underline: Boolean(run.href), lineGap: 2 };
     if (i === 0) doc.text(run.text, x, doc.y, { ...options, width });
     else doc.text(run.text, options);
@@ -136,10 +172,10 @@ function drawRuns(doc, runs, { x, width, size, bold = false }) {
 }
 
 function fontFor(bold, italic) {
-  if (bold && italic) return 'Helvetica-BoldOblique';
-  if (bold) return 'Helvetica-Bold';
-  if (italic) return 'Helvetica-Oblique';
-  return 'Helvetica';
+  if (bold && italic) return 'Body-BoldItalic';
+  if (bold) return 'Body-Bold';
+  if (italic) return 'Body-Italic';
+  return 'Body';
 }
 
 function drawChart(doc, chart) {
@@ -154,7 +190,7 @@ function drawChart(doc, chart) {
 
   // Legend (series names) and unit.
   let legendX = plot.x;
-  doc.font('Helvetica').fontSize(9);
+  doc.font('Body').fontSize(9);
   chart.series.forEach((series, i) => {
     doc.rect(legendX, top + 3, 9, 9).fill(colorFor(i));
     doc.fillColor(INK).text(series.label, legendX + 13, top + 2, { lineBreak: false });
@@ -231,7 +267,7 @@ function drawTable(doc, places, rows) {
   const header = ['Indicator', ...places.map((p) => p.label)];
 
   const drawRow = (cells, { bold = false, fill = null } = {}) => {
-    doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(9.5);
+    doc.font(bold ? 'Body-Bold' : 'Body').fontSize(9.5);
     const cellWidth = (i) => (i === 0 ? firstColumn : column) - 8;
     const height = Math.max(...cells.map((text, i) => doc.heightOfString(text, { width: cellWidth(i) }))) + padding * 2;
     const y = doc.y;
@@ -264,7 +300,7 @@ function drawRecordTables(doc, block) {
     const header = indices.map((i) => block.columns[i].label);
     const measure = (text) => doc.heightOfString(text || ' ', { width: cellWidth - 10 });
     const draw = (values, bold = false) => {
-      doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(9);
+      doc.font(bold ? 'Body-Bold' : 'Body').fontSize(9);
       const height = Math.max(...values.map(measure)) + 10;
       const top = doc.y;
       if (bold) doc.rect(MARGIN, top, contentWidth(doc), height).fill(TABLE_HEADER_FILL);
@@ -273,16 +309,16 @@ function drawRecordTables(doc, block) {
       doc.x = MARGIN;
       doc.y = top + height;
     };
-    doc.font('Helvetica-Bold').fontSize(9);
+    doc.font('Body-Bold').fontSize(9);
     const headerHeight = Math.max(...header.map(measure)) + 10;
     ensureSpace(doc, headerHeight + 35);
     draw(header, true);
     for (const record of block.records) {
       let remaining = indices.map((i) => record.values[i]);
       while (remaining.some((value) => value.length)) {
-        doc.font('Helvetica').fontSize(9);
+        doc.font('Body').fontSize(9);
         let available = doc.page.height - doc.page.margins.bottom - doc.y - 10;
-        if (available < 25) { doc.addPage(); draw(header, true); doc.font('Helvetica').fontSize(9); available = doc.page.height - doc.page.margins.bottom - doc.y - 10; }
+        if (available < 25) { doc.addPage(); draw(header, true); doc.font('Body').fontSize(9); available = doc.page.height - doc.page.margins.bottom - doc.y - 10; }
         const fullHeight = Math.max(...remaining.map(measure));
         const pageCapacity = doc.page.height - doc.page.margins.top - doc.page.margins.bottom - headerHeight - 10;
         if (fullHeight > available && fullHeight <= pageCapacity) {
@@ -315,10 +351,10 @@ function drawFooters(doc, report) {
     doc.page.margins.bottom = 0; // writing inside the margin must not trigger a page break
     const y = doc.page.height - MARGIN - FOOTER_HEIGHT + 12;
     const width = contentWidth(doc);
-    doc.moveTo(MARGIN, y - 6).lineTo(MARGIN + width, y - 6).lineWidth(0.5).strokeColor(RULE).stroke();
-    doc.font('Helvetica').fontSize(8).fillColor(MUTED);
+    doc.moveTo(MARGIN, y - 6).lineTo(MARGIN + width, y - 6).lineWidth(1).strokeColor(ACCENT).stroke();
+    doc.font('Body-Italic').fontSize(7.5).fillColor(MUTED);
     doc.text(report.sourceLine, MARGIN, y, { width: width - 70 });
-    doc.text(`Page ${i + 1} of ${range.count}`, MARGIN + width - 60, y, { width: 60, align: 'right' });
+    doc.font('Body').text(`Page ${i + 1} of ${range.count}`, MARGIN + width - 60, y, { width: 60, align: 'right' });
     doc.page.margins.bottom = bottomMargin;
   }
 }

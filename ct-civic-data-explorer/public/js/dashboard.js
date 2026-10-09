@@ -20,7 +20,7 @@ boot(async () => {
     const matches = active.filter((dataset) => dataset.name.toLowerCase().includes(query));
     datasetGrid.replaceChildren(...matches.map(datasetTile));
     const empty = query ? 'No datasets match this name.'
-      : `No active datasets yet. ${user.role === 'admin' ? 'Select Upload dataset to add one.' : 'Ask an administrator to upload one.'}`;
+      : `No active datasets yet. ${user.role === 'admin' ? 'Select Upload Dataset to add one.' : 'Ask an administrator to upload one.'}`;
     showStatus(datasetStatus, matches.length ? '' : empty);
   }
 
@@ -32,7 +32,7 @@ boot(async () => {
         h('p', { class: 'muted small' }, `${dataset.vintage} · Version ${dataset.version} · ${dataset.rowCount} rows`),
         h('p', { class: 'small' }, dataset.source),
       ),
-      h('div', { class: 'saved-report-actions' }, h('a', { href }, 'Make report')),
+      h('div', { class: 'saved-report-actions' }, h('a', { href }, 'Make Report')),
     );
   }
 
@@ -43,7 +43,7 @@ boot(async () => {
       const reports = await fetchReports(query);
       if (request !== reportRequest) return;
       grid.replaceChildren(...reports.map(reportTile));
-      const empty = query ? 'No reports match this dataset or report name.' : 'No saved reports yet. Choose a dataset or select Make report to begin.';
+      const empty = query ? 'No reports match this dataset or report name.' : 'No saved reports yet. Choose a dataset or select Make Report to begin.';
       showStatus(reportsStatus, reports.length ? '' : empty);
     } catch (err) {
       if (request !== reportRequest) return;

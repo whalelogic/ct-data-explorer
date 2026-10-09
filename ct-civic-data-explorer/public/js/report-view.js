@@ -3,7 +3,7 @@
  * HTML with a Chart.js chart. Chart.js is loaded as a global from /vendor/chart.js.
  */
 import { formatAxisValue, formatValue, unitLabel } from '/shared/format.js';
-import { BENCHMARK_COLOR, SERIES_COLORS } from '/shared/theme.js';
+import { BENCHMARK_COLOR, FONT_FAMILY, INK, MUTED, RULE, SERIES_COLORS } from '/shared/theme.js';
 import { h } from './dom.js';
 
 const charts = new WeakMap(); // container -> Chart.js instances to destroy on re-render
@@ -54,7 +54,17 @@ export function renderReport(container, report) {
     ),
   );
 
-  charts.set(container, pending.map(([canvas, chart]) => drawChart(canvas, chart)).filter(Boolean));
+  const drawn = pending.map(([canvas, chart]) => drawChart(canvas, chart)).filter(Boolean);
+  charts.set(container, drawn);
+  // Canvas text neither triggers a web font download nor redraws when one arrives, so
+  // request Poppins explicitly and redraw once it's ready (immediately if it's cached).
+  if (drawn.length && document.fonts?.load) {
+    Promise.all(['400', '600'].map((weight) => document.fonts.load(`${weight} 13px Poppins`)))
+      .then(() => {
+        if (charts.get(container) === drawn) drawn.forEach((chart) => chart.update('none'));
+      })
+      .catch(() => {}); // the Arial fallback is acceptable
+  }
 }
 
 export function clearReport(container) {
@@ -116,8 +126,25 @@ function tableWrap(columns, rows) {
   );
 }
 
+let chartThemeApplied = false;
+
+/** Brand typography and colors for every Chart.js chart (set once, before the first chart). */
+function applyChartTheme(Chart) {
+  if (chartThemeApplied) return;
+  Chart.defaults.font.family = FONT_FAMILY;
+  Chart.defaults.font.size = 13;
+  Chart.defaults.color = INK;
+  Chart.defaults.borderColor = RULE;
+  Chart.defaults.plugins.tooltip.backgroundColor = INK;
+  Chart.defaults.plugins.tooltip.titleFont = { family: FONT_FAMILY, weight: '600' };
+  Chart.defaults.plugins.legend.labels.color = INK;
+  Chart.defaults.scale.title.color = MUTED;
+  chartThemeApplied = true;
+}
+
 function drawChart(canvas, chart) {
   if (!window.Chart) return null;
+  applyChartTheme(window.Chart);
   const singleSeries = chart.type === 'bar';
   const datasets = chart.series.map((series, i) => {
     const color = SERIES_COLORS[i % SERIES_COLORS.length];

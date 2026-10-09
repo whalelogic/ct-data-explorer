@@ -25,9 +25,11 @@ test('malformed JSON gets a clear 400', async () => {
   assert.equal(res.body.error, 'Request body is not valid JSON');
 });
 
-test('pages, shared modules and Chart.js are served locally with security headers', async () => {
+test('pages, shared modules, Chart.js, fonts and the logo are served locally with security headers', async () => {
   const page = await request(app).get('/login.html').expect(200);
   assert.ok(page.headers['content-security-policy']);
   await request(app).get('/shared/format.js').expect(200).expect('Content-Type', /javascript/);
   await request(app).get('/vendor/chart.js/chart.umd.min.js').expect(200);
+  await request(app).get('/vendor/fonts/poppins-latin-400-normal.woff2').expect(200).expect('Content-Type', /font\/woff2/);
+  await request(app).get('/img/ctdata-logo.png').expect(200).expect('Content-Type', /image\/png/);
 });

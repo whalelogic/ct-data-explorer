@@ -76,7 +76,7 @@ boot(async () => {
                     showLink(`One-time link for ${u.email}. It expires in ${expiry}.`, link);
                   }),
               },
-              u.hasPassword ? 'Password reset link' : 'New invite link',
+              u.hasPassword ? 'Password Reset Link' : 'New Invite Link',
             ),
             self
               ? null

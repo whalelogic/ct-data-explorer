@@ -357,8 +357,8 @@ boot(async () => {
 
   function updateHeading() {
     const own = !saved || saved.ownerId === user.id;
-    $('builder-heading').textContent = saved ? `Report: ${saved.title}` : 'Make report';
-    $('save').textContent = own ? 'Save report' : 'Save as my copy';
+    $('builder-heading').textContent = saved ? `Report: ${saved.title}` : 'Make Report';
+    $('save').textContent = own ? 'Save Report' : 'Save as My Copy';
   }
 
   $('save').addEventListener('click', async () => {

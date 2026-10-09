@@ -10,9 +10,9 @@
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
-  <header class="site"><a class="brand" href="/">CT Civic Data Explorer</a></header>
+  <header class="site"><a class="brand" href="/"><img src="/img/ctdata-logo.png" alt="CT Data Collaborative" width="117" height="40"><span class="brand-name">Civic Data<br>Explorer</span></a></header>
   <main id="main" class="container">
-    <h1 id="builder-heading">Make report</h1>
+    <h1 id="builder-heading">Make Report</h1>
     <p id="page-status" class="status" role="alert" hidden></p>
 
     <div class="builder-grid">
@@ -54,7 +54,7 @@
         </fieldset>
 
         <fieldset>
-          <legend>Report layout</legend>
+          <legend>Report Layout</legend>
           <p class="muted small">Arrange text, charts and tables below. The source footer is always included in the report.</p>
           <details class="markup-help">
             <summary>Formatting text blocks</summary>
@@ -68,19 +68,19 @@
           </details>
           <ol id="layout-list" class="layout-list"></ol>
           <div class="button-row">
-            <button type="button" class="secondary" data-add-block="text">Add text</button>
-            <button type="button" class="secondary" data-add-block="chart">Add chart</button>
-            <button type="button" class="secondary" data-add-block="table">Add table</button>
+            <button type="button" class="secondary" data-add-block="text">Add Text</button>
+            <button type="button" class="secondary" data-add-block="chart">Add Chart</button>
+            <button type="button" class="secondary" data-add-block="table">Add Table</button>
           </div>
 
           <div id="ai-panel" hidden>
-            <div class="button-row"><button type="button" id="draft-summary" class="secondary">Draft summary</button></div>
+            <div class="button-row"><button type="button" id="draft-summary" class="secondary">Draft Summary</button></div>
             <div id="draft" class="draft" data-no-preview hidden>
               <label for="draft-text">Drafted summary <span class="muted small">(review and edit before using)</span></label>
               <textarea id="draft-text" rows="5"></textarea>
               <ul id="draft-warnings" class="errors"></ul>
               <div class="button-row">
-                <button type="button" id="draft-accept">Add as a text block</button>
+                <button type="button" id="draft-accept">Add as a Text Block</button>
                 <button type="button" id="draft-regenerate" class="secondary">Regenerate</button>
                 <button type="button" id="draft-discard" class="link">Discard</button>
               </div>
@@ -93,7 +93,7 @@
           <label for="report-name">Report name</label>
           <input id="report-name" maxlength="200" placeholder="Name used in the saved report library">
           <div class="button-row">
-            <button type="button" id="save">Save report</button>
+            <button type="button" id="save">Save Report</button>
             <button type="button" id="pdf">Generate PDF</button>
           </div>
         </fieldset>
@@ -101,7 +101,7 @@
       </form>
 
       <section class="preview-pane" aria-labelledby="preview-heading">
-        <h2 id="preview-heading" class="sr-only">Report preview</h2>
+        <h2 id="preview-heading" class="sr-only">Report Preview</h2>
         <p id="preview-status" class="status" role="status" aria-live="polite" hidden></p>
         <div id="preview"></div>
       </section>

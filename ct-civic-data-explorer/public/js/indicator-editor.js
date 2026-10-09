@@ -21,7 +21,7 @@ export function mountIndicatorEditor(container, prefix, onCreated = async () => 
   };
   derivation.addEventListener('change', updateRatioFields);
   updateRatioFields();
-  const button = h('button', { type: 'submit' }, 'Add indicator');
+  const button = h('button', { type: 'submit' }, 'Add Indicator');
   const status = h('p', { class: 'status', role: 'status', hidden: true });
   const form = h('form', { class: 'grid-form' },
     field('key', 'Column key', { required: true, maxlength: 60, pattern: '[A-Za-z0-9_]+' }),

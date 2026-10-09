@@ -37,3 +37,4 @@ flowchart TB
 - Every report starts as a **selection** (towns, indicators, and a layout of text, chart and table blocks). The Reports service turns it into one report-data object, which the browser preview, the PDF and the AI summary all use, so they always match.
 - Rates such as poverty rate are computed on the server from stored values.
 - The AI summary is optional; reports build and export without it.
+- **Branding** follows `docs/CTData_Brandguideline.pdf`, with Poppins as the only typeface. `src/shared/theme.js` is the single source of the brand colors. The browser charts and the PDF import it directly, and `public/css/app.css` mirrors it as custom properties; `test/theme.test.js` fails if the two drift apart or a text color pair drops below WCAG AA. Poppins is self-hosted from `@fontsource/poppins` (served at `/vendor/fonts`) and embedded in PDFs, so no font requests go to third parties.

@@ -48,7 +48,7 @@ boot(async () => {
     $('make-report').hidden = !dataset.isActive;
     $('make-report').href = `/builder.html?dataset=${dataset.id}`;
     $('toggle-active').hidden = !admin;
-    $('toggle-active').textContent = dataset.isActive ? 'Deactivate version' : 'Activate version';
+    $('toggle-active').textContent = dataset.isActive ? 'Deactivate Version' : 'Activate Version';
     $('indicators-body').replaceChildren(...indicators.map((indicator) => h('tr', {},
       h('th', { scope: 'row' }, h('code', {}, indicator.key)), h('td', {}, indicator.label),
       h('td', {}, indicator.type === 'text' ? 'Text' : indicator.unit), h('td', {}, indicator.type === 'text' ? '—' : indicator.decimals),

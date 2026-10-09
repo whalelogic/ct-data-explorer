@@ -41,6 +41,7 @@ export function createApp({ sessionStore, logRequests = config.env !== 'test' } 
   app.use(express.static(path.join(here, '..', 'public')));
   app.use('/shared', express.static(path.join(here, 'shared')));
   app.use('/vendor/chart.js', express.static(path.dirname(require.resolve('chart.js'))));
+  app.use('/vendor/fonts', express.static(path.dirname(require.resolve('@fontsource/poppins/files/poppins-latin-400-normal.woff2'))));
 
   app.get('/healthz', async (_req, res) => {
     try {

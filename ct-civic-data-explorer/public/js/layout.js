@@ -2,21 +2,39 @@
 import { api } from './api.js';
 import { h } from './dom.js';
 
+/** Fill in the signed-in navigation and add the shared footer. The logo is static in each page's HTML. */
 export function renderHeader(user) {
   const links = [
     ['/', 'Dashboard'],
-    ['/builder.html', 'Make report'],
+    ['/builder.html', 'Make Report'],
   ];
-  if (user.role === 'admin') links.push(['/admin.html', 'Upload dataset']);
+  if (user.role === 'admin') links.push(['/admin.html', 'Upload Dataset']);
 
   const nav = h(
     'nav',
     { 'aria-label': 'Main' },
     ...links.map(([href, text]) => h('a', { href, 'aria-current': isCurrent(href) ? 'page' : null }, text)),
     h('span', { class: 'who' }, `${user.firstName} ${user.lastName}`),
-    h('button', { type: 'button', class: 'link', onClick: signOut }, 'Sign out'),
+    h('button', { type: 'button', class: 'link', onClick: signOut }, 'Sign Out'),
   );
   document.querySelector('header.site').append(nav);
+  renderFooter();
+}
+
+export function renderFooter() {
+  if (document.querySelector('footer.site')) return;
+  document.body.append(
+    h(
+      'footer',
+      { class: 'site' },
+      h(
+        'div',
+        { class: 'container' },
+        h('span', {}, `© ${new Date().getFullYear()} CT Data Collaborative`),
+        h('a', { href: 'https://www.ctdata.org', rel: 'noopener' }, 'ctdata.org'),
+      ),
+    ),
+  );
 }
 
 /** Show a message in a status element; an empty message hides it. */
