@@ -4,8 +4,8 @@ import { h as createElement } from './dom.js';
 
 export function renderHeader(user) {
   const navigationLinks = [
+    ['/', 'Dashboard'],
     ['/explore.html', 'Explore'],
-    ['/', 'Data library'],
     ['/builder.html', 'Reports'],
   ];
   if (user.role === 'admin') {
@@ -35,7 +35,7 @@ export function renderHeader(user) {
     createElement('strong', {}, 'CTData'),
     createElement('span', {}, 'Civic Data Explorer'),
   );
-  brandLink.href = '/explore.html';
+  brandLink.href = '/';
   header.append(navigation, account);
 }
 

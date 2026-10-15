@@ -3,53 +3,76 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Data library · CT Civic Data Explorer</title>
+    <title>Dashboard · CT Civic Data Explorer</title>
     <link rel="stylesheet" href="/css/app.css" />
     <script type="module" src="/js/dashboard.js"></script>
   </head>
-  <body>
+  <body class="dashboard-page">
     <a class="skip-link" href="#main">Skip to content</a>
     <header class="site"><a class="brand" href="/">CT Civic Data Explorer</a></header>
     <main id="main" class="container">
-      <div class="workspace-heading">
+      <div class="workspace-heading dashboard-heading">
         <div>
-          <p class="section-kicker">CTData Collaborative</p>
-          <h1>Data library</h1>
-          <p class="page-intro">
-            Explore Connecticut communities using curated data, or continue a saved report.
-          </p>
+          <p class="section-kicker">Your workspace</p>
+          <h1>Dashboard</h1>
+          <p class="page-intro">Find a dataset, build a report, or pick up where you left off.</p>
         </div>
-        <a class="button" href="/explore.html">Explore data</a>
+        <div class="dashboard-primary-actions">
+          <a class="button secondary" href="/explore.html">Explore data</a>
+          <a class="button" href="/builder.html">New report <span aria-hidden="true">↗</span></a>
+        </div>
       </div>
       <p id="page-status" class="status" role="alert" hidden></p>
 
-      <section class="panel" aria-labelledby="search-heading">
-        <h2 id="search-heading">Find data</h2>
-        <form id="dashboard-search" class="inline-form" role="search">
-          <label for="search-input" class="sr-only">Dataset or report name</label>
-          <input
-            type="search"
-            id="search-input"
-            maxlength="100"
-            placeholder="Search by dataset or report name"
-            autocomplete="off"
-          />
+      <form id="dashboard-search" class="dashboard-search" role="search" aria-label="Search the dashboard">
+        <label for="search-input">Find a dataset or report</label>
+        <div class="inline-form">
+          <input type="search" id="search-input" maxlength="100"
+            placeholder="Search by dataset or report name" autocomplete="off" aria-controls="datasets-grid reports-grid" />
+          <button id="clear-search" type="button" class="secondary" hidden>Clear search</button>
           <button type="submit">Search</button>
-        </form>
-      </section>
-
-      <section class="panel" aria-labelledby="datasets-heading">
-        <h2 id="datasets-heading">Datasets for exploration</h2>
-        <p id="datasets-status" class="status" role="status" hidden></p>
-        <ul id="datasets-grid" class="report-grid" role="list"></ul>
-      </section>
-
-      <section class="panel" aria-labelledby="reports-heading">
-        <div class="panel-head">
-          <h2 id="reports-heading">Your team’s saved reports</h2>
         </div>
-        <p id="reports-status" class="status" role="status" hidden></p>
-        <ul id="reports-grid" class="report-grid" role="list"></ul>
+      </form>
+
+      <section class="dashboard-section" aria-labelledby="datasets-heading">
+        <div class="dashboard-section-heading">
+          <div>
+            <h2 id="datasets-heading">Available datasets <span id="dataset-count" class="dashboard-count" aria-live="polite"></span></h2>
+            <p class="muted small">Choose data to explore or use in a new report.</p>
+          </div>
+          <a id="manage-datasets" href="/admin.html" hidden>Manage datasets <span aria-hidden="true">↗</span></a>
+        </div>
+        <p id="datasets-status" class="status" role="status">Loading datasets…</p>
+        <button id="retry-datasets" type="button" class="secondary" hidden>Retry datasets</button>
+        <ul id="datasets-grid" class="report-grid" role="list" aria-busy="true"></ul>
+      </section>
+
+      <section class="dashboard-section" aria-labelledby="reports-heading">
+        <div class="dashboard-section-heading">
+          <div>
+            <h2 id="reports-heading">Saved reports <span id="report-count" class="dashboard-count" aria-live="polite"></span></h2>
+            <p class="muted small">Reopen, export, or adapt your team’s work.</p>
+          </div>
+          <div class="dashboard-report-controls">
+            <label class="dashboard-owner-filter"><input id="only-mine" type="checkbox" /> Only my reports</label>
+            <label class="sr-only" for="report-sort">Sort reports</label>
+            <select id="report-sort">
+              <option value="updated">Recently updated</option>
+              <option value="title">Report name A–Z</option>
+              <option value="oldest">Oldest updated first</option>
+            </select>
+          </div>
+        </div>
+        <p id="report-action-status" class="status" role="status" hidden></p>
+        <p id="reports-status" class="status" role="status">Loading reports…</p>
+        <button id="retry-reports" type="button" class="secondary" hidden>Retry reports</button>
+        <ul id="reports-grid" class="report-grid" role="list" aria-busy="true"></ul>
+        <div id="reports-empty" class="dashboard-empty" hidden>
+          <h3 id="reports-empty-title">Your first report starts with a dataset</h3>
+          <p id="reports-empty-description">Choose the places and measures you need, then save your report here.</p>
+          <a class="button secondary" href="/builder.html">Create a report</a>
+        </div>
+        <p id="reports-limit" class="muted small" hidden>Showing up to 200 matching reports. Search by name to narrow the results.</p>
       </section>
     </main>
   </body>
