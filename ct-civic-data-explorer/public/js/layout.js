@@ -5,12 +5,12 @@ import { h as createElement } from './dom.js';
 export function renderHeader(user) {
   const navigationLinks = [
     ['/', 'Dashboard'],
-    ['/explore.html', 'Explore'],
-    ['/builder.html', 'Reports'],
+    ['/explore', 'Explore'],
+    ['/builder', 'Reports'],
   ];
   if (user.role === 'admin') {
-    navigationLinks.push(['/admin.html', 'Data management']);
-    navigationLinks.push(['/users.html', 'People']);
+    navigationLinks.push(['/admin', 'Data management']);
+    navigationLinks.push(['/users', 'People']);
   }
 
   const navigation = createElement('nav', { 'aria-label': 'Main' });
@@ -87,7 +87,7 @@ function showPageSetupError(error) {
 
 function isCurrentPage(url) {
   if (url === '/') {
-    return ['/', '/index.html'].includes(location.pathname);
+    return location.pathname === '/';
   }
   return location.pathname === url;
 }
@@ -98,5 +98,5 @@ async function signOut() {
   } catch {
     // Return to the login page even if the session has already expired.
   }
-  location.assign('/login.html');
+  location.assign('/login');
 }

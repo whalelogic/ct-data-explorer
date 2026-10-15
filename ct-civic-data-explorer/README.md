@@ -1,6 +1,6 @@
 # CT Civic Data Explorer
 
-An authenticated civic data explorer for CTData Collaborative. Administrators upload datasets, approve the fields users may access, then publish. Users choose locations, select approved fields and interact with charts and tables at `/explore.html`. Reports and PDF export are optional. Every view retains its dataset name, period and source.
+An authenticated civic data explorer for CTData Collaborative. Administrators upload datasets, approve the fields users may access, then publish. Users choose locations, select approved fields and interact with charts and tables at `/explore`. Reports and PDF export are optional. Every view retains its dataset name, period and source.
 
 The interactive workflow advances the dynamic reporting direction in `SRS.docx` (draft v1.1). Public report publishing remains outstanding; this release requires sign-in. Jill Walsh's October 6 email and attached August 2025 brand guide define the palette and Poppins typography. Her September 30 data email asks for periods matching the existing town and housing profiles, rather than automatically selecting the newest data. Uploaded source data retains its declared period; this change does not silently replace datasets or fetch a newer vintage.
 
@@ -17,7 +17,7 @@ Migration `005_dataset_curation.sql` preserves existing published fields until s
 
 Poppins is bundled locally with its OFL license and embedded in PDFs. `src/shared/theme.js` and `public/css/app.css` use CTData navy `#262558`, teal `#39738C`, coral `#DE6F59` and the supporting brand palette. Charts avoid using teal and green together as required by the brand guide. No font CDN is needed.
 
-`/explore.html?embed=1` provides compact exploration chrome for same-origin embedding. Authentication remains required. Cross-origin WordPress embedding or a public viewer requires the actual hosting origin and a decision about public versus signed-in access; the existing same-origin frame policy is retained. No WordPress credentials or hosting target are configured in this repository.
+`/explore?embed=1` provides compact exploration chrome for same-origin embedding. Authentication remains required. Cross-origin WordPress embedding or a public viewer requires the actual hosting origin and a decision about public versus signed-in access; the existing same-origin frame policy is retained. No WordPress credentials or hosting target are configured in this repository.
 
 Deploy from this application directory with `docker compose up -d --build`, which applies migrations automatically. Verify the configured local URL's `/healthz` and sign-in/exploration flow. Back up the database first and preserve the existing database volume. Migration `006_preserve_saved_reports.sql` renames the legacy saved-selection table to `reports` without copying or deleting saved selections; fresh databases already have the new table. Deploy the previous compatible report-based revision to roll back application code; do not roll back to a revision using the legacy table name against the renamed table without restoring its matching backup.
 

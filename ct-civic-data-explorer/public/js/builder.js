@@ -728,7 +728,7 @@ async function saveReport() {
       report = await api('/reports', { method: 'POST', json: requestBody });
     }
     savedReport = { id: report.id, ownerId: report.createdBy.id, title: report.title };
-    history.replaceState(null, '', `/builder.html?report=${report.id}`);
+    history.replaceState(null, '', `/builder?report=${report.id}`);
     updateHeading();
     showStatus(getElement('builder-status'), `Saved "${report.title}".`, 'ok');
   } catch (error) {

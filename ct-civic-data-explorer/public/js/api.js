@@ -59,7 +59,7 @@ export async function loadSession() {
 }
 
 function redirectToSignIn() {
-  location.assign(`/login.html?next=${encodeURIComponent(location.pathname + location.search)}`);
+  location.assign(`/login?next=${encodeURIComponent(location.pathname + location.search)}`);
 }
 
 function filenameFrom(res) {

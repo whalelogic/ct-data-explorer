@@ -37,6 +37,19 @@ export function createApp({ sessionStore, logRequests = config.env !== 'test' } 
   app.use(helmet());
   if (logRequests) app.use(requestLog);
 
+  // Keep filenames private to routing; old bookmarks retain their query strings.
+  const publicDirectory = path.join(here, '..', 'public');
+  const pages = ['login', 'set-password', 'explore', 'builder', 'dataset', 'town', 'admin', 'users'];
+  for (const page of ['index', ...pages]) {
+    const pageUrl = page === 'index' ? '/' : `/${page}`;
+    app.get(`/${page}.html`, (req, res) => {
+      const queryStart = req.originalUrl.indexOf('?');
+      const query = queryStart === -1 ? '' : req.originalUrl.slice(queryStart);
+      res.redirect(308, pageUrl + query);
+    });
+    app.get(pageUrl, (_req, res) => res.sendFile(`${page}.html`, { root: publicDirectory }));
+  }
+
   // Static assets. Pages are plain HTML; the API is the security boundary.
   app.use(express.static(path.join(here, '..', 'public')));
   app.use('/shared', express.static(path.join(here, 'shared')));

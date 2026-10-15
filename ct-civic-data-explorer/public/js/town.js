@@ -13,7 +13,7 @@ boot(async () => {
   document.title = `${town.name} · CT Civic Data Explorer`;
   document.getElementById('town-name').textContent = town.label;
   const buildLink = document.getElementById('build-link');
-  buildLink.href = `/builder.html?town=${encodeURIComponent(town.name)}`;
+  buildLink.href = `/builder?town=${encodeURIComponent(town.name)}`;
   buildLink.hidden = town.geoType !== 'town';
 
   const content = document.getElementById('town-content');

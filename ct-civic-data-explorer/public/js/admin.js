@@ -37,7 +37,7 @@ function renderDatasets(datasets) {
 }
 
 function createDatasetRow(dataset) {
-  const detailsUrl = `/dataset.html?id=${dataset.id}`;
+  const detailsUrl = `/dataset?id=${dataset.id}`;
   const titleLink = createElement('a', { href: detailsUrl }, dataset.name);
   const rowHeading = createElement('th', { scope: 'row' }, titleLink);
   const statusTag = createElement('span', {
@@ -100,7 +100,7 @@ async function uploadDataset(event) {
 
   try {
     const dataset = await api('/datasets', { method: 'POST', form: formData });
-    location.assign(`/dataset.html?id=${dataset.id}`);
+    location.assign(`/dataset?id=${dataset.id}`);
   } catch (error) {
     showStatus(getElement('upload-status'), error.message, 'error');
     if (Array.isArray(error.details)) {

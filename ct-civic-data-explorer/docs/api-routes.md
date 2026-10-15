@@ -9,14 +9,14 @@
 | Method | Path | Access | What it does |
 | --- | --- | --- | --- |
 | GET | `/` (`index.html`) | Public file | Dashboard page (its API calls require sign-in) |
-| GET | `/login.html` | Public | Sign-in page |
-| GET | `/set-password.html` | Public | Set a password from an invite or reset link |
-| GET | `/explore.html` | Public file | Interactive exploration (data requires sign-in); `?embed=1` uses compact same-origin chrome |
-| GET | `/builder.html` | Public file | Report builder page |
-| GET | `/dataset.html` | Public file | Dataset detail page |
-| GET | `/town.html` | Public file | Town profile page |
-| GET | `/admin.html` | Public file | Admin page (datasets, indicators) |
-| GET | `/users.html` | Public file | User management page |
+| GET | `/login` | Public | Sign-in page |
+| GET | `/set-password` | Public | Set a password from an invite or reset link |
+| GET | `/explore` | Public file | Interactive exploration (data requires sign-in); `?embed=1` uses compact same-origin chrome |
+| GET | `/builder` | Public file | Report builder page |
+| GET | `/dataset` | Public file | Dataset detail page |
+| GET | `/town` | Public file | Town profile page |
+| GET | `/admin` | Public file | Admin page (datasets, indicators) |
+| GET | `/users` | Public file | User management page |
 | GET | `/js/*`, `/css/*` | Public | Front-end scripts and styles |
 | GET | `/shared/*` | Public | Code shared by server and browser (formatting, theme) |
 | GET | `/vendor/chart.js/*` | Public | Chart.js library |
