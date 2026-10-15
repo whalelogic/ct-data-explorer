@@ -3,6 +3,7 @@ import { api, loadSession } from './api.js';
 import { clearReport, renderReport } from './report-view.js';
 import { h as createElement } from './dom.js';
 import { boot, debounce, downloadBlob, renderHeader, showStatus } from './layout.js';
+import { fieldUnitLabel, groupFieldsByUnit } from '/shared/field-groups.js';
 import { unitLabel } from '/shared/format.js';
 
 const MAX_FIELDS = 25;
@@ -347,9 +348,11 @@ function renderFields() {
   const visibleFields = getVisibleFields();
   const fieldList = getElement('field-list');
   fieldList.replaceChildren();
-  for (const field of visibleFields) {
-    const fieldElement = createFieldElement(field);
-    fieldList.append(fieldElement);
+  for (const group of groupFieldsByUnit(visibleFields)) {
+    const section = createElement('fieldset', { class: 'unit-field-group' });
+    section.append(createElement('legend', {}, group.label));
+    for (const field of group.fields) section.append(createFieldElement(field));
+    fieldList.append(section);
   }
   if (visibleFields.length === 0) {
     const emptyMessage = datasetOptions.columns.length
@@ -378,7 +381,7 @@ function createFieldElement(field) {
   });
   const fieldDescription = createElement('span', { class: 'field-copy' });
   const fieldName = createElement('span', {}, field.displayLabel ?? field.label);
-  const fieldUnit = field.type === 'text' ? 'Category · table' : unitLabel(field.unit);
+  const fieldUnit = fieldUnitLabel(field);
   const unitDescription = createElement('span', { class: 'field-unit' }, fieldUnit);
   fieldDescription.append(fieldName, unitDescription);
   if (field.description) {

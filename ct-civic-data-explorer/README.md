@@ -19,6 +19,8 @@ Open a dataset's **Details**, then **Customize names and display**. Staff can se
 
 The report builder's **Customize field labels for this report** section overrides a selected field's label, description or precision. A blank setting inherits its shared default. **Use shared field defaults** removes report-specific overrides; each chart also has an optional custom title. Field explanations are included as notes in previews and PDFs. New reports and new chart blocks use the dataset's chart default, while saved layouts and explicit report overrides remain intact. Shared field order controls the field picker; reports retain their chosen field order.
 
+Approved-field pickers in the builder, chart/table blocks and Explore group choices by unit and show each field's unit. Counts, dollars, percentages and text categories are distinct groups; the report's chosen field order is preserved.
+
 ### Chart colors and report appearance
 
 In dataset Details, **Shared report appearance** sets the six chart series colors, statewide benchmark color, heading color, table-header background, standard/large text, and comfortable/compact spacing. Its sample updates as you edit. Save shared defaults to apply them across Explore and reports that inherit those settings. **Use CTData styling** restores the original theme; save to apply it.
