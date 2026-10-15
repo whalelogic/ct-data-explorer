@@ -1464,3 +1464,96 @@ table.data .num {
     grid-column: 1;
   }
 }
+
+/* Style choices are scoped to the report, including its tables and text. */
+.report .report-title,
+.report .chart-title,
+.report .report-text h3,
+.report .report-text h4,
+.report .report-text h5,
+.report .report-text a {
+  color: var(--report-heading, var(--teal));
+}
+.report table.data thead th {
+  background-color: var(--report-table-header, var(--tint));
+  color: #262558;
+}
+.report[data-text-size="large"] .report-text,
+.report[data-text-size="large"] table.data {
+  font-size: 1rem;
+}
+.report[data-spacing="compact"] .report-text,
+.report[data-spacing="compact"] .report-chart,
+.report[data-spacing="compact"] .report-table {
+  margin-bottom: 0.6rem;
+}
+.report[data-spacing="compact"] table.data th,
+.report[data-spacing="compact"] table.data td {
+  padding-top: 0.3rem;
+  padding-bottom: 0.3rem;
+}
+.report-style-editor {
+  min-width: 0;
+  margin: 1rem 0;
+}
+.style-setting {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.7rem 0;
+  border-bottom: 1px solid var(--rule);
+}
+.style-setting-label {
+  grid-column: 1;
+  font-size: 0.83rem;
+}
+.style-setting-inputs {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+.style-setting .style-override-toggle {
+  grid-column: 2;
+  grid-row: 1;
+}
+.style-setting-inputs input[type="color"] {
+  width: 34px;
+  height: 34px;
+  padding: 2px;
+  cursor: pointer;
+}
+.style-setting-inputs select {
+  width: auto;
+  font-size: 0.8rem;
+}
+.style-override-toggle {
+  font-size: 0.75rem;
+  font-weight: 400;
+  margin: 0;
+}
+.style-sample {
+  background: #fff;
+  color: #262558;
+  border: 1px solid var(--rule);
+  margin: 1rem 0;
+}
+.style-sample-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  margin: 1rem 0;
+}
+.style-sample-bars span {
+  width: 24px;
+}
+.style-sample-header {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.5rem;
+  font-weight: 600;
+}
+.style-sample p {
+  margin: 0.5rem 0 0;
+}
