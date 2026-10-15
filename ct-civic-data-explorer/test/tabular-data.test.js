@@ -92,9 +92,9 @@ test('record reports filter categories without summing and render tables to PDF'
   const selection = selectionSchema.parse({ dataset, towns: ['Andover'], indicators: ['c1', 'c2', 'c3', 'c4'], benchmark: false });
   const report = renderRecordReport(selection, dataset, rows);
   assert.deepEqual(report.blocks[0].chart.series[0].values, [369, 59]);
-  assert.equal(report.blocks[1].records.length, 2);
+  assert.equal(report.blocks.find((block) => block.type === 'records').records.length, 2);
   const filtered = renderRecordReport({ ...selection, recordFilters: { c1: 'Government' } }, dataset, rows);
-  assert.equal(filtered.blocks[1].records.length, 1);
+  assert.equal(filtered.blocks.find((block) => block.type === 'records').records.length, 1);
   assert.match((await renderCardPdf(report)).toString('ascii', 0, 8), /^%PDF-/);
   assert.throws(() => renderRecordReport({ ...selection, recordFilters: { c99: 'Anything' } }, dataset, rows), /Unknown category/);
 });
