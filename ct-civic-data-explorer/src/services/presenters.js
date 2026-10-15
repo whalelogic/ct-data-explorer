@@ -60,24 +60,24 @@ export function presentIndicator(indicator) {
   };
 }
 
-export function presentCard(card) {
+export function presentReport(report) {
   return {
-    id: card.id,
-    title: card.title,
-    selection: currentSelection(card.selection),
-    towns: card.selection?.towns ?? [],
-    createdBy: { id: card.created_by, name: card.creator_name },
+    id: report.id,
+    title: report.title,
+    selection: currentSelection(report.selection),
+    towns: report.selection?.towns ?? [],
+    createdBy: { id: report.created_by, name: report.creator_name },
     dataset: {
-      name: card.dataset_name,
-      vintage: card.dataset_vintage,
-      version: card.dataset_version,
+      name: report.dataset_name,
+      vintage: report.dataset_vintage,
+      version: report.dataset_version,
     },
-    createdAt: card.created_at,
-    updatedAt: card.updated_at,
+    createdAt: report.created_at,
+    updatedAt: report.updated_at,
   };
 }
 
-/** Saved cards may predate the layout; the builder always receives the current shape. */
+/** Saved reports may predate the layout; the builder always receives the current shape. */
 function currentSelection(storedSelection) {
   const parsedSelection = selectionSchema.safeParse(storedSelection);
   if (parsedSelection.success) {

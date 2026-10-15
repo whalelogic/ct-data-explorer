@@ -28,9 +28,9 @@ const BODY_SIZE = 10.5;
 const HEADING_SIZES = { 1: 15, 2: 13, 3: 11.5 };
 
 /** @returns {Promise<Buffer>} */
-export function renderWithPdfkit(card) {
+export function renderWithPdfkit(report) {
   return new Promise((resolve, reject) => {
-    const generatedDate = new Date(`${card.generatedOn}T12:00:00Z`);
+    const generatedDate = new Date(`${report.generatedOn}T12:00:00Z`);
     const document = new PDFDocument({
       size: 'LETTER',
       margins: {
@@ -41,7 +41,7 @@ export function renderWithPdfkit(card) {
       },
       bufferPages: true,
       info: {
-        Title: card.title,
+        Title: report.title,
         Author: 'CTData Collaborative',
         Creator: 'CT Civic Data Explorer',
         CreationDate: generatedDate,
@@ -62,8 +62,8 @@ export function renderWithPdfkit(card) {
       }
 
       document.font('Poppins-Regular');
-      drawBody(document, card);
-      drawFooters(document, card);
+      drawBody(document, report);
+      drawFooters(document, report);
       document.end();
     } catch (error) {
       reject(error);
@@ -71,30 +71,30 @@ export function renderWithPdfkit(card) {
   });
 }
 
-function drawBody(document, card) {
+function drawBody(document, report) {
   const width = contentWidth(document);
-  const hasDataTable = card.blocks.some((block) => block.type === 'table' || block.type === 'records');
+  const hasDataTable = report.blocks.some((block) => block.type === 'table' || block.type === 'records');
 
-  if (card.showTitle) {
+  if (report.showTitle) {
     document.font('Poppins-ExtraBold');
     document.fontSize(20);
     document.fillColor(INK);
-    document.text(card.title, MARGIN, document.y, { width });
+    document.text(report.title, MARGIN, document.y, { width });
 
-    if (card.subtitle) {
+    if (report.subtitle) {
       document.moveDown(0.2);
       document.font('Poppins-Regular');
       document.fontSize(12);
       document.fillColor(MUTED);
-      document.text(card.subtitle, { width });
+      document.text(report.subtitle, { width });
     }
 
     document.moveDown(1);
   }
 
-  for (let blockIndex = 0; blockIndex < card.blocks.length; blockIndex++) {
-    const block = card.blocks[blockIndex];
-    const nextBlock = card.blocks[blockIndex + 1];
+  for (let blockIndex = 0; blockIndex < report.blocks.length; blockIndex++) {
+    const block = report.blocks[blockIndex];
+    const nextBlock = report.blocks[blockIndex + 1];
 
     if (block.type === 'text' && nextBlock?.type === 'chart') {
       keepWithChart(document, block.nodes);
@@ -105,7 +105,7 @@ function drawBody(document, card) {
     } else if (block.type === 'chart') {
       drawChart(document, block.chart, !hasDataTable);
     } else if (block.type === 'table') {
-      drawTable(document, card.places, block.indicators);
+      drawTable(document, report.places, block.indicators);
     } else if (block.type === 'records') {
       drawRecordTables(document, block);
     }
@@ -729,7 +729,7 @@ function recordTextThatFits(document, text, cellWidth, availableHeight) {
 }
 
 /** Draw the source attribution and page number on every page. */
-function drawFooters(document, card) {
+function drawFooters(document, report) {
   const pageRange = document.bufferedPageRange();
 
   for (let pageIndex = pageRange.start; pageIndex < pageRange.start + pageRange.count; pageIndex++) {
@@ -748,7 +748,7 @@ function drawFooters(document, card) {
     document.font('Poppins-Regular');
     document.fontSize(8);
     document.fillColor(MUTED);
-    document.text(card.sourceLine, MARGIN, y, { width: width - 70 });
+    document.text(report.sourceLine, MARGIN, y, { width: width - 70 });
     document.text(`Page ${pageIndex + 1} of ${pageRange.count}`, MARGIN + width - 60, y, {
       width: 60,
       align: 'right',

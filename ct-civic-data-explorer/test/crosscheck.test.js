@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { crossCheckFigures, extractFigures } from '../src/services/ai/crosscheck.js';
 import { summaryFacts } from '../src/services/ai/index.js';
 
-const card = {
+const report = {
   dataset: { name: 'ACS 5-Year Town Profile', source: 'U.S. Census Bureau', vintage: '2024' },
   places: [
     { name: 'West Hartford', geoType: 'town' },
@@ -22,23 +22,23 @@ test('extracts figures with their stated precision', () => {
   );
 });
 
-test('figures copied or fairly rounded from the card pass', () => {
+test('figures copied or fairly rounded from the report pass', () => {
   const text =
     'In the 2024 ACS 5-Year profile, West Hartford had a median household income of $129,890, above the statewide $95,781 ' +
     '(roughly $130 thousand versus $96 thousand). Its poverty rate of 6.3% was lower than the statewide 10.0%.';
-  assert.deepEqual(crossCheckFigures(text, card), []);
+  assert.deepEqual(crossCheckFigures(text, report), []);
 });
 
-test('numbers that are not on the card are flagged', () => {
+test('numbers that are not on the report are flagged', () => {
   const text = 'West Hartford earned $129,980, and its poverty rate was 3.7 points below the state.';
   assert.deepEqual(
-    crossCheckFigures(text, card).map((m) => m.figure),
+    crossCheckFigures(text, report).map((m) => m.figure),
     ['$129,980', '3.7'],
   );
 });
 
 test('only public aggregate figures and labels are sent to the provider', () => {
-  assert.deepEqual(summaryFacts(card), {
+  assert.deepEqual(summaryFacts(report), {
     dataset: { name: 'ACS 5-Year Town Profile', source: 'U.S. Census Bureau', vintage: '2024' },
     places: [
       { name: 'West Hartford', type: 'town' },

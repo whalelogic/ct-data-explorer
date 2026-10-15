@@ -1,6 +1,6 @@
 /**
- * Cross-check the figures in AI-drafted text against the card's computed values
- * (SRS US009, Risk T4). A number in the draft matches when it equals some card
+ * Cross-check the figures in AI-drafted text against the report's computed values
+ * (SRS US009, Risk T4). A number in the draft matches when it equals some report
  * value rounded to the precision the draft states: "9.3%" matches 9.2949 and
  * "$130 thousand" matches 129,890. Anything else is flagged for the user.
  */
@@ -20,16 +20,16 @@ export function extractFigures(text) {
 
 /**
  * @param {string} text drafted summary
- * @param {{ dataset: { name: string, vintage: string }, indicators: { cells: { value: number | null }[] }[] }} card
- * @returns {{ figure: string, message: string }[]} figures that match nothing on the card
+ * @param {{ dataset: { name: string, vintage: string }, indicators: { cells: { value: number | null }[] }[] }} report
+ * @returns {{ figure: string, message: string }[]} figures that match nothing on the report
  */
-export function crossCheckFigures(text, card) {
+export function crossCheckFigures(text, report) {
   const allowed = [
-    ...card.indicators.flatMap((row) => row.cells.map((cell) => cell.value)).filter((v) => v != null),
+    ...report.indicators.flatMap((row) => row.cells.map((cell) => cell.value)).filter((v) => v != null),
     // Numbers that legitimately appear in prose about the dataset, e.g. "2024" or "5-Year".
-    ...`${card.dataset.name} ${card.dataset.vintage}`.match(/\d+/g)?.map(Number) ?? [],
+    ...`${report.dataset.name} ${report.dataset.vintage}`.match(/\d+/g)?.map(Number) ?? [],
   ];
   return extractFigures(text)
     .filter((figure) => !allowed.some((value) => Math.abs(value - figure.value) <= figure.tolerance + 1e-9))
-    .map((figure) => ({ figure: figure.raw, message: `"${figure.raw}" does not match any figure on this card` }));
+    .map((figure) => ({ figure: figure.raw, message: `"${figure.raw}" does not match any figure on this report` }));
 }

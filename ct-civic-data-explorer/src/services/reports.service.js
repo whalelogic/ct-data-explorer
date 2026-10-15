@@ -1,13 +1,13 @@
 /**
- * Card building and the saved card library (SRS US005–US008).
+ * Report building and the saved report library (SRS US005–US008).
  *
- * buildCard() turns a validated selection into render-ready card data. That one
+ * buildReport() turns a validated selection into render-ready report data. That one
  * object is returned as JSON for the live preview and handed to the PDF renderer,
  * so both always show the same figures.
  */
 import { HttpError } from '../lib/http-error.js';
 import { formatValue } from '../shared/format.js';
-import * as cards from '../repositories/cards.js';
+import * as reports from '../repositories/reports.js';
 import * as datasets from '../repositories/datasets.js';
 import * as indicators from '../repositories/indicators.js';
 import * as observations from '../repositories/observations.js';
@@ -26,7 +26,7 @@ const TIME_ZONE = 'America/New_York';
  * @param {import('zod').infer<typeof selectionSchema>} selection already validated
  * @param {{ now?: Date }} [options]
  */
-export async function buildCard(selection, { now = new Date() } = {}) {
+export async function buildReport(selection, { now = new Date() } = {}) {
   const dataset = await requireActiveDataset(selection.dataset);
   const places = await resolvePlaces(selection);
   if (dataset.data_format === 'records') {
@@ -73,76 +73,76 @@ function buildIndicatorRows(selectedIndicators, places, valuesByPlace) {
   return rows;
 }
 
-/** Parse a stored selection with the current schema, so older saved cards pick up new defaults. */
+/** Parse a stored selection with the current schema, so older saved reports pick up new defaults. */
 export function parseStoredSelection(storedSelection) {
   const parsedSelection = selectionSchema.safeParse(storedSelection);
   if (!parsedSelection.success) {
-    throw new HttpError(422, `This saved card can no longer be built: ${parsedSelection.error.issues[0]?.message}`);
+    throw new HttpError(422, `This saved report can no longer be built: ${parsedSelection.error.issues[0]?.message}`);
   }
   return parsedSelection.data;
 }
 
-export function listCards(query) {
-  return cards.list(query);
+export function listReports(query) {
+  return reports.list(query);
 }
 
-export async function getCard(id) {
-  const card = await cards.findById(id);
-  if (!card) {
-    throw new HttpError(404, 'Card not found');
+export async function getReport(id) {
+  const report = await reports.findById(id);
+  if (!report) {
+    throw new HttpError(404, 'Report not found');
   }
-  return card;
+  return report;
 }
 
-export async function createCard({ title, selection }, user) {
-  const builtCard = await buildCard(selection);
-  const id = await cards.insert({
+export async function createReport({ title, selection }, user) {
+  const builtReport = await buildReport(selection);
+  const id = await reports.insert({
     title,
     selection,
     createdBy: user.id,
-    datasetId: builtCard.dataset.id,
+    datasetId: builtReport.dataset.id,
   });
-  return cards.findById(id);
+  return reports.findById(id);
 }
 
-export async function updateCard(id, { title, selection }, user) {
-  const card = await getOwnedCard(id, user);
-  const nextSelection = selection ?? parseStoredSelection(card.selection);
-  const builtCard = await buildCard(nextSelection);
-  await cards.update(id, {
-    title: title ?? card.title,
+export async function updateReport(id, { title, selection }, user) {
+  const report = await getOwnedReport(id, user);
+  const nextSelection = selection ?? parseStoredSelection(report.selection);
+  const builtReport = await buildReport(nextSelection);
+  await reports.update(id, {
+    title: title ?? report.title,
     selection: nextSelection,
-    datasetId: builtCard.dataset.id,
+    datasetId: builtReport.dataset.id,
   });
-  return cards.findById(id);
+  return reports.findById(id);
 }
 
-/** Any signed-in user may duplicate a card; the copy belongs to them. */
-export async function duplicateCard(id, user) {
-  const card = await getCard(id);
-  const selection = parseStoredSelection(card.selection);
-  const builtCard = await buildCard(selection);
-  const title = `${card.title} (copy)`.slice(0, 200);
-  const copyId = await cards.insert({
+/** Any signed-in user may duplicate a report; the copy belongs to them. */
+export async function duplicateReport(id, user) {
+  const report = await getReport(id);
+  const selection = parseStoredSelection(report.selection);
+  const builtReport = await buildReport(selection);
+  const title = `${report.title} (copy)`.slice(0, 200);
+  const copyId = await reports.insert({
     title,
     selection,
     createdBy: user.id,
-    datasetId: builtCard.dataset.id,
+    datasetId: builtReport.dataset.id,
   });
-  return cards.findById(copyId);
+  return reports.findById(copyId);
 }
 
-export async function deleteCard(id, user) {
-  await getOwnedCard(id, user);
-  await cards.remove(id);
+export async function deleteReport(id, user) {
+  await getOwnedReport(id, user);
+  await reports.remove(id);
 }
 
-async function getOwnedCard(id, user) {
-  const card = await getCard(id);
-  if (card.created_by !== user.id) {
-    throw new HttpError(403, 'Only the person who created this card can change it');
+async function getOwnedReport(id, user) {
+  const report = await getReport(id);
+  if (report.created_by !== user.id) {
+    throw new HttpError(403, 'Only the person who created this report can change it');
   }
-  return card;
+  return report;
 }
 
 async function requireActiveDataset({ name, vintage }) {

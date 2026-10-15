@@ -43,14 +43,20 @@ try {
     console.warn(`Warning: ${user.email} is deactivated and still cannot sign in after this reset.`);
   }
 
+  // Validate a piped password before issuing a link: issuing one invalidates
+  // any link the user already has, so a rejected password must not get that far.
+  let password;
+  if (values['password-stdin']) {
+    password = newPasswordSchema.safeParse(await readStdin());
+    if (!password.success) throw new Error(password.error.issues[0].message);
+  }
+
   const { link } = await createPasswordLink(user.id);
 
   if (!values['password-stdin']) {
     const expiry = user.password_hash ? '1 hour' : '7 days';
     console.log(`Reset ${user.email} (${user.role}). Set the password within ${expiry} at:\n${link}`);
   } else {
-    const password = newPasswordSchema.safeParse(await readStdin());
-    if (!password.success) throw new Error(password.error.issues[0].message);
     // The token rides in the URL fragment; consuming it here runs the same
     // transaction the set-password page would.
     await setPasswordWithToken(new URL(link).hash.replace('#token=', ''), password.data);

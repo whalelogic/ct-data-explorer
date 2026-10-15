@@ -16,7 +16,7 @@ export function setCsrfToken(token) {
 }
 
 /**
- * @param {string} path API path after /api, e.g. '/cards'
+ * @param {string} path API path after /api, e.g. '/reports'
  * @param {{ method?: string, json?: unknown, form?: FormData, expect?: 'json' | 'blob' }} [options]
  */
 export async function api(path, { method = 'GET', json, form, expect = 'json' } = {}) {
@@ -63,5 +63,5 @@ function redirectToSignIn() {
 }
 
 function filenameFrom(res) {
-  return /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') ?? '')?.[1] ?? 'card.pdf';
+  return /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') ?? '')?.[1] ?? 'report.pdf';
 }

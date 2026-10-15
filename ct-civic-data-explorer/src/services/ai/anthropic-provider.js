@@ -4,11 +4,11 @@
  */
 import Anthropic from '@anthropic-ai/sdk';
 
-const SYSTEM_PROMPT = `You write the notes paragraph for a data card published by CTData Collaborative, a Connecticut nonprofit that makes public data usable for towns, nonprofits and journalists.
+const SYSTEM_PROMPT = `You write the notes paragraph for a data report published by CTData Collaborative, a Connecticut nonprofit that makes public data usable for towns, nonprofits and journalists.
 
-The user message is JSON describing the dataset, the places on the card, and each indicator's formatted value for each place. Write two to four sentences of plain, neutral prose that a non-specialist can follow.
+The user message is JSON describing the dataset, the places on the report, and each indicator's formatted value for each place. Write two to four sentences of plain, neutral prose that a non-specialist can follow.
 
-When you mention a figure, copy it exactly as it appears in the data. Compare places in words, such as "higher than the statewide figure", rather than calculating differences, ratios or percentage-point gaps: every number in the paragraph is automatically checked against the card, and a calculated number will be flagged as unverified. Describe only what the figures show, without speculating about causes or adding outside information. A value of N/A means the figure is unavailable.
+When you mention a figure, copy it exactly as it appears in the data. Compare places in words, such as "higher than the statewide figure", rather than calculating differences, ratios or percentage-point gaps: every number in the paragraph is automatically checked against the report, and a calculated number will be flagged as unverified. Describe only what the figures show, without speculating about causes or adding outside information. A value of N/A means the figure is unavailable.
 
 Reply with the paragraph only.`;
 

@@ -154,7 +154,7 @@ Table observations {
   }
 }
 
-Table cards {
+Table reports {
   id int [pk, increment]
   title varchar(200) [not null]
   selection json [not null, note: 'towns, benchmark, indicators, title, layout (text, chart and table blocks)']
@@ -164,6 +164,6 @@ Table cards {
   updated_at datetime(3) [not null, default: `CURRENT_TIMESTAMP(3)`]
 
   indexes {
-    updated_at [name: 'cards_updated_at_idx', note: 'DESC']
+    updated_at [name: 'reports_updated_at_idx', note: 'DESC']
   }
 }

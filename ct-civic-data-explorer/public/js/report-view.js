@@ -1,5 +1,5 @@
 /**
- * Render the API's report card data as HTML and Chart.js charts.
+ * Render the API's report report data as HTML and Chart.js charts.
  * Chart.js is loaded as a global from /vendor/chart.js.
  */
 import { formatAxisValue, formatValue, unitLabel } from '/shared/format.js';
@@ -13,31 +13,31 @@ const CHART_PAGE_SIZE = 20;
 const TABLE_PAGE_SIZE = 10;
 const RECORD_PAGE_SIZE = 50;
 
-export function renderCard(container, card) {
-  clearCard(container);
+export function renderReport(container, report) {
+  clearReport(container);
   const pendingCharts = [];
   const indicatorsByKey = new Map();
-  for (const indicator of card.indicators) {
+  for (const indicator of report.indicators) {
     indicatorsByKey.set(indicator.key, indicator);
   }
 
-  const article = createElement('article', { class: 'card' });
-  if (card.showTitle) {
-    const title = createElement('h2', { class: 'card-title' }, card.title);
+  const article = createElement('article', { class: 'report' });
+  if (report.showTitle) {
+    const title = createElement('h2', { class: 'report-title' }, report.title);
     const header = createElement('header', {}, title);
-    if (card.subtitle) {
-      header.append(createElement('p', { class: 'card-subtitle' }, card.subtitle));
+    if (report.subtitle) {
+      header.append(createElement('p', { class: 'report-subtitle' }, report.subtitle));
     }
     article.append(header);
   }
 
-  for (const block of card.blocks) {
-    const blockElement = renderBlock(block, card.places, indicatorsByKey, pendingCharts);
+  for (const block of report.blocks) {
+    const blockElement = renderBlock(block, report.places, indicatorsByKey, pendingCharts);
     if (blockElement) {
       article.append(blockElement);
     }
   }
-  article.append(createElement('footer', { class: 'card-source' }, card.sourceLine));
+  article.append(createElement('footer', { class: 'report-source' }, report.sourceLine));
   container.append(article);
 
   // Draw only after the canvases are attached, so Chart.js can measure them.
@@ -47,7 +47,7 @@ export function renderCard(container, card) {
   chartsByContainer.set(container, pendingCharts);
 }
 
-export function clearCard(container) {
+export function clearReport(container) {
   for (const chartView of chartsByContainer.get(container) ?? []) {
     chartView.instance?.destroy();
   }
@@ -58,7 +58,7 @@ export function clearCard(container) {
 function renderBlock(block, places, indicatorsByKey, pendingCharts) {
   switch (block.type) {
     case 'text': {
-      const section = createElement('section', { class: 'card-text' });
+      const section = createElement('section', { class: 'report-text' });
       for (const node of block.nodes) {
         const textElement = renderTextNode(node);
         if (textElement) {
@@ -110,7 +110,7 @@ function renderChart(chart, places, indicatorsByKey, pendingCharts) {
     `${title}: location pages`,
   );
   pendingCharts.push(chartView);
-  return createElement('figure', { class: 'card-chart' }, heading, pager, chartScroll, details);
+  return createElement('figure', { class: 'report-chart' }, heading, pager, chartScroll, details);
 }
 
 function updateChartPage(chartView, pageIndex) {
@@ -242,7 +242,7 @@ function renderPagedIndicatorTable(places, indicators) {
     'Indicator table location pages',
   );
   updateIndicatorTablePage(tableView, 0);
-  return createElement('section', { class: 'card-table' }, pager, tableContainer);
+  return createElement('section', { class: 'report-table' }, pager, tableContainer);
 }
 
 function updateIndicatorTablePage(tableView, pageIndex) {
@@ -289,7 +289,7 @@ function renderRecordTable(block) {
     'Source table row pages',
   );
   updateRecordTablePage(tableView, 0);
-  return createElement('section', { class: 'card-table' }, pager, tableContainer);
+  return createElement('section', { class: 'report-table' }, pager, tableContainer);
 }
 
 function updateRecordTablePage(tableView, pageIndex) {
