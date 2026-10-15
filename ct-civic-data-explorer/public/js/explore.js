@@ -89,6 +89,8 @@ function connectEventHandlers() {
   getElement('field-search').addEventListener('input', renderFields);
   getElement('clear-fields').addEventListener('click', clearFields);
   getElement('chart-type').addEventListener('change', handleChartTypeChange);
+  getElement('share-view').addEventListener('click', shareView);
+  getElement('open-builder').addEventListener('click', openBuilder);
   getElement('export-pdf').addEventListener('click', exportPdf);
 }
 
@@ -497,6 +499,7 @@ function handleSelectionChange() {
   lastPreviewSelection = null;
   setActionButtonsEnabled(false);
   showStatus(getElement('action-status'), '');
+  getElement('share-fallback').hidden = true;
   const chartFieldKeys = renderChartControls();
   updateSummary();
   clearCard(getElement('preview'));
@@ -637,7 +640,7 @@ function showEmpty(title, message) {
 }
 
 function setActionButtonsEnabled(enabled) {
-  for (const buttonId of ['export-pdf']) {
+  for (const buttonId of ['share-view', 'open-builder', 'export-pdf']) {
     getElement(buttonId).disabled = !enabled;
   }
 }
@@ -659,6 +662,36 @@ function writeUrl() {
     query.set(`filter.${filterKey}`, filterValue);
   }
   history.replaceState(null, '', `${location.pathname}?${query}`);
+}
+
+async function shareView() {
+  if (!lastPreviewSelection) {
+    return;
+  }
+  writeUrl();
+  const shareLink = new URL(location.href);
+  try {
+    await navigator.clipboard.writeText(shareLink.href);
+    showStatus(getElement('action-status'), 'View link copied. Recipients must sign in to explore the current approved data.', 'success');
+  } catch {
+    getElement('share-fallback').hidden = false;
+    getElement('share-link').value = shareLink.href;
+    getElement('share-link').focus();
+    getElement('share-link').select();
+    showStatus(getElement('action-status'), 'Copy the link below. Recipients must sign in to view this selection.');
+  }
+}
+
+function openBuilder() {
+  if (!lastPreviewSelection) {
+    return;
+  }
+  try {
+    sessionStorage.setItem('ctdata:explore-selection', JSON.stringify(lastPreviewSelection));
+    location.assign(`/builder.html?from=explore&dataset=${encodeURIComponent(selectedDataset.id)}`);
+  } catch {
+    showStatus(getElement('action-status'), 'Your browser could not transfer this view. Allow site storage and try again.', 'error');
+  }
 }
 
 async function exportPdf() {

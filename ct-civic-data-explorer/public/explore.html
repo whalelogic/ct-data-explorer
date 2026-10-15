@@ -118,6 +118,7 @@
               <p class="eyebrow">Your view</p>
               <h2 id="view-heading">Your exploration</h2>
             </div>
+            <button id="share-view" type="button" class="secondary" disabled>Copy view link</button>
           </div>
           <p id="selection-summary" class="explorer-selection">
             Choose a town and at least one field to begin.
@@ -143,9 +144,16 @@
           <div id="preview" aria-label="Your selected data"></div>
           <div id="dataset-source" class="explorer-source" hidden></div>
           <p id="action-status" class="status" role="status" aria-live="polite" hidden></p>
+          <div id="share-fallback" hidden>
+            <label for="share-link">Copy this link to reopen your view</label>
+            <input id="share-link" readonly />
+          </div>
           <div class="explorer-footer">
             <p class="small muted">Add context in a report or export this view as a PDF.</p>
             <div class="button-row">
+              <button id="open-builder" type="button" class="secondary" disabled>
+                Open report builder
+              </button>
               <button id="export-pdf" type="button" class="link" disabled>Download PDF</button>
             </div>
           </div>
