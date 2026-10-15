@@ -8,30 +8,52 @@ const datasetStatus = document.getElementById('datasets-status');
 const reportsGrid = document.getElementById('reports-grid');
 const reportsStatus = document.getElementById('reports-status');
 const searchInput = document.getElementById('search-input');
+const onlyMine = document.getElementById('only-mine');
+const reportSort = document.getElementById('report-sort');
 const scheduleReportSearch = debounce(loadReports, 250);
 
 let currentUser;
 let publishedDatasets = [];
+let matchingReports = [];
 let reportRequestNumber = 0;
+let reportsLoaded = false;
 
 async function initializeDashboard() {
   const session = await loadSession();
   currentUser = session.user;
   renderHeader(currentUser);
-
-  const datasets = await api('/datasets');
-  publishedDatasets = datasets.filter((dataset) => dataset.isActive);
+  document.getElementById('manage-datasets').hidden = currentUser.role !== 'admin';
   searchInput.addEventListener('input', handleSearchInput);
   document.getElementById('dashboard-search').addEventListener('submit', handleSearchSubmit);
-  renderDatasets();
-  await loadReports();
+  document.getElementById('clear-search').addEventListener('click', clearSearch);
+  document.getElementById('retry-datasets').addEventListener('click', loadDatasets);
+  document.getElementById('retry-reports').addEventListener('click', loadReports);
+  onlyMine.addEventListener('change', renderReports);
+  reportSort.addEventListener('change', renderReports);
+  await Promise.all([loadDatasets(), loadReports()]);
+}
+
+async function loadDatasets() {
+  datasetGrid.setAttribute('aria-busy', 'true');
+  document.getElementById('retry-datasets').hidden = true;
+  showStatus(datasetStatus, 'Loading datasets…');
+  try {
+    const datasets = await api('/datasets');
+    publishedDatasets = datasets.filter((dataset) => dataset.isActive);
+    publishedDatasets.sort((first, second) => first.name.localeCompare(second.name));
+    renderDatasets();
+  } catch (error) {
+    showStatus(datasetStatus, error.message, 'error');
+    document.getElementById('retry-datasets').hidden = false;
+  } finally {
+    datasetGrid.setAttribute('aria-busy', 'false');
+  }
 }
 
 function renderDatasets() {
   const searchText = searchInput.value.trim().toLowerCase();
   datasetGrid.replaceChildren();
   let matchingDatasetCount = 0;
-
   for (const dataset of publishedDatasets) {
     const searchableValues = [dataset.name, dataset.source, dataset.vintage];
     const matchesSearch = searchableValues.some((value) => String(value).toLowerCase().includes(searchText));
@@ -40,11 +62,13 @@ function renderDatasets() {
       matchingDatasetCount += 1;
     }
   }
-
-  let emptyMessage = 'No datasets match this name.';
+  document.getElementById('dataset-count').textContent = searchText
+    ? `${matchingDatasetCount} of ${publishedDatasets.length}`
+    : String(publishedDatasets.length);
+  let emptyMessage = 'No datasets match your search. Try a different name, source, or period.';
   if (!searchText) {
     const nextStep = currentUser.role === 'admin'
-      ? 'Open Data management to upload and approve data.'
+      ? 'Use Manage datasets to upload and approve data.'
       : 'Your data administrator can publish a dataset here.';
     emptyMessage = `No published datasets yet. ${nextStep}`;
   }
@@ -55,96 +79,138 @@ function createDatasetTile(dataset) {
   const exploreUrl = `/explore.html?dataset=${dataset.id}`;
   const detailsUrl = `/dataset.html?id=${dataset.id}`;
   const hasApprovedFields = dataset.approvedFields === null || dataset.approvedFields?.length > 0;
-
   const titleLink = createElement('a', {
     href: hasApprovedFields ? exploreUrl : detailsUrl,
     class: 'stretched-link',
   }, dataset.name);
   const title = createElement('h3', { class: 'saved-report-title' }, titleLink);
-  const metadata = `${dataset.vintage} · Version ${dataset.version} · ${dataset.rowCount} rows`;
+  const metadata = `${dataset.vintage} · Version ${dataset.version} · ${dataset.rowCount.toLocaleString()} rows`;
   let reviewStatus = 'Awaiting field approval';
   if (hasApprovedFields) {
-    reviewStatus = dataset.curationReviewed
-      ? 'Fields reviewed by staff'
-      : 'Existing published fields · review pending';
+    reviewStatus = dataset.curationReviewed ? 'Fields reviewed' : 'Field review pending';
   }
-
-  const body = createElement('div', { class: 'saved-report-body' }, title);
+  const body = createElement('div', { class: 'saved-report-body' });
   body.append(
+    createElement('p', { class: 'dashboard-dataset-period' }, dataset.vintage),
+    title,
     createElement('p', { class: 'muted small' }, metadata),
-    createElement('p', { class: 'small' }, dataset.source),
-    createElement('p', { class: 'muted small' }, reviewStatus),
+    createElement('p', { class: 'dashboard-dataset-source' }, dataset.source),
+    createElement('p', { class: 'dashboard-review', 'data-reviewed': dataset.curationReviewed }, reviewStatus),
   );
-
   const actions = createElement('div', { class: 'saved-report-actions' });
   if (hasApprovedFields) {
-    actions.append(createElement('a', { href: exploreUrl }, 'Explore dataset'));
+    actions.append(createElement('a', { href: exploreUrl }, 'Explore'));
+    actions.append(createElement('a', { href: `/builder.html?dataset=${dataset.id}` }, 'New report'));
   }
-  const detailsLabel = currentUser.role === 'admin' ? 'Review dataset' : 'Dataset details';
-  actions.append(createElement('a', { href: detailsUrl }, detailsLabel));
-  return createElement('li', { class: 'saved-report' }, body, actions);
+  actions.append(createElement('a', { href: detailsUrl }, 'Details'));
+  return createElement('li', { class: 'saved-report dashboard-dataset' }, body, actions);
 }
 
 async function loadReports() {
-  reportRequestNumber += 1;
-  const currentRequestNumber = reportRequestNumber;
+  const requestNumber = ++reportRequestNumber;
+  reportsLoaded = false;
+  matchingReports = [];
+  reportsGrid.replaceChildren();
+  reportsGrid.setAttribute('aria-busy', 'true');
+  document.getElementById('reports-empty').hidden = true;
+  document.getElementById('retry-reports').hidden = true;
+  document.getElementById('report-count').textContent = '';
+  document.getElementById('reports-limit').hidden = true;
+  showStatus(reportsStatus, 'Loading reports…');
   try {
-    const searchText = searchInput.value.trim();
-    const reports = await fetchReports(searchText);
-    // A newer search may finish first. Keep its results on screen.
-    if (currentRequestNumber !== reportRequestNumber) {
+    const reports = await fetchReports(searchInput.value.trim());
+    // A newer search may finish first; never replace it with an older response.
+    if (requestNumber !== reportRequestNumber) {
       return;
     }
-
-    reportsGrid.replaceChildren();
-    for (const report of reports) {
-      reportsGrid.append(createReportTile(report));
-    }
-    const emptyMessage = searchText
-      ? 'No reports match this dataset or report name.'
-      : 'No saved reports yet. Explore a dataset, then save a report when you are ready.';
-    showStatus(reportsStatus, reports.length ? '' : emptyMessage);
+    matchingReports = reports;
+    reportsLoaded = true;
+    showStatus(reportsStatus, '');
+    renderReports();
   } catch (error) {
-    if (currentRequestNumber !== reportRequestNumber) {
+    if (requestNumber !== reportRequestNumber) {
       return;
     }
-    reportsGrid.replaceChildren();
     showStatus(reportsStatus, error.message, 'error');
+    document.getElementById('retry-reports').hidden = false;
+  } finally {
+    if (requestNumber === reportRequestNumber) {
+      reportsGrid.setAttribute('aria-busy', 'false');
+    }
   }
 }
 
+function renderReports() {
+  if (!reportsLoaded) {
+    return;
+  }
+  const visibleReports = matchingReports.filter((report) => !onlyMine.checked || report.createdBy.id === currentUser.id);
+  visibleReports.sort(compareReports);
+  reportsGrid.replaceChildren();
+  for (const report of visibleReports) {
+    reportsGrid.append(createReportTile(report));
+  }
+  document.getElementById('report-count').textContent = String(visibleReports.length);
+  document.getElementById('reports-limit').hidden = matchingReports.length < 200;
+  document.getElementById('reports-empty').hidden = visibleReports.length > 0;
+  let title = 'Your first report starts with a dataset';
+  let description = 'Choose the places and measures you need, then save your report here.';
+  if (searchInput.value.trim()) {
+    title = 'No reports match your search';
+    description = 'Try another dataset or report name, or clear the search to see more reports.';
+  } else if (onlyMine.checked) {
+    title = 'You haven’t saved a report yet';
+    description = 'Create a report, or turn off Only my reports to browse your team’s work.';
+  }
+  document.getElementById('reports-empty-title').textContent = title;
+  document.getElementById('reports-empty-description').textContent = description;
+}
+
+function compareReports(first, second) {
+  if (reportSort.value === 'title') {
+    return first.title.localeCompare(second.title);
+  }
+  const difference = new Date(second.updatedAt) - new Date(first.updatedAt);
+  return reportSort.value === 'oldest' ? -difference : difference;
+}
+
 function createReportTile(report) {
-  // The title link covers the report; action buttons remain above it in the CSS.
   const titleLink = createElement('a', {
     href: `/builder.html?report=${report.id}`,
     class: 'stretched-link',
   }, report.title);
   const title = createElement('h3', { class: 'saved-report-title' }, titleLink);
-  const towns = createElement('p', { class: 'saved-report-towns' }, report.towns.join(', '));
+  // Keep large selections readable without hiding the full selection in the builder.
+  const townSummary = report.towns.length > 3
+    ? `${report.towns.slice(0, 3).join(', ')} + ${report.towns.length - 3} more`
+    : report.towns.join(', ');
+  const towns = createElement('p', { class: 'saved-report-towns' }, townSummary || 'No towns selected');
   const updatedTime = createElement('time', { datetime: report.updatedAt }, formatDate(report.updatedAt));
   const metadata = createElement('dl', { class: 'saved-report-meta' });
   metadata.append(
     createElement('dt', {}, 'Dataset'),
     createElement('dd', {}, `${report.dataset.name}, ${report.dataset.vintage}`),
     createElement('dt', {}, 'Created by'),
-    createElement('dd', {}, report.createdBy.name),
+    createElement('dd', {}, report.createdBy.id === currentUser.id ? 'You' : report.createdBy.name),
     createElement('dt', {}, 'Updated'),
     createElement('dd', {}, updatedTime),
   );
-
   const body = createElement('div', { class: 'saved-report-body' }, title, towns, metadata);
-  const buttons = reportActionButtons(report, {
+  const actions = createElement('div', { class: 'saved-report-actions' });
+  actions.append(createElement('a', { href: `/builder.html?report=${report.id}` }, 'Open report'));
+  actions.append(...reportActionButtons(report, {
     user: currentUser,
-    status: reportsStatus,
+    status: document.getElementById('report-action-status'),
     reload: loadReports,
-  });
-  const actions = createElement('div', { class: 'saved-report-actions' }, ...buttons);
+  }).filter(Boolean));
   return createElement('li', { class: 'saved-report' }, body, actions);
 }
 
 function handleSearchInput() {
-  // Invalidate any active request while the next search waits for the debounce.
+  // Invalidate active requests immediately, including during the debounce window.
   reportRequestNumber += 1;
+  reportsLoaded = false;
+  document.getElementById('clear-search').hidden = !searchInput.value;
   renderDatasets();
   scheduleReportSearch();
 }
@@ -153,6 +219,14 @@ function handleSearchSubmit(event) {
   event.preventDefault();
   renderDatasets();
   loadReports();
+}
+
+function clearSearch() {
+  searchInput.value = '';
+  document.getElementById('clear-search').hidden = true;
+  renderDatasets();
+  loadReports();
+  searchInput.focus();
 }
 
 boot(initializeDashboard);

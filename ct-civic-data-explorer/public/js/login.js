@@ -32,7 +32,7 @@ function getNextPage() {
   if (nextPath && nextPath.startsWith('/') && !/^\/[/\\]/.test(nextPath)) {
     return nextPath;
   }
-  return '/explore.html';
+  return '/';
 }
 
 loginForm.addEventListener('submit', handleLogin);
