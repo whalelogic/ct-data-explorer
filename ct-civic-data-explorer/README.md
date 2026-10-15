@@ -13,6 +13,12 @@ The interactive workflow advances the dynamic reporting direction in `SRS.docx` 
 
 Migration `005_dataset_curation.sql` preserves existing published fields until staff review them, and labels that state as review pending. All subsequent approvals apply on the server to options, dataset previews, chart/PDF/AI requests and saved reports. Reopening an older report after a field has been withdrawn requires a new valid selection.
 
+## Staff customization
+
+Open a dataset's **Details**, then **Customize names and display**. Staff can set a display name and description, rename approved fields, add field explanations, choose 0–4 decimal places, move fields up or down, and select a default chart style. Administrators can also prepare defaults for unpublished versions. Save applies these defaults to the dataset version; it never changes source names, field keys, values, units, approval or publication. Older versions keep their own settings. Conflicting saves ask the editor to reload rather than overwriting another staff member's work.
+
+The report builder's **Customize field labels for this report** section overrides a selected field's label, description or precision. A blank setting inherits its shared default. **Use shared field defaults** removes report-specific overrides; each chart also has an optional custom title. Field explanations are included as notes in previews and PDFs. New reports and new chart blocks use the dataset's chart default, while saved layouts and explicit report overrides remain intact. Shared field order controls the field picker; reports retain their chosen field order.
+
 ## Brand and embedding
 
 Poppins is bundled locally with its OFL license and embedded in PDFs. `src/shared/theme.js` and `public/css/app.css` use CTData navy `#262558`, teal `#39738C`, coral `#DE6F59` and the supporting brand palette. Charts avoid using teal and green together as required by the brand guide. No font CDN is needed.
