@@ -8,6 +8,8 @@ import { requireRole } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import {
   getDatasetCuration,
+  getDatasetPresentation,
+  updateDatasetPresentation,
   getDatasetOverview,
   getReportOptions,
   listDatasets,
@@ -16,6 +18,7 @@ import {
   uploadDataset,
 } from '../services/datasets.service.js';
 import { presentDataset } from '../services/presenters.js';
+import { datasetPresentationSchema } from '../services/presentation.js';
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -125,3 +128,11 @@ datasetsRouter.patch(
     response.json(presentDataset(dataset));
   },
 );
+
+datasetsRouter.get('/:id/presentation', validate(idParams, 'params'), async (request, response) => {
+  response.json(await getDatasetPresentation(request.valid.params.id, request.user));
+});
+
+datasetsRouter.put('/:id/presentation', validate(idParams, 'params'), validate(datasetPresentationSchema), async (request, response) => {
+  response.json(await updateDatasetPresentation(request.valid.params.id, request.valid.body, request.user));
+});

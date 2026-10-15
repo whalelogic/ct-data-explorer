@@ -2,6 +2,7 @@
 import { indicatorLabel } from '../shared/format.js';
 import { selectionSchema, upgradeLegacySelection } from './selection.js';
 import { visibleDatasetColumns } from './field-curation.js';
+import { applyFieldPresentation } from './presentation.js';
 
 export function presentUser(user) {
   return {
@@ -30,6 +31,9 @@ export function presentDataset(dataset) {
   return {
     id: dataset.id,
     name: dataset.name,
+    displayName: dataset.presentation?.displayName || dataset.name,
+    description: dataset.presentation?.description || '',
+    defaultChartType: dataset.presentation?.defaultChartType || 'grouped_bar',
     sourceId: dataset.source_id,
     source: dataset.source,
     vintage: dataset.vintage,
@@ -39,7 +43,7 @@ export function presentDataset(dataset) {
     uploadedAt: dataset.uploaded_at,
     uploadedBy: dataset.uploaded_by_name,
     dataFormat: dataset.data_format ?? 'indicators',
-    columns: visibleDatasetColumns(dataset),
+    columns: applyFieldPresentation(visibleDatasetColumns(dataset), dataset.presentation),
     importNotes: dataset.import_notes ?? [],
     approvedFields: dataset.approved_fields ?? null,
     curationReviewed: Boolean(dataset.curation_reviewed_at),
@@ -51,6 +55,7 @@ export function presentIndicator(indicator) {
   return {
     key: indicator.key,
     label: indicator.label,
+    description: indicator.description ?? '',
     displayLabel: indicatorLabel(indicator),
     unit: indicator.unit,
     decimals: indicator.decimals,
@@ -69,6 +74,7 @@ export function presentReport(report) {
     createdBy: { id: report.created_by, name: report.creator_name },
     dataset: {
       name: report.dataset_name,
+      displayName: report.dataset_presentation?.displayName || report.dataset_name,
       vintage: report.dataset_vintage,
       version: report.dataset_version,
     },

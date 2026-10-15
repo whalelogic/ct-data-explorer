@@ -8,6 +8,9 @@ export function buildChartBlocks(layoutBlock, indicatorRows, places) {
 
   for (const rows of rowGroups) {
     const chart = buildChart(layoutBlock.chartType, rows, places);
+    if (layoutBlock.title) {
+      chart.title = rowGroups.length > 1 ? `${layoutBlock.title} — ${chart.title}` : layoutBlock.title;
+    }
     chartBlocks.push({ type: 'chart', chart });
   }
   return chartBlocks;

@@ -1,7 +1,7 @@
 /** Opt in against a migrated local database: CT_CURATION_INTEGRATION=1 npm test. */
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import bcrypt from 'bcryptjs';
 import session from 'express-session';
 import request from 'supertest';
@@ -309,6 +309,92 @@ test('HTTP and database curation protects every report path and preserves source
     await sendWriteRequest(admin, 'patch', recordDatasetPath, { isActive: true }).expect(400);
   } finally {
     await removeTestData(userIds, testTag);
-    await pool.end();
+
   }
 });
+
+test('staff customize shared presentation and report overrides without bypassing curation', {
+  skip: process.env.CT_CURATION_INTEGRATION !== '1',
+}, async () => {
+  const testTag = `presentation-test-${crypto.randomUUID()}`;
+  const userIds = [];
+  const app = createApp({ sessionStore: new session.MemoryStore(), logRequests: false });
+  try {
+    const { admin, staff } = await createTestClients(app, testTag, userIds);
+    const uploaded = await uploadDataset(admin, testTag, testTag, 'Town,Jobs,Private count,Category\nAndover,123.45,987654,Services\n').expect(201);
+    const path = `/api/datasets/${uploaded.body.id}`;
+    await staff.agent.get(`${path}/presentation`).expect(404);
+    await sendWriteRequest(admin, 'put', `${path}/presentation`, {
+      revision: 0, fields: { c2: { label: 'Hidden label', description: 'Hidden note' } },
+    }).expect(200);
+    await sendWriteRequest(admin, 'put', `${path}/curation`, { approvedFields: ['c1', 'c3'] }).expect(200);
+    await sendWriteRequest(admin, 'patch', path, { isActive: true }).expect(200);
+    const initial = await staff.agent.get(`${path}/presentation`).expect(200);
+    assert.ok(!JSON.stringify(initial.body).includes('Hidden'));
+    assert.deepEqual(initial.body.fields.map((field) => field.key), ['c1', 'c3']);
+    const defaults = {
+      ...initial.body.settings, displayName: 'Local employment', description: 'An explanation for readers',
+      defaultChartType: 'line', fieldOrder: ['c3', 'c1'],
+      fields: { c1: { label: 'Employment', decimals: 1, description: 'Jobs reported by employers' } },
+    };
+    const saved = await sendWriteRequest(staff, 'put', `${path}/presentation`, defaults).expect(200);
+    await sendWriteRequest(staff, 'put', `${path}/presentation`, defaults).expect(409);
+    for (const fields of [{ c2: { label: 'Forbidden' } }, { c99: { label: 'Unknown' } }, { c3: { decimals: 1 } }, { c1: { decimals: 5 } }, { c1: { unit: 'percent' } }]) {
+      await sendWriteRequest(staff, 'put', `${path}/presentation`, { ...saved.body.settings, fields }).expect(400);
+    }
+    const options = await staff.agent.get(`${path}/report-options`).expect(200);
+    assert.deepEqual(options.body.columns.map((field) => field.key), ['c3', 'c1']);
+    assert.equal(options.body.columns[1].label, 'Employment');
+    assert.equal(options.body.defaultChartType, 'line');
+    const adminSettings = await admin.agent.get(`${path}/presentation`).expect(200);
+    assert.equal(adminSettings.body.settings.fields.c2.label, 'Hidden label');
+    const selection = { dataset: { name: testTag, vintage: '2026' }, towns: ['Andover'], benchmark: false, indicators: ['c1'] };
+    const preview = await sendWriteRequest(staff, 'post', '/api/reports/preview', selection).expect(200);
+    assert.equal(preview.body.indicators[0].label, 'Employment');
+    assert.equal(preview.body.indicators[0].cells[0].value, 123.45);
+    assert.equal(preview.body.indicators[0].cells[0].display, '123.5');
+    assert.match(preview.body.sourceLine, new RegExp(testTag));
+    assert.ok(!JSON.stringify(preview.body).includes('Hidden'));
+    const overridden = {
+      ...selection, fieldOverrides: { c1: { label: 'Local jobs', decimals: 0, description: 'Report-specific note' } },
+      layout: [{ type: 'chart', title: 'Our economy' }, { type: 'table' }],
+    };
+    const custom = await sendWriteRequest(staff, 'post', '/api/reports/preview', overridden).expect(200);
+    assert.equal(custom.body.indicators[0].label, 'Local jobs');
+    assert.equal(custom.body.indicators[0].cells[0].display, '123');
+    assert.equal(custom.body.blocks[0].chart.title, 'Our economy');
+    assert.ok(JSON.stringify(custom.body.blocks).includes('Report-specific note'));
+    const stored = await sendWriteRequest(staff, 'post', '/api/reports', { title: testTag, selection: overridden }).expect(201);
+    const restored = await staff.agent.get(`/api/reports/${stored.body.id}`).expect(200);
+    assert.deepEqual(restored.body.selection.fieldOverrides, overridden.fieldOverrides);
+    await staff.agent.get(`/api/reports/${stored.body.id}/pdf`).expect(200).expect('Content-Type', /pdf/);
+    const searched = await staff.agent.get('/api/reports?q=Local%20employment').expect(200);
+    assert.ok(searched.body.some((report) => report.id === stored.body.id));
+    await sendWriteRequest(staff, 'put', `${path}/presentation`, { ...saved.body.settings, fields: {} }).expect(200);
+    const reset = await sendWriteRequest(staff, 'post', '/api/reports/preview', selection).expect(200);
+    assert.equal(reset.body.indicators[0].label, 'Jobs');
+    const stillCustom = await sendWriteRequest(staff, 'post', '/api/reports/preview', overridden).expect(200);
+    assert.equal(stillCustom.body.indicators[0].label, 'Local jobs');
+    await sendWriteRequest(admin, 'put', `${path}/curation`, { approvedFields: ['c3'] }).expect(200);
+    await sendWriteRequest(staff, 'post', '/api/reports/preview', overridden).expect(400);
+
+    const indicatorsUpload = await uploadDataset(admin, testTag, `${testTag}-numeric`, 'Town,pop,households\nAndover,1234,500\n').expect(201);
+    const numericPath = `/api/datasets/${indicatorsUpload.body.id}`;
+    assert.equal(indicatorsUpload.body.dataFormat, 'indicators');
+    await sendWriteRequest(admin, 'put', `${numericPath}/curation`, { approvedFields: ['pop'] }).expect(200);
+    await sendWriteRequest(admin, 'patch', numericPath, { isActive: true }).expect(200);
+    await sendWriteRequest(staff, 'put', `${numericPath}/presentation`, { revision: 0, fields: { pop: { label: 'Residents', decimals: 2 } } }).expect(200);
+    const numericSelection = { dataset: { name: `${testTag}-numeric`, vintage: '2026' }, towns: ['Andover'], benchmark: false, indicators: ['pop'] };
+    const numericPreview = await sendWriteRequest(staff, 'post', '/api/reports/preview', numericSelection).expect(200);
+    assert.equal(numericPreview.body.indicators[0].label, 'Residents');
+    assert.equal(numericPreview.body.indicators[0].cells[0].value, 1234);
+    assert.equal(numericPreview.body.indicators[0].cells[0].display, '1,234.00');
+    const numericOverride = await sendWriteRequest(staff, 'post', '/api/reports/preview', { ...numericSelection, fieldOverrides: { pop: { label: 'People', decimals: 0 } } }).expect(200);
+    assert.equal(numericOverride.body.indicators[0].label, 'People');
+    assert.equal(numericOverride.body.indicators[0].cells[0].display, '1,234');
+  } finally {
+    await removeTestData(userIds, testTag);
+  }
+});
+
+after(() => pool.end());

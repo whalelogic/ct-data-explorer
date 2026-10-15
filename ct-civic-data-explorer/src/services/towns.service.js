@@ -7,6 +7,7 @@ import * as observations from '../repositories/observations.js';
 import * as towns from '../repositories/towns.js';
 import { computeValue } from './compute.js';
 import { presentDataset, presentIndicator, presentPlace } from './presenters.js';
+import { applyFieldPresentation } from './presentation.js';
 import { approvedDefinitions, datasetIndicators } from './field-curation.js';
 
 export function listTowns() {
@@ -48,7 +49,7 @@ async function buildDatasetSection(dataset, allIndicators, town, comparisonState
     observations.indicatorKeys(dataset.id),
   ]);
   const availableIndicators = datasetIndicators(allIndicators, indicatorKeys);
-  const approvedIndicators = approvedDefinitions(availableIndicators, dataset.approved_fields);
+  const approvedIndicators = applyFieldPresentation(approvedDefinitions(availableIndicators, dataset.approved_fields), dataset.presentation);
   const rows = [];
 
   for (const indicator of approvedIndicators) {

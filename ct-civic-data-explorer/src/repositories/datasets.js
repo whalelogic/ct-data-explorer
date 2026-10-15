@@ -1,10 +1,10 @@
-/** Data access for dataset versions. Versions are never edited in place; corrections are new versions. */
+/** Data access for dataset versions. Source corrections are new versions; approval and presentation metadata may be edited. */
 import { pool } from '../db/pool.js';
 
 const DATASET_SELECT_SQL = `
   SELECT d.id, d.name, d.source_id, s.name AS source, d.vintage, d.version, d.row_count, d.uploaded_at,
          d.is_active, d.uploaded_by, d.data_format, d.column_definitions, d.import_notes,
-         d.approved_fields, d.curation_reviewed_at, d.curation_reviewed_by,
+         d.approved_fields, d.curation_reviewed_at, d.curation_reviewed_by, d.presentation, d.presentation_revision,
          CONCAT(u.first_name, ' ', u.last_name) AS uploaded_by_name
   FROM datasets d
   JOIN sources s ON s.id = d.source_id
@@ -104,4 +104,12 @@ export async function setActive(id, isActive, database) {
   }
   const { rowCount } = await database.query('UPDATE datasets SET is_active = ? WHERE id = ?', [isActive, id]);
   return rowCount > 0;
+}
+
+
+export async function setPresentation(id, presentation, database) {
+  await database.query(
+    'UPDATE datasets SET presentation = ?, presentation_revision = presentation_revision + 1 WHERE id = ?',
+    [JSON.stringify(presentation), id],
+  );
 }
