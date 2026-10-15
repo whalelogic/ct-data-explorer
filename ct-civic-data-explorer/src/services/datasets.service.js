@@ -281,7 +281,7 @@ function buildCategoryFilters(fields, sourceRows) {
   return filters;
 }
 
-/** Versions are deactivated rather than deleted, so saved cards keep working. */
+/** Versions are deactivated rather than deleted, so saved reports keep working. */
 export async function setDatasetActive(datasetId, isActive) {
   return withTransaction(async (client) => {
     await client.lock(`dataset-curation:${datasetId}`);

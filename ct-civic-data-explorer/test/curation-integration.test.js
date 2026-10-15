@@ -8,7 +8,7 @@ import request from 'supertest';
 import { createApp } from '../src/app.js';
 import { pool } from '../src/db/pool.js';
 
-const REPORT_PATHS = ['/api/cards/preview', '/api/cards/pdf', '/api/cards/summary'];
+const REPORT_PATHS = ['/api/reports/preview', '/api/reports/pdf', '/api/reports/summary'];
 
 async function createTestClients(app, testTag, userIds) {
   const password = crypto.randomBytes(24).toString('base64url');
@@ -53,7 +53,7 @@ async function verifyAllTownCharts(client, selection, townNames) {
     towns: townNames,
     layout: [{ type: 'chart' }, { type: 'table' }],
   };
-  const response = await sendWriteRequest(client, 'post', '/api/cards/preview', allTownSelection)
+  const response = await sendWriteRequest(client, 'post', '/api/reports/preview', allTownSelection)
     .expect(200);
   const report = response.body;
   const chartBlocks = report.blocks.filter((block) => block.type === 'chart');
@@ -71,16 +71,16 @@ async function verifyAllTownCharts(client, selection, townNames) {
   assert.equal(report.indicators[0].cells.at(-1).value, 624);
   assert.equal(report.indicators[1].cells.at(-1).value, 987654);
 
-  const savedResponse = await sendWriteRequest(client, 'post', '/api/cards', {
+  const savedResponse = await sendWriteRequest(client, 'post', '/api/reports', {
     title: 'Every town',
     selection: allTownSelection,
   }).expect(201);
-  const reloadedResponse = await client.agent.get(`/api/cards/${savedResponse.body.id}`).expect(200);
+  const reloadedResponse = await client.agent.get(`/api/reports/${savedResponse.body.id}`).expect(200);
   assert.deepEqual(reloadedResponse.body.selection.towns, townNames);
-  await sendWriteRequest(client, 'post', '/api/cards/preview', reloadedResponse.body.selection).expect(200);
+  await sendWriteRequest(client, 'post', '/api/reports/preview', reloadedResponse.body.selection).expect(200);
 
   for (const towns of [[...townNames, townNames[0]], ['Unknown town'], ['Connecticut']]) {
-    await sendWriteRequest(client, 'post', '/api/cards/preview', { ...allTownSelection, towns }).expect(400);
+    await sendWriteRequest(client, 'post', '/api/reports/preview', { ...allTownSelection, towns }).expect(400);
   }
 }
 
@@ -96,7 +96,7 @@ async function removeTestData(userIds, testTag) {
   );
   const datasetIds = ownedDatasets.map((dataset) => dataset.id);
 
-  await pool.query('DELETE FROM cards WHERE created_by IN (?)', [userIds]);
+  await pool.query('DELETE FROM reports WHERE created_by IN (?)', [userIds]);
   if (datasetIds.length > 0) {
     await pool.query('DELETE FROM dataset_records WHERE dataset_id IN (?)', [datasetIds]);
     await pool.query('DELETE FROM observations WHERE dataset_id IN (?)', [datasetIds]);
@@ -183,7 +183,7 @@ test('HTTP and database curation protects every report path and preserves source
       indicators: ['c2'],
       layout: [{ type: 'table' }],
     };
-    const previewResponse = await sendWriteRequest(staff, 'post', '/api/cards/preview', recordSelection)
+    const previewResponse = await sendWriteRequest(staff, 'post', '/api/reports/preview', recordSelection)
       .expect(200);
     assert.deepEqual(previewResponse.body.indicators[0].cells.map((cell) => cell.value), [123, 124]);
     assert.equal(previewResponse.body.blocks[0].records.length, 2);
@@ -200,30 +200,30 @@ test('HTTP and database curation protects every report path and preserves source
         await sendWriteRequest(client, 'post', path, hiddenFilterSelection).expect(400);
       }
 
-      await sendWriteRequest(client, 'post', '/api/cards', {
+      await sendWriteRequest(client, 'post', '/api/reports', {
         title: testTag,
         selection: hiddenMeasureSelection,
       }).expect(400);
     }
 
-    const pdfResponse = await sendWriteRequest(staff, 'post', '/api/cards/pdf', recordSelection)
+    const pdfResponse = await sendWriteRequest(staff, 'post', '/api/reports/pdf', recordSelection)
       .expect(200)
       .expect('Content-Type', /pdf/);
     assert.ok(pdfResponse.body.length > 1000);
 
-    const savedCardResponse = await sendWriteRequest(staff, 'post', '/api/cards', {
+    const savedReportResponse = await sendWriteRequest(staff, 'post', '/api/reports', {
       title: testTag,
       selection: recordSelection,
     }).expect(201);
-    const savedCardPath = `/api/cards/${savedCardResponse.body.id}`;
+    const savedReportPath = `/api/reports/${savedReportResponse.body.id}`;
 
-    // Revoking a field also prevents existing cards from exporting or duplicating it.
+    // Revoking a field also prevents existing reports from exporting or duplicating it.
     await sendWriteRequest(admin, 'put', `${recordDatasetPath}/curation`, {
       approvedFields: ['c3'],
     }).expect(200);
-    await staff.agent.get(`${savedCardPath}/pdf`).expect(400);
-    await sendWriteRequest(staff, 'post', `${savedCardPath}/duplicate`, {}).expect(400);
-    await sendWriteRequest(staff, 'put', savedCardPath, {
+    await staff.agent.get(`${savedReportPath}/pdf`).expect(400);
+    await sendWriteRequest(staff, 'post', `${savedReportPath}/duplicate`, {}).expect(400);
+    await sendWriteRequest(staff, 'put', savedReportPath, {
       title: `${testTag} renamed`,
     }).expect(400);
 
@@ -283,7 +283,7 @@ test('HTTP and database curation protects every report path and preserves source
       dataset: { name: indicatorDatasetName, vintage: '2026' },
       indicators: [approvedIndicatorKey],
     };
-    await sendWriteRequest(staff, 'post', '/api/cards/preview', indicatorSelection).expect(200);
+    await sendWriteRequest(staff, 'post', '/api/reports/preview', indicatorSelection).expect(200);
 
     for (const client of [staff, admin]) {
       const hiddenIndicatorSelection = { ...indicatorSelection, indicators: [hiddenIndicatorKey] };

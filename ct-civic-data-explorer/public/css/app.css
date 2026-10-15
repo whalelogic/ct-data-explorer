@@ -230,7 +230,7 @@ header.site nav a[aria-current="page"]::after {
   overflow-wrap: anywhere;
 }
 
-/* Working surfaces use whitespace and rules rather than decorative card chrome. */
+/* Working surfaces use whitespace and rules rather than decorative report chrome. */
 .container {
   max-width: 1408px;
   margin: 0 auto;
@@ -553,14 +553,14 @@ table.data .num {
   background: var(--ok-bg);
   color: var(--ok);
 }
-.card-grid {
+.report-grid {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
 }
-.saved-card {
+.saved-report {
   position: relative;
   display: flex;
   align-items: center;
@@ -569,31 +569,31 @@ table.data .num {
   border-top: 1px solid var(--rule);
   transition: background-color 0.15s;
 }
-.saved-card:last-child {
+.saved-report:last-child {
   border-bottom: 1px solid var(--rule);
 }
-.saved-card:hover,
-.saved-card:focus-within {
+.saved-report:hover,
+.saved-report:focus-within {
   background: var(--tint);
 }
-.saved-card-body {
+.saved-report-body {
   flex: 1;
   min-width: 0;
   padding: 1.25rem 0.5rem;
 }
-.saved-card-body p {
+.saved-report-body p {
   margin: 0.25rem 0;
 }
-.saved-card-title {
+.saved-report-title {
   font-size: 1rem;
   margin: 0 0 0.35rem;
   overflow-wrap: anywhere;
 }
-.saved-card-title a {
+.saved-report-title a {
   color: var(--ink);
   text-decoration: none;
 }
-.saved-card:hover .saved-card-title a {
+.saved-report:hover .saved-report-title a {
   color: var(--teal);
   text-decoration: underline;
 }
@@ -609,25 +609,25 @@ table.data .num {
   outline: 3px solid var(--focus);
   outline-offset: 2px;
 }
-.saved-card-towns {
+.saved-report-towns {
   color: var(--teal);
   font-size: 0.83rem;
 }
-.saved-card-meta {
+.saved-report-meta {
   display: grid;
   grid-template-columns: auto 1fr;
   gap: 0.15rem 0.75rem;
   margin: 0.65rem 0 0;
   font-size: 0.75rem;
 }
-.saved-card-meta dt {
+.saved-report-meta dt {
   color: var(--muted);
 }
-.saved-card-meta dd {
+.saved-report-meta dd {
   margin: 0;
   overflow-wrap: anywhere;
 }
-.saved-card-actions {
+.saved-report-actions {
   position: relative;
   z-index: 1;
   display: flex;
@@ -639,7 +639,7 @@ table.data .num {
   max-width: 26rem;
   font-size: 0.8rem;
 }
-.saved-card-actions button {
+.saved-report-actions button {
   padding: 0.35rem 0.6rem;
   font-size: 0.75rem;
   min-height: 36px;
@@ -697,30 +697,30 @@ table.data .num {
 .draft .errors {
   margin-bottom: 0.5rem;
 }
-.card {
+.report {
   background: #fff;
   border: 1px solid var(--rule);
   padding: 2rem;
 }
-.card-title {
+.report-title {
   color: var(--brand);
   font-size: 1.55rem;
   margin: 0 0 0.4rem;
   font-weight: 700;
 }
-.card-subtitle {
+.report-subtitle {
   color: var(--muted);
   margin: 0.25rem 0 1.6rem;
   font-size: 0.85rem;
 }
-.card-chart {
+.report-chart {
   margin: 0.8rem 0 1.6rem;
 }
 .chart-box {
   position: relative;
   height: 20rem;
 }
-.card-source {
+.report-source {
   margin-top: 1.75rem;
   padding-top: 0.75rem;
   border-top: 1px solid var(--rule);
@@ -763,33 +763,33 @@ table.data .num {
   margin: 0.25rem 0 0.5rem;
   padding-left: 1.25rem;
 }
-.card-text {
+.report-text {
   margin: 0 0 1.5rem;
 }
-.card-text > :first-child {
+.report-text > :first-child {
   margin-top: 0;
 }
-.card-text h3 {
+.report-text h3 {
   font-size: 1.2rem;
   margin: 1rem 0 0.5rem;
 }
-.card-text h4 {
+.report-text h4 {
   font-size: 1.05rem;
   margin: 0.9rem 0 0.4rem;
 }
-.card-text h5 {
+.report-text h5 {
   font-size: 0.95rem;
   margin: 0.8rem 0 0.35rem;
 }
-.card-text p {
+.report-text p {
   margin: 0 0 0.7rem;
 }
-.card-text ul,
-.card-text ol {
+.report-text ul,
+.report-text ol {
   margin: 0 0 0.7rem;
   padding-left: 1.5rem;
 }
-.card > .table-wrap {
+.report > .table-wrap {
   margin: 0 0 1.5rem;
 }
 
@@ -1151,21 +1151,21 @@ table.data .num {
     padding: 1.5rem 1rem 2rem;
   }
   .panel,
-  .card {
+  .report {
     padding: 1.1rem;
   }
   .panel-head input {
     width: 100%;
     min-width: 0;
   }
-  .saved-card {
+  .saved-report {
     display: block;
   }
-  .saved-card-actions {
+  .saved-report-actions {
     justify-content: flex-start;
     padding-top: 0;
   }
-  .saved-card-body {
+  .saved-report-body {
     padding-bottom: 0.75rem;
   }
   .explorer-controls {
@@ -1224,7 +1224,7 @@ table.data .num {
   .explorer-layout {
     display: block;
   }
-  .card {
+  .report {
     border: 0;
   }
 }

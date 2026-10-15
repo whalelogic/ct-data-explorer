@@ -45,7 +45,7 @@ const publicationFields = z.object({
 
 export const datasetsRouter = Router();
 
-/** Staff see active versions (what cards can use); admins see every version. */
+/** Staff see active versions (what reports can use); admins see every version. */
 datasetsRouter.get('/', async (request, response) => {
   const activeOnly = request.user.role !== 'admin';
   const datasets = await listDatasets({ activeOnly });

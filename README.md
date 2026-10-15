@@ -3,14 +3,16 @@
 #### A capstone project for the SCSU Computer Science program: CTData staff curate datasets and approved fields, then signed-in users choose Connecticut locations and explore charts and tables. Saved reports and PDF exports are optional next steps.
 
 #### __Contributors:__
-
-- Names here
+- [@whalelogic](Keith Thomson) - Systems architecture, configurations, docker, and CI/CD
+- [@pjr8](Paul Robinson) - Backend, database, and API
+- [@marsh-meadows](Kieran Veter) - Frontend, UI/UX, Reports and charts
 
 | Path | What it is |
 | --- | --- |
 | [`ct-civic-data-explorer/`](ct-civic-data-explorer/) | The application. Its [README](ct-civic-data-explorer/README.md) explains how it works. |
 | [`sample-data/`](sample-data/) | The ACS 2024 sample CSV used by `npm run seed` and the tests |
 | `SRS.docx` | The software requirements specification |
+| [`ct-civic-data-explorer/docs/api-routes.md`](ct-civic-data-explorer/docs/api-routes.md) | All HTTP routes, methods and callers |
 
 ## Local setup
 
@@ -88,7 +90,7 @@ CI runs the same checks, plus `npm audit`, on every pull request.
 
 ### Good to know
 
-- **Your database is yours alone.** Accounts, uploads and saved cards live only on your machine, so each person creates their own admin.
+- **Your database is yours alone.** Accounts, uploads and saved reports live only on your machine, so each person creates their own admin.
 - **Port 3307 already in use?** Change `DB_PORT` in `.env`.
 - **To start the database over:** `docker compose down -v` deletes all local data. Then run `migrate`, `create-admin` and `seed` again.
 - **Schema changes go in a new file** `migrations/NNN_description.sql`. Never edit a migration that has already been pushed.

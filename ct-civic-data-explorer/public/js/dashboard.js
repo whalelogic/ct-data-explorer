@@ -1,14 +1,14 @@
 import { api, loadSession } from './api.js';
-import { cardActionButtons, fetchCards } from './card-library.js';
+import { reportActionButtons, fetchReports } from './report-library.js';
 import { h as createElement } from './dom.js';
 import { boot, debounce, formatDate, renderHeader, showStatus } from './layout.js';
 
 const datasetGrid = document.getElementById('datasets-grid');
 const datasetStatus = document.getElementById('datasets-status');
-const cardsGrid = document.getElementById('cards-grid');
-const cardsStatus = document.getElementById('cards-status');
+const cardsGrid = document.getElementById('reports-grid');
+const cardsStatus = document.getElementById('reports-status');
 const searchInput = document.getElementById('search-input');
-const scheduleReportSearch = debounce(loadCards, 250);
+const scheduleReportSearch = debounce(loadReports, 250);
 
 let currentUser;
 let publishedDatasets = [];
@@ -24,7 +24,7 @@ async function initializeDashboard() {
   searchInput.addEventListener('input', handleSearchInput);
   document.getElementById('dashboard-search').addEventListener('submit', handleSearchSubmit);
   renderDatasets();
-  await loadCards();
+  await loadReports();
 }
 
 function renderDatasets() {
@@ -60,7 +60,7 @@ function createDatasetTile(dataset) {
     href: hasApprovedFields ? exploreUrl : detailsUrl,
     class: 'stretched-link',
   }, dataset.name);
-  const title = createElement('h3', { class: 'saved-card-title' }, titleLink);
+  const title = createElement('h3', { class: 'saved-report-title' }, titleLink);
   const metadata = `${dataset.vintage} · Version ${dataset.version} · ${dataset.rowCount} rows`;
   let reviewStatus = 'Awaiting field approval';
   if (hasApprovedFields) {
@@ -69,41 +69,41 @@ function createDatasetTile(dataset) {
       : 'Existing published fields · review pending';
   }
 
-  const body = createElement('div', { class: 'saved-card-body' }, title);
+  const body = createElement('div', { class: 'saved-report-body' }, title);
   body.append(
     createElement('p', { class: 'muted small' }, metadata),
     createElement('p', { class: 'small' }, dataset.source),
     createElement('p', { class: 'muted small' }, reviewStatus),
   );
 
-  const actions = createElement('div', { class: 'saved-card-actions' });
+  const actions = createElement('div', { class: 'saved-report-actions' });
   if (hasApprovedFields) {
     actions.append(createElement('a', { href: exploreUrl }, 'Explore dataset'));
   }
   const detailsLabel = currentUser.role === 'admin' ? 'Review dataset' : 'Dataset details';
   actions.append(createElement('a', { href: detailsUrl }, detailsLabel));
-  return createElement('li', { class: 'saved-card' }, body, actions);
+  return createElement('li', { class: 'saved-report' }, body, actions);
 }
 
-async function loadCards() {
+async function loadReports() {
   reportRequestNumber += 1;
   const currentRequestNumber = reportRequestNumber;
   try {
     const searchText = searchInput.value.trim();
-    const cards = await fetchCards(searchText);
+    const reports = await fetchReports(searchText);
     // A newer search may finish first. Keep its results on screen.
     if (currentRequestNumber !== reportRequestNumber) {
       return;
     }
 
     cardsGrid.replaceChildren();
-    for (const card of cards) {
-      cardsGrid.append(createCardTile(card));
+    for (const report of reports) {
+      cardsGrid.append(createReportTile(report));
     }
     const emptyMessage = searchText
       ? 'No reports match this dataset or report name.'
       : 'No saved reports yet. Explore a dataset, then save a report when you are ready.';
-    showStatus(cardsStatus, cards.length ? '' : emptyMessage);
+    showStatus(cardsStatus, reports.length ? '' : emptyMessage);
   } catch (error) {
     if (currentRequestNumber !== reportRequestNumber) {
       return;
@@ -113,33 +113,33 @@ async function loadCards() {
   }
 }
 
-function createCardTile(card) {
-  // The title link covers the card; action buttons remain above it in the CSS.
+function createReportTile(report) {
+  // The title link covers the report; action buttons remain above it in the CSS.
   const titleLink = createElement('a', {
-    href: `/builder.html?card=${card.id}`,
+    href: `/builder.html?report=${report.id}`,
     class: 'stretched-link',
-  }, card.title);
-  const title = createElement('h3', { class: 'saved-card-title' }, titleLink);
-  const towns = createElement('p', { class: 'saved-card-towns' }, card.towns.join(', '));
-  const updatedTime = createElement('time', { datetime: card.updatedAt }, formatDate(card.updatedAt));
-  const metadata = createElement('dl', { class: 'saved-card-meta' });
+  }, report.title);
+  const title = createElement('h3', { class: 'saved-report-title' }, titleLink);
+  const towns = createElement('p', { class: 'saved-report-towns' }, report.towns.join(', '));
+  const updatedTime = createElement('time', { datetime: report.updatedAt }, formatDate(report.updatedAt));
+  const metadata = createElement('dl', { class: 'saved-report-meta' });
   metadata.append(
     createElement('dt', {}, 'Dataset'),
-    createElement('dd', {}, `${card.dataset.name}, ${card.dataset.vintage}`),
+    createElement('dd', {}, `${report.dataset.name}, ${report.dataset.vintage}`),
     createElement('dt', {}, 'Created by'),
-    createElement('dd', {}, card.createdBy.name),
+    createElement('dd', {}, report.createdBy.name),
     createElement('dt', {}, 'Updated'),
     createElement('dd', {}, updatedTime),
   );
 
-  const body = createElement('div', { class: 'saved-card-body' }, title, towns, metadata);
-  const buttons = cardActionButtons(card, {
+  const body = createElement('div', { class: 'saved-report-body' }, title, towns, metadata);
+  const buttons = reportActionButtons(report, {
     user: currentUser,
     status: cardsStatus,
-    reload: loadCards,
+    reload: loadReports,
   });
-  const actions = createElement('div', { class: 'saved-card-actions' }, ...buttons);
-  return createElement('li', { class: 'saved-card' }, body, actions);
+  const actions = createElement('div', { class: 'saved-report-actions' }, ...buttons);
+  return createElement('li', { class: 'saved-report' }, body, actions);
 }
 
 function handleSearchInput() {
@@ -152,7 +152,7 @@ function handleSearchInput() {
 function handleSearchSubmit(event) {
   event.preventDefault();
   renderDatasets();
-  loadCards();
+  loadReports();
 }
 
 boot(initializeDashboard);

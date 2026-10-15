@@ -1,6 +1,6 @@
 /** Interactive exploration uses only staff-approved, dataset-specific fields. */
 import { api, loadSession } from './api.js';
-import { clearCard, renderCard } from './card-view.js';
+import { clearReport, renderReport } from './report-view.js';
 import { h as createElement } from './dom.js';
 import { boot, debounce, downloadBlob, renderHeader, showStatus } from './layout.js';
 import { unitLabel } from '/shared/format.js';
@@ -126,7 +126,7 @@ async function loadDataset(useLinkedSelection) {
   isLoadingOptions = true;
   lastPreviewSelection = null;
   setActionButtonsEnabled(false);
-  clearCard(getElement('preview'));
+  clearReport(getElement('preview'));
   getElement('explorer-empty').hidden = true;
   getElement('visualization-controls').hidden = true;
   getElement('chart-help').hidden = true;
@@ -505,7 +505,7 @@ function handleSelectionChange() {
   getElement('share-fallback').hidden = true;
   const chartFieldKeys = renderChartControls();
   updateSummary();
-  clearCard(getElement('preview'));
+  clearReport(getElement('preview'));
 
   if (datasetOptions.columns.length === 0) {
     showStatus(getElement('preview-status'), '');
@@ -562,11 +562,11 @@ async function refreshPreview(chartFieldKeys) {
   const requestId = ++previewRequestId;
   const selection = createPreviewSelection(chartFieldKeys);
   try {
-    const card = await api('/cards/preview', { method: 'POST', json: selection });
+    const report = await api('/reports/preview', { method: 'POST', json: selection });
     if (requestId !== previewRequestId) {
       return;
     }
-    renderCard(getElement('preview'), card);
+    renderReport(getElement('preview'), report);
 
     // Wide tables must remain scrollable with the keyboard.
     for (const table of getElement('preview').querySelectorAll('.table-wrap')) {
@@ -709,7 +709,7 @@ async function exportPdf() {
   getElement('export-pdf').disabled = true;
   showStatus(getElement('action-status'), 'Preparing your PDF…');
   try {
-    const { blob, filename } = await api('/cards/pdf', {
+    const { blob, filename } = await api('/reports/pdf', {
       method: 'POST',
       json: selection,
       expect: 'blob',

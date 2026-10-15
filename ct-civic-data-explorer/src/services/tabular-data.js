@@ -1,7 +1,6 @@
 /** Preserve the file's grain: each source row stays a separate record. */
-import { validateDatasetRecords } from './csv-validation.js';
+import { NUMBER, validateDatasetRecords } from './csv-validation.js';
 
-const NUMBER = /^-?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i;
 const numeric = (value) => NUMBER.test(value.replaceAll(',', '')) && Number.isFinite(Number(value.replaceAll(',', '')));
 
 export function prepareTabularDataset(records, known) {

@@ -3,7 +3,7 @@
  * Form controls and the layout editor update this same object.
  */
 import { api, loadSession } from './api.js';
-import { clearCard, renderCard } from './card-view.js';
+import { clearReport, renderReport } from './report-view.js';
 import { h as createElement } from './dom.js';
 import { boot, debounce, downloadBlob, renderHeader, showStatus } from './layout.js';
 
@@ -62,7 +62,7 @@ async function loadInitialSelection() {
   const requestedDataset = activeDatasets.find((dataset) => String(dataset.id) === queryParameters.get('dataset'));
   const initialDataset = requestedDataset ?? activeDatasets[0];
 
-  if (queryParameters.has('dataset') && !requestedDataset && !queryParameters.has('card')) {
+  if (queryParameters.has('dataset') && !requestedDataset && !queryParameters.has('report')) {
     throw new Error('This dataset is no longer active. Choose another dataset from the dashboard.');
   }
 
@@ -87,11 +87,11 @@ async function loadInitialSelection() {
   if (queryParameters.get('from') === 'explore') {
     loadExplorerDraft();
   }
-  if (queryParameters.has('card')) {
-    const cardId = encodeURIComponent(queryParameters.get('card'));
-    const card = await api(`/cards/${cardId}`);
-    savedReport = { id: card.id, ownerId: card.createdBy.id, title: card.title };
-    reportSelection = { ...reportSelection, ...card.selection };
+  if (queryParameters.has('report')) {
+    const reportId = encodeURIComponent(queryParameters.get('report'));
+    const report = await api(`/reports/${reportId}`);
+    savedReport = { id: report.id, ownerId: report.createdBy.id, title: report.title };
+    reportSelection = { ...reportSelection, ...report.selection };
   }
 }
 
@@ -149,7 +149,7 @@ function fillFormControls(towns) {
   getElement('show-title').checked = reportSelection.showTitle;
   getElement('title').value = reportSelection.title;
   getElement('subtitle').value = reportSelection.subtitle;
-  getElement('card-name').value = savedReport?.title ?? '';
+  getElement('report-name').value = savedReport?.title ?? '';
 }
 
 function readFormControls() {
@@ -496,7 +496,7 @@ function renderLayout(focusId) {
   }
 
   if (reportSelection.layout.length === 0) {
-    layoutList.append(createElement('li', { class: 'muted small' }, 'Add a chart or a table so the card shows its figures.'));
+    layoutList.append(createElement('li', { class: 'muted small' }, 'Add a chart or a table so the report shows its figures.'));
   }
   restoreFocus(focusId, 'button:not(:disabled), textarea, select');
 }
@@ -654,7 +654,7 @@ function handleRemoveBlock(event) {
 
 function invalidatePreview() {
   previewRequestNumber++;
-  clearCard(getElement('preview'));
+  clearReport(getElement('preview'));
   showStatus(getElement('preview-status'), 'Updating preview…');
 }
 
@@ -678,22 +678,22 @@ async function refreshPreview() {
   const requestNumber = ++previewRequestNumber;
   const problem = getPreviewProblem();
   if (problem) {
-    clearCard(getElement('preview'));
+    clearReport(getElement('preview'));
     showStatus(getElement('preview-status'), problem);
     return;
   }
 
   try {
-    const card = await api('/cards/preview', { method: 'POST', json: reportSelection });
+    const report = await api('/reports/preview', { method: 'POST', json: reportSelection });
     // An older response must not overwrite changes made while it was loading.
     if (requestNumber !== previewRequestNumber) {
       return;
     }
     showStatus(getElement('preview-status'), '');
-    renderCard(getElement('preview'), card);
+    renderReport(getElement('preview'), report);
   } catch (error) {
     if (requestNumber === previewRequestNumber) {
-      clearCard(getElement('preview'));
+      clearReport(getElement('preview'));
       showStatus(getElement('preview-status'), error.message, 'error');
     }
   }
@@ -712,25 +712,25 @@ function updateHeading() {
 
 async function saveReport() {
   readFormControls();
-  const title = getElement('card-name').value.trim();
+  const title = getElement('report-name').value.trim();
   if (!title) {
     showStatus(getElement('builder-status'), 'Give the report a name before saving.', 'error');
-    getElement('card-name').focus();
+    getElement('report-name').focus();
     return;
   }
 
   try {
     const requestBody = { title, selection: reportSelection };
-    let card;
+    let report;
     if (savedReport && savedReport.ownerId === currentUser.id) {
-      card = await api(`/cards/${savedReport.id}`, { method: 'PUT', json: requestBody });
+      report = await api(`/reports/${savedReport.id}`, { method: 'PUT', json: requestBody });
     } else {
-      card = await api('/cards', { method: 'POST', json: requestBody });
+      report = await api('/reports', { method: 'POST', json: requestBody });
     }
-    savedReport = { id: card.id, ownerId: card.createdBy.id, title: card.title };
-    history.replaceState(null, '', `/builder.html?card=${card.id}`);
+    savedReport = { id: report.id, ownerId: report.createdBy.id, title: report.title };
+    history.replaceState(null, '', `/builder.html?report=${report.id}`);
     updateHeading();
-    showStatus(getElement('builder-status'), `Saved "${card.title}".`, 'ok');
+    showStatus(getElement('builder-status'), `Saved "${report.title}".`, 'ok');
   } catch (error) {
     showStatus(getElement('builder-status'), error.message, 'error');
   }
@@ -742,7 +742,7 @@ async function downloadPdf(event) {
   button.disabled = true;
   showStatus(getElement('builder-status'), 'Generating PDF…');
   try {
-    const { blob, filename } = await api('/cards/pdf', { method: 'POST', json: reportSelection, expect: 'blob' });
+    const { blob, filename } = await api('/reports/pdf', { method: 'POST', json: reportSelection, expect: 'blob' });
     downloadBlob(blob, filename);
     showStatus(getElement('builder-status'), `Downloaded ${filename}.`, 'ok');
   } catch (error) {
@@ -761,7 +761,7 @@ async function draftSummary() {
   showStatus(getElement('builder-status'), 'Drafting a summary…');
 
   try {
-    const { text, mismatches } = await api('/cards/summary', { method: 'POST', json: reportSelection });
+    const { text, mismatches } = await api('/reports/summary', { method: 'POST', json: reportSelection });
     getElement('draft-text').value = text;
     const warningList = getElement('draft-warnings');
     warningList.replaceChildren();
@@ -770,7 +770,7 @@ async function draftSummary() {
     }
     getElement('draft').hidden = false;
     if (mismatches.length > 0) {
-      showStatus(getElement('builder-status'), 'Draft ready. Some figures could not be verified against the card; check them first.', 'error');
+      showStatus(getElement('builder-status'), 'Draft ready. Some figures could not be verified against the report; check them first.', 'error');
     } else {
       showStatus(getElement('builder-status'), 'Draft ready for review.', 'ok');
     }

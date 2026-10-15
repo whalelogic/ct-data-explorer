@@ -9,21 +9,21 @@ flowchart TB
 
   subgraph App["Express app"]
     Middleware["Middleware<br/>helmet · session · requireAuth · CSRF"]
-    Routes["API routes<br/>auth · towns · indicators · datasets · cards · users"]
+    Routes["API routes<br/>auth · towns · indicators · datasets · reports · users"]
     Middleware --> Routes
   end
 
   subgraph Services["Services"]
     Auth["Auth<br/>login · lockout · invite links"]
     Datasets["Datasets<br/>CSV validation · versions"]
-    Cards["Cards<br/>selection to card data"]
+    Reports["Reports<br/>selection to report data"]
     Pdf["PDF<br/>pdfkit"]
     Ai["AI summary<br/>optional"]
-    Cards -->|"card data"| Pdf
-    Cards -->|"card data"| Ai
+    Reports -->|"report data"| Pdf
+    Reports -->|"report data"| Ai
   end
 
-  DB[("MySQL 8.4<br/>users · sessions · sources · datasets<br/>towns · indicators · observations · cards")]
+  DB[("MySQL 8.4<br/>users · sessions · sources · datasets<br/>towns · indicators · observations · reports")]
   Claude[["Claude API"]]
 
   Browser -->|"pages · JSON API"| Middleware
@@ -34,7 +34,7 @@ flowchart TB
   Scripts -->|"schema · first admin · sample data"| DB
 ```
 
-- Every card starts as a **selection** (towns, indicators, and a layout of text, chart and table blocks). The Cards service turns it into one card-data object, which the browser preview, the PDF and the AI summary all use, so they always match.
+- Every report starts as a **selection** (towns, indicators, and a layout of text, chart and table blocks). The Reports service turns it into one report-data object, which the browser preview, the PDF and the AI summary all use, so they always match.
 - Town selection has no count limit. `report-charts.js` includes every requested numeric indicator in the output: grouped bars and lines use separate charts per unit and at most six series per chart, while bars use one chart per indicator. A chart layout block may expand into multiple titled chart blocks. Source records are preserved without aggregation or truncation.
 - Rates such as poverty rate are computed on the server from stored values.
-- The AI summary is optional; cards build and export without it.
+- The AI summary is optional; reports build and export without it.
