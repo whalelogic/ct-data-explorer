@@ -2,6 +2,7 @@
  * The report selection is shared by the preview, PDF, summary, and save APIs.
  * Form controls and the layout editor update this same object.
  */
+import { mountReportStyleEditor } from './report-style-editor.js';
 import { api, loadSession } from './api.js';
 import { clearReport, renderReport } from './report-view.js';
 import { h as createElement } from './dom.js';
@@ -14,6 +15,7 @@ const CHART_TYPES = [
   { value: 'line', label: 'Line' },
 ];
 
+let styleEditor;
 let currentUser = null;
 let activeDatasets = [];
 let datasetOptions = [];
@@ -54,6 +56,11 @@ async function initializeBuilder() {
   await loadDatasetColumns();
   renderIndicators();
   renderLayout();
+  styleEditor = mountReportStyleEditor(getElement('report-style'), {
+    prefix: 'report-style', overrides: true,
+    onChange: handleStyleChange,
+  });
+  updateStyleEditor();
   registerEventHandlers();
   await refreshPreview();
 }
@@ -78,6 +85,7 @@ async function loadInitialSelection() {
     layout: [createBlock('chart'), createBlock('table')],
     recordFilters: {},
     fieldOverrides: {},
+    styleOverrides: {},
   };
 
   if (initialDataset) {
@@ -297,6 +305,7 @@ async function handleDatasetChange() {
   readFormControls();
   reportSelection.recordFilters = {};
   reportSelection.fieldOverrides = {};
+  reportSelection.styleOverrides = {};
   try {
     const loaded = await loadDatasetColumns();
     if (!loaded) {
@@ -343,6 +352,7 @@ async function loadDatasetColumns() {
   }
 
   defaultChartType = options.defaultChartType || 'grouped_bar';
+  updateStyleEditor();
   availableIndicators = options.columns;
   availableTowns = options.places.filter((place) => place.geoType === 'town');
   renderTownSelection();
@@ -864,6 +874,19 @@ function handleFieldOverride(event) {
 function resetFieldOverrides() {
   reportSelection.fieldOverrides = {};
   renderFieldOverrides();
+  invalidatePreview();
+  schedulePreview();
+}
+
+
+function updateStyleEditor() {
+  if (!styleEditor) return;
+  const dataset = activeDatasets.find((item) => reportSelection.dataset && isSameDataset(item, reportSelection.dataset));
+  styleEditor.set(reportSelection.styleOverrides, dataset?.reportStyle);
+}
+
+function handleStyleChange(overrides) {
+  reportSelection.styleOverrides = overrides;
   invalidatePreview();
   schedulePreview();
 }

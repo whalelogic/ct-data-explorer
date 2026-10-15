@@ -1,8 +1,10 @@
 /** Shared presentation settings for one dataset version. */
+import { mountReportStyleEditor } from './report-style-editor.js';
 import { api } from './api.js';
 import { h } from './dom.js';
 import { showStatus } from './layout.js';
 
+let styleEditor;
 let current;
 let orderedFields = [];
 let datasetId;
@@ -28,7 +30,9 @@ export async function mountDatasetPresentation(container, id, onSave) {
   save = h('button', { type: 'submit' }, 'Save shared defaults');
   reload = h('button', { type: 'button', class: 'secondary', onClick: load }, 'Reload defaults');
   reset = h('button', { type: 'button', class: 'link', onClick: resetDefaults }, 'Use source defaults');
-  form.append(general, control('Dataset description', description), fieldsSection);
+  const styleContainer = h('div');
+  styleEditor = mountReportStyleEditor(styleContainer, { prefix: 'shared-style', onChange: () => showStatus(status, 'Unsaved shared styling.') });
+  form.append(general, control('Dataset description', description), fieldsSection, styleContainer);
   form.append(h('div', { class: 'button-row' }, save, reload, reset), status);
   form.addEventListener('submit', saveDefaults);
   form.addEventListener('input', () => showStatus(status, 'Unsaved changes to shared defaults.'));
@@ -60,6 +64,7 @@ function render() {
   name.value = current.settings.displayName;
   description.value = current.settings.description;
   chart.value = current.settings.defaultChartType;
+  styleEditor.set(current.settings.style);
   fieldsList.replaceChildren();
   for (const [index, field] of orderedFields.entries()) {
     const settings = current.settings.fields[field.key] ?? {};
@@ -107,6 +112,7 @@ function read() {
     if (Object.keys(settings).length) fields[row.dataset.fieldKey] = settings;
   }
   return {
+    style: styleEditor.read(),
     revision: current.settings.revision,
     displayName: name.value.trim(), description: description.value.trim(),
     defaultChartType: chart.value, fields, fieldOrder: orderedFields.map((field) => field.key),

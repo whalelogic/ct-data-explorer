@@ -3,7 +3,8 @@
  * Chart.js is loaded as a global from /vendor/chart.js.
  */
 import { formatAxisValue, formatValue, unitLabel } from '/shared/format.js';
-import { BENCHMARK_COLOR, CHART_FONT, INK, MUTED, RULE, SERIES_COLORS } from '/shared/theme.js';
+import { CHART_FONT, INK, MUTED, RULE } from '/shared/theme.js';
+import { resolveReportStyle } from '/shared/report-style.js';
 import { h as createElement } from './dom.js';
 
 // Keep each container's chart instances so they can be destroyed before a redraw.
@@ -21,7 +22,10 @@ export function renderReport(container, report) {
     indicatorsByKey.set(indicator.key, indicator);
   }
 
-  const article = createElement('article', { class: 'report' });
+  const style = resolveReportStyle(report.style);
+  const article = createElement('article', { class: 'report', 'data-text-size': style.textSize, 'data-spacing': style.spacing });
+  article.style.setProperty('--report-heading', style.headingColor);
+  article.style.setProperty('--report-table-header', style.tableHeaderColor);
   if (report.showTitle) {
     const title = createElement('h2', { class: 'report-title' }, report.title);
     const header = createElement('header', {}, title);
@@ -32,7 +36,7 @@ export function renderReport(container, report) {
   }
 
   for (const block of report.blocks) {
-    const blockElement = renderBlock(block, report.places, indicatorsByKey, pendingCharts);
+    const blockElement = renderBlock(block, report.places, indicatorsByKey, pendingCharts, style);
     if (blockElement) {
       article.append(blockElement);
     }
@@ -55,7 +59,7 @@ export function clearReport(container) {
   container.replaceChildren();
 }
 
-function renderBlock(block, places, indicatorsByKey, pendingCharts) {
+function renderBlock(block, places, indicatorsByKey, pendingCharts, style) {
   switch (block.type) {
     case 'text': {
       const section = createElement('section', { class: 'report-text' });
@@ -68,7 +72,7 @@ function renderBlock(block, places, indicatorsByKey, pendingCharts) {
       return section;
     }
     case 'chart': {
-      return renderChart(block.chart, places, indicatorsByKey, pendingCharts);
+      return renderChart({ ...block.chart, style }, places, indicatorsByKey, pendingCharts);
     }
     case 'table':
       return renderPagedIndicatorTable(places, block.indicators);
@@ -342,11 +346,12 @@ function drawChart(canvas, chart, fullChart = chart) {
 
   const datasets = [];
   for (const [seriesIndex, series] of chart.series.entries()) {
-    const seriesColor = SERIES_COLORS[seriesIndex % SERIES_COLORS.length];
+    const style = resolveReportStyle(chart.style);
+    const seriesColor = style.palette[seriesIndex % style.palette.length];
     let backgroundColor = seriesColor;
     if (chart.type === 'bar') {
       backgroundColor = chart.labels.map((label, labelIndex) => (
-        labelIndex === chart.benchmarkIndex ? BENCHMARK_COLOR : seriesColor
+        labelIndex === chart.benchmarkIndex ? style.benchmarkColor : seriesColor
       ));
     }
     datasets.push({
