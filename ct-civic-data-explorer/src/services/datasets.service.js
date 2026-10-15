@@ -321,6 +321,7 @@ function presentSettings(dataset, fields) {
     revision: dataset.presentation_revision ?? 0,
     displayName: settings.displayName ?? '',
     description: settings.description ?? '',
+    style: settings.style ?? {},
     defaultChartType: settings.defaultChartType ?? 'grouped_bar',
     fieldOrder: (settings.fieldOrder ?? []).filter((key) => allowed.has(key)),
     fields: Object.fromEntries(Object.entries(settings.fields ?? {}).filter(([key]) => allowed.has(key))),
@@ -358,6 +359,7 @@ export async function updateDatasetPresentation(datasetId, input, user) {
     const withheld = Object.fromEntries(Object.entries(previous.fields ?? {}).filter(([key]) => !allowed.has(key)));
     const settings = { ...parsed };
     delete settings.revision;
+    settings.style = parsed.style ?? previous.style ?? {};
     settings.fields = { ...withheld, ...parsed.fields };
     settings.fieldOrder = [...parsed.fieldOrder, ...(previous.fieldOrder ?? []).filter((key) => !allowed.has(key))];
     await datasets.setPresentation(datasetId, settings, client);

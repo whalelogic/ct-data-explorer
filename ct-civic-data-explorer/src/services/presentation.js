@@ -1,6 +1,17 @@
 /** Display-only settings never change keys, source values, units or calculations. */
 import { z } from 'zod';
+import { contrastRatio, REPORT_TEXT_COLOR } from '../shared/report-style.js';
 import { indicatorLabel } from '../shared/format.js';
+
+const colorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Choose a six-digit hex color, such as #39738C');
+export const reportStyleSchema = z.object({
+  palette: z.array(colorSchema).length(6).optional(),
+  benchmarkColor: colorSchema.optional(),
+  headingColor: colorSchema.refine((value) => contrastRatio(value, '#FFFFFF') >= 4.5, 'Choose a darker heading color for readable text on white').optional(),
+  tableHeaderColor: colorSchema.refine((value) => contrastRatio(value, REPORT_TEXT_COLOR) >= 4.5, 'Choose a lighter table header color for readable text').optional(),
+  textSize: z.enum(['standard', 'large']).optional(),
+  spacing: z.enum(['compact', 'comfortable']).optional(),
+}).strict();
 
 export const fieldPresentationSchema = z.object({
   label: z.string().trim().max(120).optional(),
@@ -9,6 +20,7 @@ export const fieldPresentationSchema = z.object({
 }).strict();
 
 export const datasetPresentationSchema = z.object({
+  style: reportStyleSchema.optional(),
   revision: z.number().int().min(0),
   displayName: z.string().trim().max(200).default(''),
   description: z.string().trim().max(2000).default(''),

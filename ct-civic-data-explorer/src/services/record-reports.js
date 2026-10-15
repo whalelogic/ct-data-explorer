@@ -1,4 +1,5 @@
 /** Reports keep the original source rows, including repeated town totals. */
+import { resolveReportStyle } from '../shared/report-style.js';
 import { HttpError } from '../lib/http-error.js';
 import * as datasetRecords from '../repositories/dataset-records.js';
 import { parseMarkup } from './markup.js';
@@ -56,6 +57,7 @@ export function renderRecordReport(selection, dataset, sourceRows, now = new Dat
 
   const generatedOn = now.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
   return {
+    style: resolveReportStyle(dataset.reportStyle, selection.styleOverrides),
     rowBased: true,
     title: selection.title || defaultTitle(selection.towns),
     subtitle: selection.subtitle || `${dataset.displayName || dataset.name}, ${dataset.vintage}`,

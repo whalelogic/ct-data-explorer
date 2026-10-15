@@ -5,6 +5,7 @@
  * object is returned as JSON for the live preview and handed to the PDF renderer,
  * so both always show the same figures.
  */
+import { resolveReportStyle } from '../shared/report-style.js';
 import { HttpError } from '../lib/http-error.js';
 import { formatValue } from '../shared/format.js';
 import * as reports from '../repositories/reports.js';
@@ -49,6 +50,7 @@ export async function buildReport(selection, { now = new Date() } = {}) {
   appendFieldNotes(blocks, rows);
 
   return {
+    style: resolveReportStyle(dataset.presentation?.style, selection.styleOverrides),
     title: selection.title || defaultTitle(placeSummaries),
     subtitle: selection.subtitle || `${dataset.presentation?.displayName || dataset.name}, ${dataset.vintage}`,
     showTitle: selection.showTitle,

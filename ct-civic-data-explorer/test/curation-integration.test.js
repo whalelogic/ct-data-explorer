@@ -335,6 +335,7 @@ test('staff customize shared presentation and report overrides without bypassing
     const defaults = {
       ...initial.body.settings, displayName: 'Local employment', description: 'An explanation for readers',
       defaultChartType: 'line', fieldOrder: ['c3', 'c1'],
+      style: { palette: ['#123456', '#654321', '#225588', '#884422', '#336699', '#993366'], headingColor: '#663399', tableHeaderColor: '#FFF3CD', benchmarkColor: '#666666', textSize: 'large', spacing: 'compact' },
       fields: { c1: { label: 'Employment', decimals: 1, description: 'Jobs reported by employers' } },
     };
     const saved = await sendWriteRequest(staff, 'put', `${path}/presentation`, defaults).expect(200);
@@ -351,23 +352,35 @@ test('staff customize shared presentation and report overrides without bypassing
     const selection = { dataset: { name: testTag, vintage: '2026' }, towns: ['Andover'], benchmark: false, indicators: ['c1'] };
     const preview = await sendWriteRequest(staff, 'post', '/api/reports/preview', selection).expect(200);
     assert.equal(preview.body.indicators[0].label, 'Employment');
+    assert.equal(preview.body.style.headingColor, '#663399');
+    assert.equal(preview.body.style.palette[0], '#123456');
+    assert.equal(preview.body.style.textSize, 'large');
     assert.equal(preview.body.indicators[0].cells[0].value, 123.45);
     assert.equal(preview.body.indicators[0].cells[0].display, '123.5');
     assert.match(preview.body.sourceLine, new RegExp(testTag));
     assert.ok(!JSON.stringify(preview.body).includes('Hidden'));
     const overridden = {
-      ...selection, fieldOverrides: { c1: { label: 'Local jobs', decimals: 0, description: 'Report-specific note' } },
+      ...selection, styleOverrides: { headingColor: '#17395C', spacing: 'comfortable' }, fieldOverrides: { c1: { label: 'Local jobs', decimals: 0, description: 'Report-specific note' } },
       layout: [{ type: 'chart', title: 'Our economy' }, { type: 'table' }],
     };
     const custom = await sendWriteRequest(staff, 'post', '/api/reports/preview', overridden).expect(200);
     assert.equal(custom.body.indicators[0].label, 'Local jobs');
+    assert.equal(custom.body.style.headingColor, '#17395C');
+    assert.equal(custom.body.style.spacing, 'comfortable');
+    assert.equal(custom.body.style.textSize, 'large');
+    assert.equal(custom.body.style.palette[0], '#123456');
     assert.equal(custom.body.indicators[0].cells[0].display, '123');
     assert.equal(custom.body.blocks[0].chart.title, 'Our economy');
     assert.ok(JSON.stringify(custom.body.blocks).includes('Report-specific note'));
     const stored = await sendWriteRequest(staff, 'post', '/api/reports', { title: testTag, selection: overridden }).expect(201);
     const restored = await staff.agent.get(`/api/reports/${stored.body.id}`).expect(200);
     assert.deepEqual(restored.body.selection.fieldOverrides, overridden.fieldOverrides);
+    assert.deepEqual(restored.body.selection.styleOverrides, overridden.styleOverrides);
     await staff.agent.get(`/api/reports/${stored.body.id}/pdf`).expect(200).expect('Content-Type', /pdf/);
+    await sendWriteRequest(staff, 'put', `${path}/presentation`, { ...saved.body.settings, style: { headingColor: '#FFFFFF' } }).expect(400);
+    await sendWriteRequest(staff, 'post', '/api/reports/preview', { ...overridden, styleOverrides: { tableHeaderColor: '#000000' } }).expect(400);
+    const inheritedAgain = await sendWriteRequest(staff, 'post', '/api/reports/preview', { ...overridden, styleOverrides: {} }).expect(200);
+    assert.equal(inheritedAgain.body.style.headingColor, '#663399');
     const searched = await staff.agent.get('/api/reports?q=Local%20employment').expect(200);
     assert.ok(searched.body.some((report) => report.id === stored.body.id));
     await sendWriteRequest(staff, 'put', `${path}/presentation`, { ...saved.body.settings, fields: {} }).expect(200);
@@ -387,6 +400,9 @@ test('staff customize shared presentation and report overrides without bypassing
     const numericSelection = { dataset: { name: `${testTag}-numeric`, vintage: '2026' }, towns: ['Andover'], benchmark: false, indicators: ['pop'] };
     const numericPreview = await sendWriteRequest(staff, 'post', '/api/reports/preview', numericSelection).expect(200);
     assert.equal(numericPreview.body.indicators[0].label, 'Residents');
+    const styledNumeric = await sendWriteRequest(staff, 'post', '/api/reports/preview', { ...numericSelection, styleOverrides: { headingColor: '#663399', spacing: 'compact' } }).expect(200);
+    assert.equal(styledNumeric.body.style.headingColor, '#663399');
+    assert.equal(styledNumeric.body.style.spacing, 'compact');
     assert.equal(numericPreview.body.indicators[0].cells[0].value, 1234);
     assert.equal(numericPreview.body.indicators[0].cells[0].display, '1,234.00');
     const numericOverride = await sendWriteRequest(staff, 'post', '/api/reports/preview', { ...numericSelection, fieldOverrides: { pop: { label: 'People', decimals: 0 } } }).expect(200);
