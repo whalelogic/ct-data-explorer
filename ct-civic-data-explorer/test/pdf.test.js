@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import PDFDocument from 'pdfkit';
+import { applyFieldPresentation, appendFieldNotes } from '../src/services/presentation.js';
 import { parseMarkup } from '../src/services/markup.js';
 import { reportFilename, renderReportPdf } from '../src/services/pdf/index.js';
 
@@ -231,3 +232,22 @@ function capturePdfText(context) {
   });
   return writtenText;
 }
+
+
+test('custom field names, chart titles and explanations reach the PDF without changing values', async (context) => {
+  const writtenText = capturePdfText(context);
+  const customized = applyFieldPresentation([income], {}, {
+    medhouseholdincome: { label: 'Household earnings', description: 'Median income for households in this period.' },
+  });
+  const chart = { ...incomeChart, title: 'Income comparison', series: incomeChart.series.map((series) => ({ ...series, label: 'Household earnings' })) };
+  const blocks = [{ type: 'chart', chart }, { type: 'table', indicators: customized }];
+  appendFieldNotes(blocks, customized);
+  const report = makeReport({ indicators: customized, blocks });
+  const pdf = await renderReportPdf(report);
+  assert.ok(pdf.length > 1000);
+  for (const expected of ['Household earnings', 'Income comparison', 'Field notes', 'Median income for households in this period.']) {
+    assert.ok(writtenText.some((text) => text.includes(expected)), expected);
+  }
+  assert.ok(writtenText.includes(income.cells[0].display));
+  assert.ok(writtenText.includes(report.sourceLine));
+});

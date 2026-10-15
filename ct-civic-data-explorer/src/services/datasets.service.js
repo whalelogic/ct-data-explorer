@@ -19,6 +19,8 @@ import {
   validateApprovedFields,
 } from './field-curation.js';
 
+import { applyFieldPresentation, datasetPresentationSchema } from './presentation.js';
+
 export { datasetIndicators } from './field-curation.js';
 
 export function listDatasets({ activeOnly }) {
@@ -40,7 +42,7 @@ export async function getDatasetOverview(datasetId, { offset = 0, limit = 25 }, 
 }
 
 async function buildRecordOverview(dataset, approvedFields, { offset, limit }) {
-  const columns = approvedDefinitions(dataset.column_definitions ?? [], approvedFields, { includeTown: true });
+  const columns = applyFieldPresentation(approvedDefinitions(dataset.column_definitions ?? [], approvedFields, { includeTown: true }), dataset.presentation);
   const sourceRows = await records.list(dataset.id, { offset, limit });
   const previewRows = [];
 
@@ -74,7 +76,7 @@ async function buildIndicatorOverview(dataset, approvedFields, { offset, limit }
     observations.countPlaces(dataset.id),
   ]);
   const availableIndicators = datasetIndicators(definitions, storedKeys);
-  const approvedIndicators = approvedDefinitions(availableIndicators, approvedFields);
+  const approvedIndicators = applyFieldPresentation(approvedDefinitions(availableIndicators, approvedFields), dataset.presentation);
   const placeIds = places.map((place) => place.id);
   const valuesByPlace = await observations.valuesByTown(dataset.id, placeIds);
   const previewRows = [];
@@ -130,7 +132,7 @@ function presentCuration(dataset, fields) {
   const approvedFields = approvedDefinitions(fields, dataset.approved_fields);
   return {
     dataset: presentDataset(dataset),
-    fields: addDisplayLabels(fields),
+    fields: applyFieldPresentation(addDisplayLabels(fields), dataset.presentation),
     approvedFields: approvedFields.map((field) => field.key),
     curationReviewed: Boolean(dataset.curation_reviewed_at),
   };
@@ -215,9 +217,10 @@ export async function getReportOptions(datasetId, user) {
   }
 
   const fields = await availableFields(dataset);
-  const approvedFields = approvedDefinitions(fields, dataset.approved_fields);
+  const approvedFields = applyFieldPresentation(approvedDefinitions(fields, dataset.approved_fields), dataset.presentation);
   const sharedOptions = {
     dataFormat: dataset.data_format ?? 'indicators',
+    defaultChartType: dataset.presentation?.defaultChartType || 'grouped_bar',
     curationReviewed: Boolean(dataset.curation_reviewed_at),
     columns: addDisplayLabels(approvedFields),
   };
@@ -299,5 +302,66 @@ export async function setDatasetActive(datasetId, isActive) {
       throw new HttpError(404, 'Dataset not found');
     }
     return datasets.findById(datasetId, client);
+  });
+}
+
+async function presentationAccess(datasetId, user, database) {
+  const dataset = await datasets.findById(datasetId, database);
+  if (!dataset || (!dataset.is_active && user.role !== 'admin')) {
+    throw new HttpError(404, 'Dataset not found');
+  }
+  const fields = await availableFields(dataset, database);
+  return { dataset, fields: user.role === 'admin' ? fields : approvedDefinitions(fields, dataset.approved_fields) };
+}
+
+function presentSettings(dataset, fields) {
+  const allowed = new Set(fields.map((field) => field.key));
+  const settings = dataset.presentation ?? {};
+  return {
+    revision: dataset.presentation_revision ?? 0,
+    displayName: settings.displayName ?? '',
+    description: settings.description ?? '',
+    defaultChartType: settings.defaultChartType ?? 'grouped_bar',
+    fieldOrder: (settings.fieldOrder ?? []).filter((key) => allowed.has(key)),
+    fields: Object.fromEntries(Object.entries(settings.fields ?? {}).filter(([key]) => allowed.has(key))),
+  };
+}
+
+export async function getDatasetPresentation(datasetId, user) {
+  const { dataset, fields } = await presentationAccess(datasetId, user);
+  return { settings: presentSettings(dataset, fields), fields };
+}
+
+export async function updateDatasetPresentation(datasetId, input, user) {
+  const parsed = datasetPresentationSchema.parse(input);
+  return withTransaction(async (client) => {
+    await client.lock(`dataset-curation:${datasetId}`);
+    const { dataset, fields } = await presentationAccess(datasetId, user, client);
+    if (parsed.revision !== (dataset.presentation_revision ?? 0)) {
+      throw new HttpError(409, 'Another staff member changed these defaults. Reload defaults before saving.');
+    }
+    const allowed = new Set(fields.map((field) => field.key));
+    const keys = [...Object.keys(parsed.fields), ...parsed.fieldOrder];
+    if (keys.some((key) => !allowed.has(key))) {
+      throw new HttpError(400, 'Customize only fields available to you in this dataset.');
+    }
+    if (new Set(parsed.fieldOrder).size !== parsed.fieldOrder.length) {
+      throw new HttpError(400, 'Choose each field only once in the display order.');
+    }
+    for (const field of fields) {
+      if (field.type === 'text' && parsed.fields[field.key]?.decimals !== undefined) {
+        throw new HttpError(400, 'Decimal precision applies only to numeric fields.');
+      }
+    }
+    // Staff edits must not erase defaults belonging to currently withheld fields.
+    const previous = dataset.presentation ?? {};
+    const withheld = Object.fromEntries(Object.entries(previous.fields ?? {}).filter(([key]) => !allowed.has(key)));
+    const settings = { ...parsed };
+    delete settings.revision;
+    settings.fields = { ...withheld, ...parsed.fields };
+    settings.fieldOrder = [...parsed.fieldOrder, ...(previous.fieldOrder ?? []).filter((key) => !allowed.has(key))];
+    await datasets.setPresentation(datasetId, settings, client);
+    const updated = await datasets.findById(datasetId, client);
+    return { settings: presentSettings(updated, fields), fields };
   });
 }

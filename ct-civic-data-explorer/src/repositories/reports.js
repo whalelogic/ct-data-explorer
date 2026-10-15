@@ -4,7 +4,7 @@ import { pool } from '../db/pool.js';
 const SELECT = `
   SELECT r.id, r.title, r.selection, r.created_by, r.dataset_id, r.created_at, r.updated_at,
          CONCAT(u.first_name, ' ', u.last_name) AS creator_name,
-         d.name AS dataset_name, d.vintage AS dataset_vintage, d.version AS dataset_version
+         d.name AS dataset_name, d.vintage AS dataset_vintage, d.version AS dataset_version, d.presentation AS dataset_presentation
   FROM reports r
   JOIN users u ON u.id = r.created_by
   JOIN datasets d ON d.id = r.dataset_id`;
@@ -20,9 +20,10 @@ export async function list(query, db = pool) {
      WHERE ? IS NULL
         OR r.title COLLATE utf8mb4_0900_as_ci LIKE ?
         OR d.name COLLATE utf8mb4_0900_as_ci LIKE ?
+        OR JSON_UNQUOTE(JSON_EXTRACT(d.presentation, '$.displayName')) COLLATE utf8mb4_0900_as_ci LIKE ?
      ORDER BY r.updated_at DESC
      LIMIT 200`,
-    [pattern, pattern, pattern],
+    [pattern, pattern, pattern, pattern],
   );
   return rows;
 }

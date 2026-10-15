@@ -5,6 +5,7 @@ import { parseMarkup } from './markup.js';
 import { presentDataset } from './presenters.js';
 import { formatDatasetCell } from './tabular-data.js';
 import { approvedDefinitions, requireApprovedSelection } from './field-curation.js';
+import { applyFieldPresentation, appendFieldNotes } from './presentation.js';
 import { buildChartBlocks } from './report-charts.js';
 
 export async function buildRecordReport(selection, dataset, places, now) {
@@ -14,7 +15,7 @@ export async function buildRecordReport(selection, dataset, places, now) {
 }
 
 export function renderRecordReport(selection, dataset, sourceRows, now = new Date()) {
-  const columns = approvedDefinitions(dataset.columns, dataset.approvedFields, { includeTown: true });
+  const columns = applyFieldPresentation(approvedDefinitions(dataset.columns, dataset.approvedFields, { includeTown: true }), {}, selection.fieldOverrides);
   const dataColumns = columns.filter((column) => column.role !== 'town');
   requireApprovedSelection(selection, dataColumns, dataset.approvedFields);
 
@@ -51,11 +52,13 @@ export function renderRecordReport(selection, dataset, sourceRows, now = new Dat
     blocks.push(buildRecordTable([], tableData));
   }
 
+  appendFieldNotes(blocks, indicatorRows);
+
   const generatedOn = now.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
   return {
     rowBased: true,
     title: selection.title || defaultTitle(selection.towns),
-    subtitle: selection.subtitle || `${dataset.name}, ${dataset.vintage}`,
+    subtitle: selection.subtitle || `${dataset.displayName || dataset.name}, ${dataset.vintage}`,
     showTitle: selection.showTitle,
     dataset,
     places,

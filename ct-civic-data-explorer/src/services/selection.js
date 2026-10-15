@@ -7,6 +7,7 @@
  * markup.js), chart and table. A report may hold any number of each.
  */
 import { z } from 'zod';
+import { fieldPresentationSchema } from './presentation.js';
 
 export const BLOCK_TYPES = Object.freeze(['text', 'chart', 'table']);
 export const CHART_TYPES = Object.freeze(['bar', 'grouped_bar', 'line']);
@@ -21,6 +22,7 @@ const textBlock = z.object({
 });
 const chartBlock = z.object({
   type: z.literal('chart'),
+  title: z.string().trim().max(120).optional(),
   chartType: z.enum(CHART_TYPES).default('grouped_bar'),
   indicators: z.array(z.string()).max(25).default([]), // empty: chart every selected numeric indicator
 });
@@ -51,6 +53,7 @@ export const selectionSchema = z.preprocess(
         .min(1, 'Choose a town'),
       benchmark: z.boolean().default(true),
       indicators: z.array(requiredText('Indicator', 100)).min(1, 'Select at least one indicator for the report').max(25),
+      fieldOverrides: z.record(z.string().min(1).max(100), fieldPresentationSchema).optional(),
       showTitle: z.boolean().default(true),
       title: z.string().trim().max(200).default(''),
       subtitle: z.string().trim().max(300).default(''),
@@ -67,6 +70,12 @@ export const selectionSchema = z.preprocess(
       const duplicateIndicator = findDuplicate(s.indicators);
       if (duplicateIndicator) {
         ctx.addIssue({ code: 'custom', path: ['indicators'], message: `"${duplicateIndicator}" is selected more than once` });
+      }
+
+      for (const key of Object.keys(s.fieldOverrides ?? {})) {
+        if (!s.indicators.includes(key)) {
+          ctx.addIssue({ code: 'custom', path: ['fieldOverrides', key], message: 'Customize only selected report fields' });
+        }
       }
 
       s.layout.forEach((block, i) => {

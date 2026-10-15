@@ -18,6 +18,7 @@ import { presentDataset, presentIndicator, presentPlace } from './presenters.js'
 import { selectionSchema } from './selection.js';
 import { buildRecordReport } from './record-reports.js';
 import { datasetIndicators, requireApprovedSelection } from './field-curation.js';
+import { applyFieldPresentation, appendFieldNotes } from './presentation.js';
 import { buildChartBlocks } from './report-charts.js';
 
 const TIME_ZONE = 'America/New_York';
@@ -45,9 +46,11 @@ export async function buildReport(selection, { now = new Date() } = {}) {
     blocks.push(...buildBlocks(layoutBlock, rows, placeSummaries));
   }
 
+  appendFieldNotes(blocks, rows);
+
   return {
     title: selection.title || defaultTitle(placeSummaries),
-    subtitle: selection.subtitle || `${dataset.name}, ${dataset.vintage}`,
+    subtitle: selection.subtitle || `${dataset.presentation?.displayName || dataset.name}, ${dataset.vintage}`,
     showTitle: selection.showTitle,
     dataset: datasetSummary,
     places: placeSummaries,
@@ -207,7 +210,7 @@ async function resolveIndicators(selection, dataset) {
     }
     selectedIndicators.push(indicator);
   }
-  return selectedIndicators;
+  return applyFieldPresentation(selectedIndicators, { fields: dataset.presentation?.fields }, selection.fieldOverrides);
 }
 
 /**
