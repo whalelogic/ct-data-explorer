@@ -54,7 +54,7 @@
 | GET | `/api/datasets/:id` | Signed in | Dataset overview with paged rows (`?offset=&limit=`, limit max 100) |
 | GET | `/api/datasets/:id/report-options` | Signed in | Towns, indicators and filters available for reports |
 | GET | `/api/datasets/:id/presentation` | Signed in | Shared display settings, revision and editable fields; staff see approved fields of published datasets |
-| PUT | `/api/datasets/:id/presentation` | Signed in | Save display settings with the current revision; stale revisions return 409; approval and source data stay unchanged |
+| PUT | `/api/datasets/:id/presentation` | Signed in | Save display settings and optional style with the current revision; stale revisions return 409; approval and source data stay unchanged |
 | GET | `/api/datasets/:id/curation` | Admin | Available fields and approval/review status |
 | PUT | `/api/datasets/:id/curation` | Admin | Save approvedFields; empty approval unpublishes the dataset |
 | POST | `/api/datasets` | Admin | Upload a CSV or .xlsx file (multipart, 10 MB max) |

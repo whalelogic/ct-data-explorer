@@ -19,6 +19,12 @@ Open a dataset's **Details**, then **Customize names and display**. Staff can se
 
 The report builder's **Customize field labels for this report** section overrides a selected field's label, description or precision. A blank setting inherits its shared default. **Use shared field defaults** removes report-specific overrides; each chart also has an optional custom title. Field explanations are included as notes in previews and PDFs. New reports and new chart blocks use the dataset's chart default, while saved layouts and explicit report overrides remain intact. Shared field order controls the field picker; reports retain their chosen field order.
 
+### Chart colors and report appearance
+
+In dataset Details, **Shared report appearance** sets the six chart series colors, statewide benchmark color, heading color, table-header background, standard/large text, and comfortable/compact spacing. Its sample updates as you edit. Save shared defaults to apply them across Explore and reports that inherit those settings. **Use CTData styling** restores the original theme; save to apply it.
+
+In the builder, **Report appearance** offers an **Override** toggle for each setting. Disabled controls follow the dataset defaults, including later staff changes; enabled overrides are stored with the report and survive save, reopen and duplication. **Use all shared styling** removes every style override. Colors and presentation are resolved on the server and used by both browser previews and PDFs. Heading and table-header choices must retain readable text contrast. Source attribution stays visible.
+
 ## Brand and embedding
 
 Poppins is bundled locally with its OFL license and embedded in PDFs. `src/shared/theme.js` and `public/css/app.css` use CTData navy `#262558`, teal `#39738C`, coral `#DE6F59` and the supporting brand palette. Charts avoid using teal and green together as required by the brand guide. No font CDN is needed.
