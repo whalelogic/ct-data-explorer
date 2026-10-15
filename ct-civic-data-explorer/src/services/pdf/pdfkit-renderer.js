@@ -4,16 +4,13 @@
  * same PDF without a browser or network request.
  */
 import PDFDocument from 'pdfkit';
+import { resolveReportStyle } from '../../shared/report-style.js';
 import { fileURLToPath } from 'node:url';
 import { formatAxisValue, unitLabel } from '../../shared/format.js';
 import {
-  BENCHMARK_COLOR,
   INK,
-  LINK_COLOR,
   MUTED,
   RULE,
-  SERIES_COLORS,
-  TABLE_HEADER_FILL,
 } from '../../shared/theme.js';
 
 const FONT_STYLES = ['Regular', 'SemiBold', 'Bold', 'ExtraBold', 'Italic', 'BoldItalic'];
@@ -25,6 +22,10 @@ const CHART_PLACES_PER_PART = 6;
 const TABLE_PLACES_PER_PART = 4;
 const CHART_LABEL_LINES = 3;
 const BODY_SIZE = 10.5;
+
+function bodySize(document) {
+  return document.reportStyle.textSize === 'large' ? 12 : BODY_SIZE;
+}
 const HEADING_SIZES = { 1: 15, 2: 13, 3: 11.5 };
 
 /** @returns {Promise<Buffer>} */
@@ -61,6 +62,7 @@ export function renderWithPdfkit(report) {
         document.registerFont(fontName, fileURLToPath(fontUrl));
       }
 
+      document.reportStyle = resolveReportStyle(report.style);
       document.font('Poppins-Regular');
       drawBody(document, report);
       drawFooters(document, report);
@@ -78,7 +80,7 @@ function drawBody(document, report) {
   if (report.showTitle) {
     document.font('Poppins-ExtraBold');
     document.fontSize(20);
-    document.fillColor(INK);
+    document.fillColor(document.reportStyle.headingColor);
     document.text(report.title, MARGIN, document.y, { width });
 
     if (report.subtitle) {
@@ -111,7 +113,7 @@ function drawBody(document, report) {
     }
 
     document.x = MARGIN;
-    document.moveDown(1);
+    document.moveDown(document.reportStyle.spacing === 'compact' ? 0.5 : 1);
   }
 }
 
@@ -141,11 +143,11 @@ function measureText(document, nodes) {
       height += document.heightOfString(plainText(node.runs), { width, lineGap: 2 });
     } else if (node.type === 'paragraph') {
       document.font('Poppins-Regular');
-      document.fontSize(BODY_SIZE);
+      document.fontSize(bodySize(document));
       height += document.heightOfString(plainText(node.runs), { width, lineGap: 2 });
     } else if (node.type === 'list') {
       document.font('Poppins-Regular');
-      document.fontSize(BODY_SIZE);
+      document.fontSize(bodySize(document));
 
       for (const runs of node.items) {
         height += document.heightOfString(plainText(runs), { width: width - 18, lineGap: 2 }) + 3;
@@ -153,7 +155,7 @@ function measureText(document, nodes) {
     }
 
     // Round up the half-line gap between text nodes.
-    height += BODY_SIZE;
+    height += bodySize(document);
   }
 
   return height;
@@ -173,10 +175,10 @@ function drawText(document, nodes) {
       const size = HEADING_SIZES[node.level];
       // Keep a heading with the first lines that follow it.
       ensureSpace(document, size * 1.4 + 40);
-      drawRuns(document, node.runs, { x: MARGIN, width, size, bold: true, color: LINK_COLOR });
+      drawRuns(document, node.runs, { x: MARGIN, width, size, bold: true, color: document.reportStyle.headingColor });
     } else if (node.type === 'paragraph') {
       ensureSpace(document, 30);
-      drawRuns(document, node.runs, { x: MARGIN, width, size: BODY_SIZE });
+      drawRuns(document, node.runs, { x: MARGIN, width, size: bodySize(document) });
     } else if (node.type === 'list') {
       drawList(document, node, width);
     }
@@ -195,7 +197,7 @@ function drawList(document, node, width) {
     const y = document.y;
     const marker = node.ordered ? `${node.start + itemIndex}.` : '\u2022';
     document.font('Poppins-Regular');
-    document.fontSize(BODY_SIZE);
+    document.fontSize(bodySize(document));
     document.fillColor(INK);
     document.text(marker, MARGIN, y, {
       width: indent - 4,
@@ -206,7 +208,7 @@ function drawList(document, node, width) {
     drawRuns(document, node.items[itemIndex], {
       x: MARGIN + indent,
       width: width - indent,
-      size: BODY_SIZE,
+      size: bodySize(document),
     });
   }
 }
@@ -220,7 +222,7 @@ function drawRuns(document, runs, { x, width, size, bold = false, color = INK })
   for (let runIndex = 0; runIndex < visibleRuns.length; runIndex++) {
     const run = visibleRuns[runIndex];
     document.font(fontFor(bold || run.bold, run.italic));
-    document.fillColor(run.href ? LINK_COLOR : color);
+    document.fillColor(run.href ? document.reportStyle.headingColor : color);
 
     const options = {
       continued: runIndex < visibleRuns.length - 1,
@@ -252,8 +254,9 @@ function fontFor(bold, italic) {
   return 'Poppins-Regular';
 }
 
-function seriesColor(seriesIndex) {
-  return SERIES_COLORS[seriesIndex % SERIES_COLORS.length];
+function seriesColor(document, seriesIndex) {
+  const palette = document.reportStyle.palette;
+  return palette[seriesIndex % palette.length];
 }
 
 function chartY(plot, value, scale) {
@@ -304,7 +307,7 @@ function chartLegendLayout(document, chart, width) {
   const columnWidth = width / 2;
   const rows = [];
   document.font('Poppins-Regular');
-  document.fontSize(9);
+  document.fontSize(document.reportStyle.textSize === 'large' ? 10.5 : 9);
   for (let start = 0; start < chart.series.length; start += 2) {
     const series = chart.series.slice(start, start + 2);
     const height = Math.max(...series.map((item) => document.heightOfString(item.label, { width: columnWidth - 26 }))) + 8;
@@ -338,12 +341,12 @@ function drawChartPart(document, chart, scale, range) {
   const top = document.y;
   document.font('Poppins-Bold');
   document.fontSize(12);
-  document.fillColor(INK);
+  document.fillColor(document.reportStyle.headingColor);
   document.text(title, MARGIN, top, { width });
   let headingY = top + titleHeight;
   if (range) {
     document.font('Poppins-Regular');
-    document.fontSize(9);
+    document.fontSize(document.reportStyle.textSize === 'large' ? 10.5 : 9);
     document.fillColor(MUTED);
     document.text(range, MARGIN, headingY, { width });
     headingY += 18;
@@ -351,7 +354,7 @@ function drawChartPart(document, chart, scale, range) {
   drawChartLegend(document, legend, headingY);
   headingY += legend.height;
   document.font('Poppins-Regular');
-  document.fontSize(9);
+  document.fontSize(document.reportStyle.textSize === 'large' ? 10.5 : 9);
   document.fillColor(MUTED);
   document.text(unitLabel(chart.unit), MARGIN + axisWidth, headingY, { width: width - axisWidth });
   const plot = {
@@ -428,7 +431,7 @@ function drawChartLabelKey(document, labelReferences) {
     document.moveDown(0.4);
     ensureSpace(document, 30);
     document.font('Poppins-Regular');
-    document.fontSize(9);
+    document.fontSize(document.reportStyle.textSize === 'large' ? 10.5 : 9);
     document.fillColor(INK);
     document.text(`${reference.number}. ${reference.label}`, MARGIN, document.y, { width: contentWidth(document) });
   }
@@ -436,12 +439,12 @@ function drawChartLabelKey(document, labelReferences) {
 
 function drawChartLegend(document, legend, top) {
   document.font('Poppins-Regular');
-  document.fontSize(9);
+  document.fontSize(document.reportStyle.textSize === 'large' ? 10.5 : 9);
   for (const row of legend.rows) {
     for (let column = 0; column < row.series.length; column++) {
       const x = MARGIN + column * legend.columnWidth;
       document.rect(x, top + 3, 9, 9);
-      document.fill(seriesColor(row.start + column));
+      document.fill(seriesColor(document, row.start + column));
       document.fillColor(INK);
       document.text(row.series[column].label, x + 13, top + 2, { width: legend.columnWidth - 26 });
     }
@@ -477,13 +480,13 @@ function drawChartLines(document, chart, plot, groupWidth, scale) {
     }
 
     document.lineWidth(2);
-    document.strokeColor(seriesColor(seriesIndex));
+    document.strokeColor(seriesColor(document, seriesIndex));
     document.stroke();
 
     for (const point of points) {
       if (point) {
         document.circle(point[0], point[1], 2.5);
-        document.fill(seriesColor(seriesIndex));
+        document.fill(seriesColor(document, seriesIndex));
       }
     }
   }
@@ -502,9 +505,9 @@ function drawChartBars(document, chart, plot, groupWidth, scale) {
         continue;
       }
 
-      let color = seriesColor(seriesIndex);
+      let color = seriesColor(document, seriesIndex);
       if (chart.type === 'bar' && valueIndex === chart.benchmarkIndex) {
-        color = BENCHMARK_COLOR;
+        color = document.reportStyle.benchmarkColor;
       }
 
       const x = plot.x + groupWidth * valueIndex + (groupWidth - groupInnerWidth) / 2 + barWidth * seriesIndex;
@@ -533,10 +536,10 @@ function drawTablePart(document, places, rows, heading) {
     width,
     firstColumnWidth,
     valueColumnWidth: (width - firstColumnWidth) / places.length,
-    padding: 5,
+    padding: document.reportStyle.spacing === 'compact' ? 3 : 5,
   };
   const header = ['Indicator', ...places.map((place) => place.label)];
-  const headerStyle = { bold: true, fill: TABLE_HEADER_FILL };
+  const headerStyle = { bold: true, fill: document.reportStyle.tableHeaderColor };
 
   const headerHeight = tableRowHeight(document, header, layout, true);
   const rowHeights = rows.map((row) => tableRowHeight(document, [row.displayLabel, ...row.cells.map((cell) => cell.display)], layout));
@@ -572,7 +575,7 @@ function tableCellWidth(layout, columnIndex) {
 
 function tableRowHeight(document, cells, layout, bold = false) {
   document.font(bold ? 'Poppins-Bold' : 'Poppins-Regular');
-  document.fontSize(9.5);
+  document.fontSize(document.reportStyle.textSize === 'large' ? 11 : 9.5);
   const cellHeights = cells.map((text, columnIndex) => {
     return document.heightOfString(text, { width: tableCellWidth(layout, columnIndex) });
   });
@@ -627,7 +630,7 @@ function drawRecordTables(document, block) {
     const header = columnIndices.map((columnIndex) => block.columns[columnIndex].label);
 
     document.font('Poppins-Bold');
-    document.fontSize(9);
+    document.fontSize(document.reportStyle.textSize === 'large' ? 10.5 : 9);
     const headerHeight = recordRowHeight(document, header, cellWidth) + 10;
     ensureSpace(document, headerHeight + 35);
     drawRecordRow(document, header, cellWidth, true);
@@ -637,14 +640,14 @@ function drawRecordTables(document, block) {
 
       while (remainingValues.some((value) => value.length > 0)) {
         document.font('Poppins-Regular');
-        document.fontSize(9);
+        document.fontSize(document.reportStyle.textSize === 'large' ? 10.5 : 9);
         let availableHeight = document.page.height - document.page.margins.bottom - document.y - 10;
 
         if (availableHeight < 25) {
           document.addPage();
           drawRecordRow(document, header, cellWidth, true);
           document.font('Poppins-Regular');
-          document.fontSize(9);
+          document.fontSize(document.reportStyle.textSize === 'large' ? 10.5 : 9);
           availableHeight = document.page.height - document.page.margins.bottom - document.y - 10;
         }
 
@@ -671,8 +674,12 @@ function drawRecordTables(document, block) {
   }
 }
 
+function recordPadding(document) {
+  return document.reportStyle.spacing === 'compact' ? 3 : 5;
+}
+
 function recordCellHeight(document, text, cellWidth) {
-  return document.heightOfString(text || ' ', { width: cellWidth - 10 });
+  return document.heightOfString(text || ' ', { width: cellWidth - recordPadding(document) * 2 });
 }
 
 function recordRowHeight(document, values, cellWidth) {
@@ -682,19 +689,19 @@ function recordRowHeight(document, values, cellWidth) {
 
 function drawRecordRow(document, values, cellWidth, bold = false) {
   document.font(bold ? 'Poppins-Bold' : 'Poppins-Regular');
-  document.fontSize(9);
-  const height = recordRowHeight(document, values, cellWidth) + 10;
+  document.fontSize(document.reportStyle.textSize === 'large' ? 10.5 : 9);
+  const height = recordRowHeight(document, values, cellWidth) + recordPadding(document) * 2;
   const top = document.y;
 
   if (bold) {
     document.rect(MARGIN, top, contentWidth(document), height);
-    document.fill(TABLE_HEADER_FILL);
+    document.fill(document.reportStyle.tableHeaderColor);
   }
 
   for (let columnIndex = 0; columnIndex < values.length; columnIndex++) {
     document.fillColor(INK);
-    document.text(values[columnIndex], MARGIN + columnIndex * cellWidth + 5, top + 5, {
-      width: cellWidth - 10,
+    document.text(values[columnIndex], MARGIN + columnIndex * cellWidth + recordPadding(document), top + recordPadding(document), {
+      width: cellWidth - recordPadding(document) * 2,
     });
   }
 

@@ -32,6 +32,7 @@ export function presentDataset(dataset) {
     id: dataset.id,
     name: dataset.name,
     displayName: dataset.presentation?.displayName || dataset.name,
+    reportStyle: dataset.presentation?.style ?? {},
     description: dataset.presentation?.description || '',
     defaultChartType: dataset.presentation?.defaultChartType || 'grouped_bar',
     sourceId: dataset.source_id,

@@ -7,7 +7,7 @@
  * markup.js), chart and table. A report may hold any number of each.
  */
 import { z } from 'zod';
-import { fieldPresentationSchema } from './presentation.js';
+import { fieldPresentationSchema, reportStyleSchema } from './presentation.js';
 
 export const BLOCK_TYPES = Object.freeze(['text', 'chart', 'table']);
 export const CHART_TYPES = Object.freeze(['bar', 'grouped_bar', 'line']);
@@ -53,6 +53,7 @@ export const selectionSchema = z.preprocess(
         .min(1, 'Choose a town'),
       benchmark: z.boolean().default(true),
       indicators: z.array(requiredText('Indicator', 100)).min(1, 'Select at least one indicator for the report').max(25),
+      styleOverrides: reportStyleSchema.optional(),
       fieldOverrides: z.record(z.string().min(1).max(100), fieldPresentationSchema).optional(),
       showTitle: z.boolean().default(true),
       title: z.string().trim().max(200).default(''),

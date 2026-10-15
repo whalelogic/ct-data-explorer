@@ -1,6 +1,7 @@
+import { resolveReportStyle, DEFAULT_REPORT_STYLE } from '../src/shared/report-style.js';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { applyFieldPresentation, appendFieldNotes, datasetPresentationSchema } from '../src/services/presentation.js';
+import { applyFieldPresentation, appendFieldNotes, datasetPresentationSchema, reportStyleSchema } from '../src/services/presentation.js';
 import { selectionSchema } from '../src/services/selection.js';
 import { buildChartBlocks } from '../src/services/report-charts.js';
 import { presentDataset } from '../src/services/presenters.js';
@@ -57,4 +58,26 @@ test('presentation validation rejects changing values or units, invalid precisio
   assert.equal(selectionSchema.safeParse({
     dataset: { name: 'Jobs', vintage: '2026' }, towns: ['Andover'], indicators: ['c1'], fieldOverrides: { c2: { label: 'Hidden' } },
   }).success, false);
+});
+
+
+test('report styling inherits each shared setting and overrides only explicitly chosen properties', () => {
+  const shared = { headingColor: '#663399', spacing: 'compact', palette: ['#112233', '#334455', '#556677', '#778899', '#990011', '#113399'] };
+  const override = { headingColor: '#17395C' };
+  const snapshot = structuredClone(shared);
+  const effective = resolveReportStyle(shared, override);
+  assert.equal(effective.headingColor, '#17395C');
+  assert.equal(effective.spacing, 'compact');
+  assert.deepEqual(effective.palette, shared.palette);
+  assert.equal(effective.textSize, DEFAULT_REPORT_STYLE.textSize);
+  assert.deepEqual(resolveReportStyle(shared, {}).headingColor, shared.headingColor);
+  assert.deepEqual(shared, snapshot);
+});
+
+test('styling rejects injected CSS, missing palette colors and unreadable heading or table colors', () => {
+  for (const style of [
+    { headingColor: 'red;position:fixed' }, { palette: ['#123456'] }, { headingColor: '#FFFFFF' },
+    { tableHeaderColor: '#262558' }, { textSize: '90px' }, { spacing: 'arbitrary' }, { customCss: '*' },
+  ]) assert.equal(reportStyleSchema.safeParse(style).success, false, JSON.stringify(style));
+  assert.equal(reportStyleSchema.safeParse({ headingColor: '#663399', tableHeaderColor: '#FFF3CD', benchmarkColor: '#666666', textSize: 'large', spacing: 'compact' }).success, true);
 });

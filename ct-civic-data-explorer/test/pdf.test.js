@@ -251,3 +251,33 @@ test('custom field names, chart titles and explanations reach the PDF without ch
   assert.ok(writtenText.includes(income.cells[0].display));
   assert.ok(writtenText.includes(report.sourceLine));
 });
+
+
+test('PDF uses chosen colors and typography per report without leaking styles to concurrent exports', async (context) => {
+  const fills = [];
+  const strokes = [];
+  const sizes = [];
+  for (const [method, captured] of [['fillColor', fills], ['fill', fills], ['strokeColor', strokes], ['fontSize', sizes]]) {
+    const original = PDFDocument.prototype[method];
+    context.mock.method(PDFDocument.prototype, method, function captureStyle(value, ...args) {
+      captured.push({ heading: this.reportStyle?.headingColor, value });
+      return original.call(this, value, ...args);
+    });
+  }
+  const original = makeReport();
+  const baseline = await renderReportPdf(original);
+  const style = {
+    palette: ['#123456', '#654321', '#225588', '#884422', '#336699', '#993366'],
+    benchmarkColor: '#666666', headingColor: '#663399', tableHeaderColor: '#FFF3CD',
+    textSize: 'large', spacing: 'compact',
+  };
+  const customReport = makeReport({ style });
+  const [custom, unchanged] = await Promise.all([renderReportPdf(customReport), renderReportPdf(original)]);
+  assert.ok(custom.length > 1000);
+  assert.deepEqual(unchanged, baseline);
+  for (const color of ['#663399', '#FFF3CD', '#123456', '#666666']) {
+    assert.ok(fills.some((item) => item.heading === style.headingColor && item.value === color), color);
+  }
+  assert.ok(sizes.some((item) => item.heading === style.headingColor && item.value === 11));
+  assert.ok(strokes.every((item) => item.heading !== style.headingColor || item.value !== '#FFFFFF'));
+});
