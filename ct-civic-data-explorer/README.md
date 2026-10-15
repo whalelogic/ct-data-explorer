@@ -19,7 +19,7 @@ Poppins is bundled locally with its OFL license and embedded in PDFs. `src/share
 
 `/explore.html?embed=1` provides compact exploration chrome for same-origin embedding. Authentication remains required. Cross-origin WordPress embedding or a public viewer requires the actual hosting origin and a decision about public versus signed-in access; the existing same-origin frame policy is retained. No WordPress credentials or hosting target are configured in this repository.
 
-Deploy from this application directory with `docker compose up -d --build`, which applies migrations automatically. Verify the configured local URL's `/healthz` and sign-in/exploration flow. Preserve the existing database volume.
+Deploy from this application directory with `docker compose up -d --build`, which applies migrations automatically. Verify the configured local URL's `/healthz` and sign-in/exploration flow. Back up the database first and preserve the existing database volume. Migration `006_preserve_saved_reports.sql` renames the legacy saved-selection table to `reports` without copying or deleting saved selections; fresh databases already have the new table. Deploy the previous compatible report-based revision to roll back application code; do not roll back to a revision using the legacy table name against the renamed table without restoring its matching backup.
 
 ## Quick start
 
