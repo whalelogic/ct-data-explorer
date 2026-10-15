@@ -28,6 +28,9 @@ function getElement(id) {
 
 async function initializeExplorer() {
   urlParameters = new URLSearchParams(location.search);
+  if (urlParameters.get('embed') === '1') {
+    document.body.classList.add('embed-mode');
+  }
 
   const requestedChartType = urlParameters.get('chart');
   if (['bar', 'grouped_bar', 'table'].includes(requestedChartType)) {
@@ -661,6 +664,9 @@ function writeUrl() {
   for (const [filterKey, filterValue] of Object.entries(recordFilters)) {
     query.set(`filter.${filterKey}`, filterValue);
   }
+  if (document.body.classList.contains('embed-mode')) {
+    query.set('embed', '1');
+  }
   history.replaceState(null, '', `${location.pathname}?${query}`);
 }
 
@@ -670,6 +676,7 @@ async function shareView() {
   }
   writeUrl();
   const shareLink = new URL(location.href);
+  shareLink.searchParams.delete('embed');
   try {
     await navigator.clipboard.writeText(shareLink.href);
     showStatus(getElement('action-status'), 'View link copied. Recipients must sign in to explore the current approved data.', 'success');

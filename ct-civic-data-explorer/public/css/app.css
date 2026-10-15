@@ -1063,6 +1063,15 @@ table.data .num {
   padding: 0.85rem 1rem;
   margin: 1rem 0;
 }
+.embed-mode header.site,
+.embed-mode .explorer-intro,
+.embed-mode .explorer-steps,
+.embed-mode .explorer-footer {
+  display: none;
+}
+.embed-mode .container {
+  padding-top: 1rem;
+}
 
 @media (min-width: 1500px) {
   .container {
