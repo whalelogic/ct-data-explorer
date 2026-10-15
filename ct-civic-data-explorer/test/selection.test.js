@@ -21,7 +21,7 @@ test('the SRS example selection (the pre-layout shape) is upgraded to a layout',
   const minimal = selectionSchema.parse(base);
   assert.equal(minimal.benchmark, true);
   assert.deepEqual(minimal.layout, [
-    { type: 'chart', chartType: 'bar', indicators: [] },
+    { type: 'chart', chartType: 'grouped_bar', indicators: [] },
     { type: 'table', indicators: [] },
   ]);
 });
@@ -52,10 +52,22 @@ test('a card cannot be built with zero indicators, and the error says so', () =>
   assert.equal(firstError({ ...base, indicators: [] }), 'Select at least one indicator for the card');
 });
 
-test('one town plus at most three comparisons', () => {
+test('all 169 towns can be selected, but empty and duplicate selections are rejected', () => {
+  const townNames = Array.from({ length: 169 }, (_, index) => `Town ${index + 1}`);
+  assert.deepEqual(selectionSchema.parse({ ...base, towns: townNames }).towns, townNames);
   assert.equal(firstError({ ...base, towns: [] }), 'Choose a town');
-  assert.equal(firstError({ ...base, towns: ['A', 'B', 'C', 'D', 'E'] }), 'Choose at most 3 comparison towns');
   assert.equal(firstError({ ...base, towns: ['Hamden', 'hamden'] }), '"hamden" is selected more than once');
+});
+
+test('a chart can request all 25 selected fields for automatic grouping', () => {
+  const indicators = Array.from({ length: 25 }, (_, index) => `measure${index + 1}`);
+  const selection = selectionSchema.parse({
+    ...base,
+    indicators,
+    layout: [{ type: 'chart', indicators }],
+  });
+  assert.equal(selection.layout[0].chartType, 'grouped_bar');
+  assert.deepEqual(selection.layout[0].indicators, indicators);
 });
 
 test('block indicators must be on the card, and figures need a chart or a table', () => {
