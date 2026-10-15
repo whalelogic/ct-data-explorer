@@ -2,6 +2,7 @@
  * The report selection is shared by the preview, PDF, summary, and save APIs.
  * Form controls and the layout editor update this same object.
  */
+import { fieldUnitLabel, groupFieldsByUnit } from '/shared/field-groups.js';
 import { mountReportStyleEditor } from './report-style-editor.js';
 import { api, loadSession } from './api.js';
 import { clearReport, renderReport } from './report-view.js';
@@ -417,39 +418,53 @@ function renderIndicators(focusId) {
 
   const indicatorList = getElement('indicator-list');
   indicatorList.replaceChildren();
-  for (const key of orderedKeys) {
-    const indicator = indicatorsByKey.get(key);
-    const position = chosenKeys.indexOf(key);
-    const inputId = `indicator-${key}`;
-    const row = createElement('li');
-    const checkbox = createElement('input', {
-      type: 'checkbox',
-      id: inputId,
-      checked: position !== -1,
-      'data-indicator': key,
-      onChange: handleIndicatorChange,
-    });
-    row.append(checkbox, createElement('label', { for: inputId }, indicator.displayLabel));
-
-    if (position !== -1) {
-      const orderControls = createElement('span', { class: 'order' });
-      const upButton = createElement('button', {
-        type: 'button', class: 'icon', id: `${inputId}-up`,
-        'aria-label': `Move ${indicator.label} up`, disabled: position === 0,
-        'data-indicator': key, 'data-direction': -1, onClick: handleMoveIndicator,
-      }, '↑');
-      const downButton = createElement('button', {
-        type: 'button', class: 'icon', id: `${inputId}-down`,
-        'aria-label': `Move ${indicator.label} down`, disabled: position === chosenKeys.length - 1,
-        'data-indicator': key, 'data-direction': 1, onClick: handleMoveIndicator,
-      }, '↓');
-      orderControls.append(upButton, downButton);
-      row.append(orderControls);
-    }
-    indicatorList.append(row);
+  const orderedFields = orderedKeys.map((key) => indicatorsByKey.get(key));
+  for (const group of groupFieldsByUnit(orderedFields)) {
+    const section = createElement('fieldset', { class: 'unit-field-group' });
+    section.append(createElement('legend', {}, group.label));
+    const choices = createElement('ul', { class: 'indicator-list' });
+    for (const field of group.fields) choices.append(createIndicatorChoice(field, chosenKeys));
+    section.append(choices);
+    indicatorList.append(section);
   }
   renderFieldOverrides();
   restoreFocus(focusId, 'button:not(:disabled), input');
+}
+
+function createIndicatorChoice(indicator, chosenKeys) {
+  const key = indicator.key;
+  const position = chosenKeys.indexOf(key);
+  const inputId = `indicator-${key}`;
+  const row = createElement('li');
+  const checkbox = createElement('input', {
+    type: 'checkbox',
+    id: inputId,
+    checked: position !== -1,
+    'data-indicator': key,
+    onChange: handleIndicatorChange,
+  });
+  const label = createElement('label', { for: inputId });
+  label.append(
+    createElement('span', {}, indicator.label),
+    createElement('span', { class: 'field-label-unit' }, fieldUnitLabel(indicator)),
+  );
+  row.append(checkbox, label);
+
+  if (position !== -1) {
+    const orderControls = createElement('span', { class: 'order' });
+    const upButton = createElement('button', {
+      type: 'button', class: 'icon', id: `${inputId}-up`,
+      'aria-label': `Move ${indicator.label} up`, disabled: position === 0,
+      'data-indicator': key, 'data-direction': -1, onClick: handleMoveIndicator,
+    }, '↑');
+    const downButton = createElement('button', {
+      type: 'button', class: 'icon', id: `${inputId}-down`,
+      'aria-label': `Move ${indicator.label} down`, disabled: position === chosenKeys.length - 1,
+      'data-indicator': key, 'data-direction': 1, onClick: handleMoveIndicator,
+    }, '↓');
+    orderControls.append(createElement('span', { class: 'field-order-position', title: `Report position ${position + 1}` }, `#${position + 1}`), upButton, downButton);
+    row.append(orderControls);
+  }  return row;
 }
 
 function restoreFocus(focusId, fallbackSelector) {
@@ -577,23 +592,26 @@ function createBlockEditor(block, index, blockId, blockName) {
 }
 
 function createBlockIndicatorOptions(block, index) {
-  const choices = createElement('div');
-  for (const key of reportSelection.indicators) {
-    const indicator = indicatorsByKey.get(key);
-    if (!indicator || (block.type === 'chart' && indicator.type === 'text')) {
-      continue;
+  const choices = createElement('div', { class: 'unit-field-groups' });
+  const fields = reportSelection.indicators.map((key) => indicatorsByKey.get(key))
+    .filter((field) => field && (block.type !== 'chart' || field.type !== 'text'));
+  for (const group of groupFieldsByUnit(fields)) {
+    const section = createElement('fieldset', { class: 'unit-field-group' });
+    section.append(createElement('legend', {}, group.label));
+    for (const indicator of group.fields) {
+      const checkbox = createElement('input', {
+        type: 'checkbox', checked: block.indicators.includes(indicator.key),
+        'data-block-index': index, 'data-indicator': indicator.key, onChange: handleBlockIndicatorChange,
+      });
+      const label = createElement('label', { class: 'check' });
+      const text = createElement('span', {}, indicator.label);
+      text.append(createElement('span', { class: 'field-label-unit' }, fieldUnitLabel(indicator)));
+      label.append(checkbox, text);
+      section.append(label);
     }
-    const checkbox = createElement('input', {
-      type: 'checkbox', checked: block.indicators.includes(key),
-      'data-block-index': index, 'data-indicator': key, onChange: handleBlockIndicatorChange,
-    });
-    const label = createElement('label', { class: 'check' });
-    label.append(checkbox, indicator.displayLabel);
-    choices.append(label);
+    choices.append(section);
   }
-  if (choices.childElementCount === 0) {
-    return createElement('p', { class: 'muted small' }, 'Select indicators first.');
-  }
+  if (choices.childElementCount === 0) return createElement('p', { class: 'muted small' }, 'Select indicators first.');
   return choices;
 }
 

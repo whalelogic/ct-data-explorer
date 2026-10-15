@@ -1557,3 +1557,43 @@ table.data .num {
 .style-sample p {
   margin: 0.5rem 0 0;
 }
+
+/* Unit groups explain chart grouping before a field is selected. */
+.unit-field-group {
+  padding: 0.65rem 0;
+  margin: 0.65rem 0 0;
+  min-width: 0;
+  border: 0;
+  border-top: 1px solid var(--rule);
+}
+.unit-field-group legend {
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding-right: 0.5rem;
+  color: var(--teal);
+}
+.unit-field-group .indicator-list {
+  margin: 0;
+}
+.field-label-unit {
+  display: block;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 400;
+  margin-top: 0.1rem;
+}
+.field-order-position {
+  color: var(--muted);
+  font-size: 0.7rem;
+  align-self: center;
+}
+
+/* Let the builder's single-column mobile grid contain wide chart/table content. */
+.builder-grid > * {
+  min-width: 0;
+}
+@media (max-width: 900px) {
+  .builder-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
