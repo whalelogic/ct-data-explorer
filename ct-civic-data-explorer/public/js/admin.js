@@ -38,7 +38,7 @@ function renderDatasets(datasets) {
 
 function createDatasetRow(dataset) {
   const detailsUrl = `/dataset?id=${dataset.id}`;
-  const titleLink = createElement('a', { href: detailsUrl }, dataset.name);
+  const titleLink = createElement('a', { href: detailsUrl }, dataset.displayName || dataset.name);
   const rowHeading = createElement('th', { scope: 'row' }, titleLink);
   const statusTag = createElement('span', {
     class: dataset.isActive ? 'tag active' : 'tag',

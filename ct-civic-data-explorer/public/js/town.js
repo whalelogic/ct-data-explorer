@@ -27,7 +27,7 @@ boot(async () => {
       h(
         'section',
         { class: 'panel' },
-        h('h2', {}, `${dataset.name}, ${dataset.vintage}`),
+        h('h2', {}, `${dataset.displayName || dataset.name}, ${dataset.vintage}`),
         h('p', { class: 'muted small' }, `Source: ${dataset.source}. Version ${dataset.version}.`),
         h(
           'div',

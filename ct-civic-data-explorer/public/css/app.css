@@ -1400,3 +1400,67 @@ table.data .num {
     transition: none;
   }
 }
+
+/* Staff presentation settings remain readable alongside source definitions. */
+.presentation-general {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 1rem;
+}
+.presentation-form > div,
+.presentation-form > details {
+  margin-bottom: 1rem;
+}
+.presentation-fields {
+  list-style: none;
+  padding: 0;
+  margin: 1rem 0;
+}
+.presentation-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) minmax(9rem, 1fr) auto;
+  gap: 0.75rem 1rem;
+  align-items: center;
+  padding: 1rem 0;
+  border-top: 1px solid var(--rule);
+}
+.presentation-source strong,
+.presentation-source code {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.presentation-source code {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+.presentation-field label,
+.report-field-override label {
+  font-size: 0.75rem;
+}
+.presentation-field-help {
+  grid-column: 2 / -1;
+}
+.report-customization {
+  margin-top: 1rem;
+}
+.report-field-override {
+  padding: 0.75rem 0;
+  border-top: 1px solid var(--rule);
+}
+.report-field-override > strong {
+  display: block;
+  margin-bottom: 0.5rem;
+}
+.report-field-override input,
+.report-field-override select {
+  margin-bottom: 0.5rem;
+}
+@media (max-width: 750px) {
+  .presentation-general,
+  .presentation-field {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .presentation-field-help {
+    grid-column: 1;
+  }
+}

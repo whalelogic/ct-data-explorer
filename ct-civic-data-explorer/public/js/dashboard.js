@@ -40,7 +40,7 @@ async function loadDatasets() {
   try {
     const datasets = await api('/datasets');
     publishedDatasets = datasets.filter((dataset) => dataset.isActive);
-    publishedDatasets.sort((first, second) => first.name.localeCompare(second.name));
+    publishedDatasets.sort((first, second) => (first.displayName || first.name).localeCompare(second.displayName || second.name));
     renderDatasets();
   } catch (error) {
     showStatus(datasetStatus, error.message, 'error');
@@ -55,7 +55,7 @@ function renderDatasets() {
   datasetGrid.replaceChildren();
   let matchingDatasetCount = 0;
   for (const dataset of publishedDatasets) {
-    const searchableValues = [dataset.name, dataset.source, dataset.vintage];
+    const searchableValues = [dataset.displayName, dataset.name, dataset.source, dataset.vintage];
     const matchesSearch = searchableValues.some((value) => String(value).toLowerCase().includes(searchText));
     if (matchesSearch) {
       datasetGrid.append(createDatasetTile(dataset));
@@ -82,7 +82,7 @@ function createDatasetTile(dataset) {
   const titleLink = createElement('a', {
     href: hasApprovedFields ? exploreUrl : detailsUrl,
     class: 'stretched-link',
-  }, dataset.name);
+  }, dataset.displayName || dataset.name);
   const title = createElement('h3', { class: 'saved-report-title' }, titleLink);
   const metadata = `${dataset.vintage} · Version ${dataset.version} · ${dataset.rowCount.toLocaleString()} rows`;
   let reviewStatus = 'Awaiting field approval';
@@ -95,6 +95,7 @@ function createDatasetTile(dataset) {
     title,
     createElement('p', { class: 'muted small' }, metadata),
     createElement('p', { class: 'dashboard-dataset-source' }, dataset.source),
+    ...(dataset.description ? [createElement('p', { class: 'small muted' }, dataset.description)] : []),
     createElement('p', { class: 'dashboard-review', 'data-reviewed': dataset.curationReviewed }, reviewStatus),
   );
   const actions = createElement('div', { class: 'saved-report-actions' });
@@ -189,7 +190,7 @@ function createReportTile(report) {
   const metadata = createElement('dl', { class: 'saved-report-meta' });
   metadata.append(
     createElement('dt', {}, 'Dataset'),
-    createElement('dd', {}, `${report.dataset.name}, ${report.dataset.vintage}`),
+    createElement('dd', {}, `${report.dataset.displayName || report.dataset.name}, ${report.dataset.vintage}`),
     createElement('dt', {}, 'Created by'),
     createElement('dd', {}, report.createdBy.id === currentUser.id ? 'You' : report.createdBy.name),
     createElement('dt', {}, 'Updated'),

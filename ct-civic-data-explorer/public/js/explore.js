@@ -33,7 +33,7 @@ async function initializeExplorer() {
   }
 
   const requestedChartType = urlParameters.get('chart');
-  if (['bar', 'grouped_bar', 'table'].includes(requestedChartType)) {
+  if (['bar', 'grouped_bar', 'line', 'table'].includes(requestedChartType)) {
     chartType = requestedChartType;
   }
 
@@ -76,7 +76,7 @@ function renderDatasetOptions() {
   }
 
   for (const dataset of datasets) {
-    const label = `${dataset.name} · ${dataset.vintage}`;
+    const label = `${dataset.displayName || dataset.name} · ${dataset.vintage}`;
     const datasetOption = createElement('option', { value: dataset.id }, label);
     datasetSelect.append(datasetOption);
   }
@@ -150,10 +150,13 @@ async function loadDataset(useLinkedSelection) {
     }
 
     datasetOptions = loadedOptions;
+    if (!useLinkedSelection || !urlParameters.has('chart')) {
+      chartType = datasetOptions.defaultChartType || 'grouped_bar';
+    }
     const reviewDescription = datasetOptions.curationReviewed
       ? 'Available fields reviewed by CTData staff.'
       : 'Legacy dataset: staff field review is pending.';
-    getElement('dataset-caption').textContent = `${datasetDescription}. ${reviewDescription}`;
+    getElement('dataset-caption').textContent = `${selectedDataset.description || ''} ${datasetDescription}. ${reviewDescription}`.trim();
     getElement('field-search-label').textContent = datasetOptions.curationReviewed
       ? 'Search approved fields'
       : 'Search available fields';
@@ -335,7 +338,7 @@ function getVisibleFields() {
   const searchText = getElement('field-search').value.trim().toLowerCase();
   return datasetOptions.columns.filter((field) => {
     const fieldUnit = field.type === 'text' ? 'category' : unitLabel(field.unit);
-    const searchableText = `${field.displayLabel} ${field.label} ${fieldUnit}`.toLowerCase();
+    const searchableText = `${field.displayLabel} ${field.label} ${field.description || ''} ${fieldUnit}`.toLowerCase();
     return searchableText.includes(searchText);
   });
 }
@@ -378,6 +381,9 @@ function createFieldElement(field) {
   const fieldUnit = field.type === 'text' ? 'Category · table' : unitLabel(field.unit);
   const unitDescription = createElement('span', { class: 'field-unit' }, fieldUnit);
   fieldDescription.append(fieldName, unitDescription);
+  if (field.description) {
+    fieldDescription.append(createElement('span', { class: 'field-unit' }, field.description));
+  }
   fieldLabel.append(checkbox, fieldDescription);
   return fieldLabel;
 }
@@ -461,7 +467,7 @@ function renderChartControls() {
   }
   getElement('chart-type').value = displayedChartType;
   for (const chartOption of getElement('chart-type').options) {
-    if (['bar', 'grouped_bar'].includes(chartOption.value)) {
+    if (['bar', 'grouped_bar', 'line'].includes(chartOption.value)) {
       chartOption.disabled = numericFields.length === 0;
     }
   }
@@ -480,11 +486,13 @@ function renderChartHelp(displayedChartType, chartFieldCount) {
   } else if (chartType === 'grouped_bar') {
     const fieldSuffix = chartFieldCount === 1 ? '' : 's';
     helpText = `Charting all ${chartFieldCount} selected numeric field${fieldSuffix}. Fields with the same unit are compared together. Larger groups continue in additional charts so every field is included.`;
+  } else if (chartType === 'line') {
+    helpText = 'Fields with the same unit share a line chart. Locations remain separate observations; connecting lines do not imply a time trend.';
   } else {
     helpText = 'Each selected numeric field has its own chart, with every selected town included.';
   }
   if (displayedChartType !== 'table') {
-    helpText += ' Hover over a bar for its value. Use the page controls to browse larger selections. The table includes every selected field, including text. N/A means a value is unavailable.';
+    helpText += ' Hover over a data point for its value. Use the page controls to browse larger selections. The table includes every selected field, including text. N/A means a value is unavailable.';
   }
   if (datasetOptions.repeatedRows) {
     helpText += ' Each source row is shown separately; repeated totals are never added together.';
@@ -550,7 +558,7 @@ function createPreviewSelection(chartFieldKeys) {
     recordFilters: { ...recordFilters },
     showTitle: true,
     title: '',
-    subtitle: `${selectedDataset.name} · ${selectedDataset.vintage}`,
+    subtitle: '',
     layout,
   };
 }

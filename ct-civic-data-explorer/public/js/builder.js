@@ -25,6 +25,7 @@ let reportSelection = null;
 let optionsRequestNumber = 0;
 let previewRequestNumber = 0;
 let isLoadingOptions = false;
+let defaultChartType = 'grouped_bar';
 
 const schedulePreview = debounce(refreshPreview, 300);
 
@@ -76,9 +77,12 @@ async function loadInitialSelection() {
     subtitle: '',
     layout: [createBlock('chart'), createBlock('table')],
     recordFilters: {},
+    fieldOverrides: {},
   };
 
   if (initialDataset) {
+    defaultChartType = initialDataset.defaultChartType || 'grouped_bar';
+    reportSelection.layout[0].chartType = defaultChartType;
     reportSelection.dataset = { name: initialDataset.name, vintage: initialDataset.vintage };
   }
   if (queryParameters.get('town')) {
@@ -116,7 +120,7 @@ function renderDatasetOptions() {
     datasetOptions.push({
       name: dataset.name,
       vintage: dataset.vintage,
-      label: `${dataset.name}, ${dataset.vintage}`,
+      label: `${dataset.displayName || dataset.name}, ${dataset.vintage}`,
     });
   }
 
@@ -184,6 +188,7 @@ function registerEventHandlers() {
   getElement('select-all-towns').addEventListener('click', selectAllTowns);
   getElement('clear-towns').addEventListener('click', clearTowns);
   getElement('save').addEventListener('click', saveReport);
+  getElement('reset-overrides').addEventListener('click', resetFieldOverrides);
   getElement('pdf').addEventListener('click', downloadPdf);
   getElement('draft-summary').addEventListener('click', draftSummary);
   getElement('draft-regenerate').addEventListener('click', draftSummary);
@@ -291,6 +296,7 @@ function handleFormChange(event) {
 async function handleDatasetChange() {
   readFormControls();
   reportSelection.recordFilters = {};
+  reportSelection.fieldOverrides = {};
   try {
     const loaded = await loadDatasetColumns();
     if (!loaded) {
@@ -336,6 +342,7 @@ async function loadDatasetColumns() {
     }
   }
 
+  defaultChartType = options.defaultChartType || 'grouped_bar';
   availableIndicators = options.columns;
   availableTowns = options.places.filter((place) => place.geoType === 'town');
   renderTownSelection();
@@ -379,6 +386,9 @@ function renderRecordFilters(filters) {
 }
 
 function removeUnselectedBlockIndicators() {
+  for (const key of Object.keys(reportSelection.fieldOverrides ?? {})) {
+    if (!reportSelection.indicators.includes(key)) delete reportSelection.fieldOverrides[key];
+  }
   for (const block of reportSelection.layout) {
     if (block.indicators) {
       block.indicators = block.indicators.filter((key) => reportSelection.indicators.includes(key));
@@ -428,6 +438,7 @@ function renderIndicators(focusId) {
     }
     indicatorList.append(row);
   }
+  renderFieldOverrides();
   restoreFocus(focusId, 'button:not(:disabled), input');
 }
 
@@ -543,6 +554,11 @@ function createBlockEditor(block, index, blockId, blockName) {
         value: chartType.value, selected: block.chartType === chartType.value,
       }, chartType.label));
     }
+    const titleInput = createElement('input', {
+      id: `${blockId}-title`, maxlength: 120, value: block.title || '', placeholder: 'Use field names',
+      'data-block-index': index, onInput: handleChartTitleChange,
+    });
+    editor.append(createElement('label', { for: titleInput.id }, 'Chart title'), titleInput);
     editor.append(createElement('label', { for: chartTypeSelect.id }, 'Chart type'), chartTypeSelect);
     editor.append(createElement('p', { class: 'muted small' }, 'Leave all fields unchecked to chart every selected numeric field. Fields with different units appear in separate charts.'));
   }
@@ -576,6 +592,11 @@ function handleBlockTextChange(event) {
   reportSelection.layout[Number(input.dataset.blockIndex)].text = input.value;
 }
 
+function handleChartTitleChange(event) {
+  const input = event.currentTarget;
+  reportSelection.layout[Number(input.dataset.blockIndex)].title = input.value;
+}
+
 function handleChartTypeChange(event) {
   const input = event.currentTarget;
   reportSelection.layout[Number(input.dataset.blockIndex)].chartType = input.value;
@@ -597,7 +618,7 @@ function createBlock(type) {
     return { type, text: '' };
   }
   if (type === 'chart') {
-    return { type, chartType: 'grouped_bar', indicators: [] };
+    return { type, chartType: defaultChartType, indicators: [] };
   }
   return { type, indicators: [] };
 }
@@ -797,3 +818,52 @@ function discardDraft() {
 }
 
 boot(initializeBuilder);
+
+
+function renderFieldOverrides() {
+  const container = getElement('field-overrides');
+  container.replaceChildren();
+  for (const [index, key] of reportSelection.indicators.entries()) {
+    const field = indicatorsByKey.get(key);
+    if (!field) continue;
+    const overrides = reportSelection.fieldOverrides?.[key] ?? {};
+    const row = createElement('div', { class: 'report-field-override' });
+    row.append(createElement('strong', {}, field.label));
+    for (const [setting, label] of [['label', 'Display name'], ['description', 'Description']]) {
+      const input = createElement('input', {
+        id: `override-${index}-${setting}`, maxlength: setting === 'label' ? 120 : 500,
+        value: overrides[setting] ?? '', placeholder: field[setting] || 'Use shared default',
+        'data-field-key': key, 'data-setting': setting, onInput: handleFieldOverride,
+      });
+      row.append(createElement('label', { for: input.id }, `${label} for ${field.label}`), input);
+    }
+    if (field.type !== 'text') {
+      const decimals = createElement('select', {
+        id: `override-${index}-decimals`, 'data-field-key': key, 'data-setting': 'decimals', onChange: handleFieldOverride,
+      });
+      decimals.append(createElement('option', { value: '' }, `Shared default (${field.decimals})`));
+      for (let digits = 0; digits <= 4; digits++) decimals.append(createElement('option', { value: String(digits) }, String(digits)));
+      decimals.value = overrides.decimals === undefined ? '' : String(overrides.decimals);
+      row.append(createElement('label', { for: decimals.id }, `Decimals for ${field.label}`), decimals);
+    }
+    container.append(row);
+  }
+  if (!container.children.length) container.append(createElement('p', { class: 'muted small' }, 'Select a field to customize its display.'));
+}
+
+function handleFieldOverride(event) {
+  const input = event.currentTarget;
+  reportSelection.fieldOverrides ??= {};
+  const overrides = reportSelection.fieldOverrides[input.dataset.fieldKey] ?? {};
+  if (input.value === '') delete overrides[input.dataset.setting];
+  else overrides[input.dataset.setting] = input.dataset.setting === 'decimals' ? Number(input.value) : input.value;
+  if (Object.keys(overrides).length) reportSelection.fieldOverrides[input.dataset.fieldKey] = overrides;
+  else delete reportSelection.fieldOverrides[input.dataset.fieldKey];
+}
+
+function resetFieldOverrides() {
+  reportSelection.fieldOverrides = {};
+  renderFieldOverrides();
+  invalidatePreview();
+  schedulePreview();
+}
