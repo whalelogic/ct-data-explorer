@@ -5,8 +5,8 @@ import { boot, debounce, formatDate, renderHeader, showStatus } from './layout.j
 
 const datasetGrid = document.getElementById('datasets-grid');
 const datasetStatus = document.getElementById('datasets-status');
-const cardsGrid = document.getElementById('reports-grid');
-const cardsStatus = document.getElementById('reports-status');
+const reportsGrid = document.getElementById('reports-grid');
+const reportsStatus = document.getElementById('reports-status');
 const searchInput = document.getElementById('search-input');
 const scheduleReportSearch = debounce(loadReports, 250);
 
@@ -96,20 +96,20 @@ async function loadReports() {
       return;
     }
 
-    cardsGrid.replaceChildren();
+    reportsGrid.replaceChildren();
     for (const report of reports) {
-      cardsGrid.append(createReportTile(report));
+      reportsGrid.append(createReportTile(report));
     }
     const emptyMessage = searchText
       ? 'No reports match this dataset or report name.'
       : 'No saved reports yet. Explore a dataset, then save a report when you are ready.';
-    showStatus(cardsStatus, reports.length ? '' : emptyMessage);
+    showStatus(reportsStatus, reports.length ? '' : emptyMessage);
   } catch (error) {
     if (currentRequestNumber !== reportRequestNumber) {
       return;
     }
-    cardsGrid.replaceChildren();
-    showStatus(cardsStatus, error.message, 'error');
+    reportsGrid.replaceChildren();
+    showStatus(reportsStatus, error.message, 'error');
   }
 }
 
@@ -135,7 +135,7 @@ function createReportTile(report) {
   const body = createElement('div', { class: 'saved-report-body' }, title, towns, metadata);
   const buttons = reportActionButtons(report, {
     user: currentUser,
-    status: cardsStatus,
+    status: reportsStatus,
     reload: loadReports,
   });
   const actions = createElement('div', { class: 'saved-report-actions' }, ...buttons);
