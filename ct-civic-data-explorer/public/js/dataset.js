@@ -1,5 +1,6 @@
 import { api, loadSession } from './api.js';
 import { h as createElement } from './dom.js';
+import { mountDatasetPresentation } from './dataset-presentation.js';
 import { mountIndicatorEditor } from './indicator-editor.js';
 import { boot, formatDate, renderHeader, showStatus } from './layout.js';
 
@@ -38,6 +39,10 @@ async function initializeDatasetPage() {
 
   await loadDataset();
   await loadFieldCuration();
+  await mountDatasetPresentation(getElement('dataset-presentation'), datasetId, async () => {
+    await loadDataset();
+    await loadFieldCuration();
+  });
 }
 
 function initializeAdminControls() {
@@ -165,8 +170,8 @@ async function loadDataset(nextOffset = previewOffset) {
 }
 
 function renderDataset({ dataset, indicators, preview }) {
-  document.title = `${dataset.name} · Dataset overview`;
-  getElement('dataset-heading').textContent = dataset.name;
+  document.title = `${dataset.displayName || dataset.name} · Dataset overview`;
+  getElement('dataset-heading').textContent = dataset.displayName || dataset.name;
   renderDatasetMetadata(dataset);
   renderDatasetActions(dataset);
   renderIndicators(indicators);
@@ -175,6 +180,8 @@ function renderDataset({ dataset, indicators, preview }) {
 
 function renderDatasetMetadata(dataset) {
   const metadata = [
+    ['Source dataset', dataset.name],
+    ['Description', dataset.description || 'No description added'],
     ['Source', dataset.source],
     ['Year or period', dataset.vintage],
     ['Version', dataset.version],
