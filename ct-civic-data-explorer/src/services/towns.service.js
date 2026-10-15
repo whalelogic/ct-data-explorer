@@ -7,6 +7,7 @@ import * as observations from '../repositories/observations.js';
 import * as towns from '../repositories/towns.js';
 import { computeValue } from './compute.js';
 import { presentDataset, presentIndicator, presentPlace } from './presenters.js';
+import { approvedDefinitions, datasetIndicators } from './field-curation.js';
 
 export function listTowns() {
   return towns.list();
@@ -14,7 +15,9 @@ export function listTowns() {
 
 export async function getTownProfile(townId) {
   const town = await towns.findById(townId);
-  if (!town) throw new HttpError(404, 'Town not found');
+  if (!town) {
+    throw new HttpError(404, 'Town not found');
+  }
 
   const [state, activeDatasets, allIndicators] = await Promise.all([
     towns.findState(),
@@ -22,29 +25,49 @@ export async function getTownProfile(townId) {
     indicators.list(),
   ]);
   const compareToState = state && state.id !== town.id;
-  const placeIds = compareToState ? [town.id, state.id] : [town.id];
-
-  const sections = await Promise.all(
-    activeDatasets.map(async (dataset) => {
-      const raw = await observations.valuesByTown(dataset.id, placeIds);
-      const rows = allIndicators
-        .map((indicator) => {
-          const townValue = computeValue(indicator, raw.get(town.id));
-          const stateValue = compareToState ? computeValue(indicator, raw.get(state.id)) : null;
-          return {
-            ...presentIndicator(indicator),
-            town: { value: townValue, display: formatValue(townValue, indicator) },
-            state: compareToState ? { value: stateValue, display: formatValue(stateValue, indicator) } : null,
-          };
-        })
-        .filter((row) => row.town.value != null || row.state?.value != null);
-      return { dataset: presentDataset(dataset), indicators: rows };
-    }),
-  );
+  const comparisonState = compareToState ? state : null;
+  const sectionPromises = [];
+  for (const dataset of activeDatasets) {
+    if (dataset.data_format !== 'records') {
+      sectionPromises.push(buildDatasetSection(dataset, allIndicators, town, comparisonState));
+    }
+  }
+  const sections = await Promise.all(sectionPromises);
 
   return {
     town: presentPlace(town),
     state: compareToState ? presentPlace(state) : null,
-    datasets: sections.filter((s) => s.indicators.length > 0),
+    datasets: sections.filter((section) => section.indicators.length > 0),
   };
+}
+
+async function buildDatasetSection(dataset, allIndicators, town, comparisonState) {
+  const placeIds = comparisonState ? [town.id, comparisonState.id] : [town.id];
+  const [valuesByPlace, indicatorKeys] = await Promise.all([
+    observations.valuesByTown(dataset.id, placeIds),
+    observations.indicatorKeys(dataset.id),
+  ]);
+  const availableIndicators = datasetIndicators(allIndicators, indicatorKeys);
+  const approvedIndicators = approvedDefinitions(availableIndicators, dataset.approved_fields);
+  const rows = [];
+
+  for (const indicator of approvedIndicators) {
+    const townValue = computeValue(indicator, valuesByPlace.get(town.id));
+    let stateValue = null;
+    let stateCell = null;
+    if (comparisonState) {
+      stateValue = computeValue(indicator, valuesByPlace.get(comparisonState.id));
+      stateCell = { value: stateValue, display: formatValue(stateValue, indicator) };
+    }
+    if (townValue == null && stateValue == null) {
+      continue;
+    }
+    rows.push({
+      ...presentIndicator(indicator),
+      town: { value: townValue, display: formatValue(townValue, indicator) },
+      state: stateCell,
+    });
+  }
+
+  return { dataset: presentDataset(dataset), indicators: rows };
 }
