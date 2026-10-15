@@ -26,8 +26,21 @@ test('malformed JSON gets a clear 400', async () => {
 });
 
 test('pages, shared modules and Chart.js are served locally with security headers', async () => {
-  const page = await request(app).get('/login.html').expect(200);
+  const page = await request(app).get('/login').expect(200);
   assert.ok(page.headers['content-security-policy']);
   await request(app).get('/shared/format.js').expect(200).expect('Content-Type', /javascript/);
   await request(app).get('/vendor/chart.js/chart.umd.min.js').expect(200);
+});
+
+
+test('clean page URLs serve HTML and legacy URLs preserve query parameters', async () => {
+  for (const page of ['index', 'login', 'set-password', 'explore', 'builder', 'dataset', 'town', 'admin', 'users']) {
+    const cleanPath = page === 'index' ? '/' : `/${page}`;
+    await request(app).get(cleanPath).expect(200).expect('Content-Type', /html/);
+    const query = '?dataset=1&town=New%20Haven&field=pop&field=households&embed=1';
+    await request(app).get(`/${page}.html${query}`)
+      .expect(308).expect('Location', cleanPath + query);
+  }
+  await request(app).get('/missing-page').expect(404);
+  await request(app).get('/js/dashboard.js').expect(200).expect('Content-Type', /javascript/);
 });

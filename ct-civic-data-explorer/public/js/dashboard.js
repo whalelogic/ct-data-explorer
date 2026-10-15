@@ -76,8 +76,8 @@ function renderDatasets() {
 }
 
 function createDatasetTile(dataset) {
-  const exploreUrl = `/explore.html?dataset=${dataset.id}`;
-  const detailsUrl = `/dataset.html?id=${dataset.id}`;
+  const exploreUrl = `/explore?dataset=${dataset.id}`;
+  const detailsUrl = `/dataset?id=${dataset.id}`;
   const hasApprovedFields = dataset.approvedFields === null || dataset.approvedFields?.length > 0;
   const titleLink = createElement('a', {
     href: hasApprovedFields ? exploreUrl : detailsUrl,
@@ -100,7 +100,7 @@ function createDatasetTile(dataset) {
   const actions = createElement('div', { class: 'saved-report-actions' });
   if (hasApprovedFields) {
     actions.append(createElement('a', { href: exploreUrl }, 'Explore'));
-    actions.append(createElement('a', { href: `/builder.html?dataset=${dataset.id}` }, 'New report'));
+    actions.append(createElement('a', { href: `/builder?dataset=${dataset.id}` }, 'New report'));
   }
   actions.append(createElement('a', { href: detailsUrl }, 'Details'));
   return createElement('li', { class: 'saved-report dashboard-dataset' }, body, actions);
@@ -176,7 +176,7 @@ function compareReports(first, second) {
 
 function createReportTile(report) {
   const titleLink = createElement('a', {
-    href: `/builder.html?report=${report.id}`,
+    href: `/builder?report=${report.id}`,
     class: 'stretched-link',
   }, report.title);
   const title = createElement('h3', { class: 'saved-report-title' }, titleLink);
@@ -197,7 +197,7 @@ function createReportTile(report) {
   );
   const body = createElement('div', { class: 'saved-report-body' }, title, towns, metadata);
   const actions = createElement('div', { class: 'saved-report-actions' });
-  actions.append(createElement('a', { href: `/builder.html?report=${report.id}` }, 'Open report'));
+  actions.append(createElement('a', { href: `/builder?report=${report.id}` }, 'Open report'));
   actions.append(...reportActionButtons(report, {
     user: currentUser,
     status: document.getElementById('report-action-status'),

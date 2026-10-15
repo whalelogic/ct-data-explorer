@@ -253,7 +253,7 @@ function renderDatasetSource() {
   const sourceDescription = `Source: ${selectedDataset.source} · Vintage: ${selectedDataset.vintage} · Version ${selectedDataset.version}`;
   const datasetSource = createElement('span', {}, sourceDescription);
   const datasetLink = createElement('a', {
-    href: `/dataset.html?id=${encodeURIComponent(selectedDataset.id)}`,
+    href: `/dataset?id=${encodeURIComponent(selectedDataset.id)}`,
   }, 'About this dataset');
   const sourceContainer = getElement('dataset-source');
   sourceContainer.replaceChildren(datasetName, datasetSource, datasetLink);
@@ -695,7 +695,7 @@ function openBuilder() {
   }
   try {
     sessionStorage.setItem('ctdata:explore-selection', JSON.stringify(lastPreviewSelection));
-    location.assign(`/builder.html?from=explore&dataset=${encodeURIComponent(selectedDataset.id)}`);
+    location.assign(`/builder?from=explore&dataset=${encodeURIComponent(selectedDataset.id)}`);
   } catch {
     showStatus(getElement('action-status'), 'Your browser could not transfer this view. Allow site storage and try again.', 'error');
   }

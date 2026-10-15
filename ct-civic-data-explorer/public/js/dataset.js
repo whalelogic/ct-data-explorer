@@ -26,7 +26,7 @@ async function initializeDatasetPage() {
   }
 
   isAdmin = user.role === 'admin';
-  getElement('back-link').href = isAdmin ? '/admin.html' : '/';
+  getElement('back-link').href = isAdmin ? '/admin' : '/';
   getElement('previous').addEventListener('click', loadPreviousPage);
   getElement('next').addEventListener('click', loadNextPage);
   getElement('retry').addEventListener('click', reloadDataset);
@@ -199,11 +199,11 @@ function renderDatasetMetadata(dataset) {
 function renderDatasetActions(dataset) {
   const reportLink = getElement('make-report');
   reportLink.hidden = !dataset.isActive;
-  reportLink.href = `/builder.html?dataset=${dataset.id}`;
+  reportLink.href = `/builder?dataset=${dataset.id}`;
 
   const exploreLink = getElement('explore-dataset');
   exploreLink.hidden = !dataset.isActive;
-  exploreLink.href = `/explore.html?dataset=${dataset.id}`;
+  exploreLink.href = `/explore?dataset=${dataset.id}`;
 
   const publishButton = getElement('toggle-active');
   publishButton.hidden = !isAdmin;
