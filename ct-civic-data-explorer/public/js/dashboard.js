@@ -1,93 +1,158 @@
 import { api, loadSession } from './api.js';
 import { cardActionButtons, fetchCards } from './card-library.js';
-import { h } from './dom.js';
+import { h as createElement } from './dom.js';
 import { boot, debounce, formatDate, renderHeader, showStatus } from './layout.js';
 
-boot(async () => {
-  const { user } = await loadSession();
-  renderHeader(user);
+const datasetGrid = document.getElementById('datasets-grid');
+const datasetStatus = document.getElementById('datasets-status');
+const cardsGrid = document.getElementById('cards-grid');
+const cardsStatus = document.getElementById('cards-status');
+const searchInput = document.getElementById('search-input');
+const scheduleReportSearch = debounce(loadCards, 250);
+
+let currentUser;
+let publishedDatasets = [];
+let reportRequestNumber = 0;
+
+async function initializeDashboard() {
+  const session = await loadSession();
+  currentUser = session.user;
+  renderHeader(currentUser);
+
   const datasets = await api('/datasets');
-  const active = datasets.filter((d) => d.isActive);
-  const datasetGrid = document.getElementById('datasets-grid');
-  const datasetStatus = document.getElementById('datasets-status');
-  const grid = document.getElementById('cards-grid');
-  const cardsStatus = document.getElementById('cards-status');
-  const search = document.getElementById('search-input');
-  let reportRequest = 0;
+  publishedDatasets = datasets.filter((dataset) => dataset.isActive);
+  searchInput.addEventListener('input', handleSearchInput);
+  document.getElementById('dashboard-search').addEventListener('submit', handleSearchSubmit);
+  renderDatasets();
+  await loadCards();
+}
 
-  function renderDatasets() {
-    const query = search.value.trim().toLowerCase();
-    const matches = active.filter((dataset) => dataset.name.toLowerCase().includes(query));
-    datasetGrid.replaceChildren(...matches.map(datasetTile));
-    const empty = query ? 'No datasets match this name.'
-      : `No active datasets yet. ${user.role === 'admin' ? 'Select Upload dataset to add one.' : 'Ask an administrator to upload one.'}`;
-    showStatus(datasetStatus, matches.length ? '' : empty);
-  }
+function renderDatasets() {
+  const searchText = searchInput.value.trim().toLowerCase();
+  datasetGrid.replaceChildren();
+  let matchingDatasetCount = 0;
 
-  function datasetTile(dataset) {
-    const href = `/builder.html?dataset=${dataset.id}`;
-    return h('li', { class: 'saved-card' },
-      h('div', { class: 'saved-card-body' },
-        h('h3', { class: 'saved-card-title' }, h('a', { href: `/dataset.html?id=${dataset.id}`, class: 'stretched-link' }, dataset.name)),
-        h('p', { class: 'muted small' }, `${dataset.vintage} · Version ${dataset.version} · ${dataset.rowCount} rows`),
-        h('p', { class: 'small' }, dataset.source),
-      ),
-      h('div', { class: 'saved-card-actions' }, h('a', { href }, 'Make report')),
-    );
-  }
-
-  async function loadCards() {
-    const request = ++reportRequest;
-    try {
-      const query = search.value.trim();
-      const cards = await fetchCards(query);
-      if (request !== reportRequest) return;
-      grid.replaceChildren(...cards.map(cardTile));
-      const empty = query ? 'No reports match this dataset or report name.' : 'No saved reports yet. Choose a dataset or select Make report to begin.';
-      showStatus(cardsStatus, cards.length ? '' : empty);
-    } catch (err) {
-      if (request !== reportRequest) return;
-      grid.replaceChildren();
-      showStatus(cardsStatus, err.message, 'error');
+  for (const dataset of publishedDatasets) {
+    const searchableValues = [dataset.name, dataset.source, dataset.vintage];
+    const matchesSearch = searchableValues.some((value) => String(value).toLowerCase().includes(searchText));
+    if (matchesSearch) {
+      datasetGrid.append(createDatasetTile(dataset));
+      matchingDatasetCount += 1;
     }
   }
 
-  /** The title link stretches over the whole card (see .stretched-link); the action buttons sit above it. */
-  function cardTile(card) {
-    return h(
-      'li',
-      { class: 'saved-card' },
-      h(
-        'div',
-        { class: 'saved-card-body' },
-        h('h3', { class: 'saved-card-title' }, h('a', { href: `/builder.html?card=${card.id}`, class: 'stretched-link' }, card.title)),
-        h('p', { class: 'saved-card-towns' }, card.towns.join(', ')),
-        h(
-          'dl',
-          { class: 'saved-card-meta' },
-          h('dt', {}, 'Dataset'),
-          h('dd', {}, `${card.dataset.name}, ${card.dataset.vintage}`),
-          h('dt', {}, 'Created by'),
-          h('dd', {}, card.createdBy.name),
-          h('dt', {}, 'Updated'),
-          h('dd', {}, h('time', { datetime: card.updatedAt }, formatDate(card.updatedAt))),
-        ),
-      ),
-      h('div', { class: 'saved-card-actions' }, ...cardActionButtons(card, { user, status: cardsStatus, reload: loadCards })),
-    );
+  let emptyMessage = 'No datasets match this name.';
+  if (!searchText) {
+    const nextStep = currentUser.role === 'admin'
+      ? 'Open Data management to upload and approve data.'
+      : 'Your data administrator can publish a dataset here.';
+    emptyMessage = `No published datasets yet. ${nextStep}`;
+  }
+  showStatus(datasetStatus, matchingDatasetCount ? '' : emptyMessage);
+}
+
+function createDatasetTile(dataset) {
+  const exploreUrl = `/explore.html?dataset=${dataset.id}`;
+  const detailsUrl = `/dataset.html?id=${dataset.id}`;
+  const hasApprovedFields = dataset.approvedFields === null || dataset.approvedFields?.length > 0;
+
+  const titleLink = createElement('a', {
+    href: hasApprovedFields ? exploreUrl : detailsUrl,
+    class: 'stretched-link',
+  }, dataset.name);
+  const title = createElement('h3', { class: 'saved-card-title' }, titleLink);
+  const metadata = `${dataset.vintage} · Version ${dataset.version} · ${dataset.rowCount} rows`;
+  let reviewStatus = 'Awaiting field approval';
+  if (hasApprovedFields) {
+    reviewStatus = dataset.curationReviewed
+      ? 'Fields reviewed by staff'
+      : 'Existing published fields · review pending';
   }
 
-  const scheduleReports = debounce(loadCards, 250);
-  search.addEventListener('input', () => {
-    reportRequest++;
-    renderDatasets();
-    scheduleReports();
+  const body = createElement('div', { class: 'saved-card-body' }, title);
+  body.append(
+    createElement('p', { class: 'muted small' }, metadata),
+    createElement('p', { class: 'small' }, dataset.source),
+    createElement('p', { class: 'muted small' }, reviewStatus),
+  );
+
+  const actions = createElement('div', { class: 'saved-card-actions' });
+  if (hasApprovedFields) {
+    actions.append(createElement('a', { href: exploreUrl }, 'Explore dataset'));
+  }
+  const detailsLabel = currentUser.role === 'admin' ? 'Review dataset' : 'Dataset details';
+  actions.append(createElement('a', { href: detailsUrl }, detailsLabel));
+  return createElement('li', { class: 'saved-card' }, body, actions);
+}
+
+async function loadCards() {
+  reportRequestNumber += 1;
+  const currentRequestNumber = reportRequestNumber;
+  try {
+    const searchText = searchInput.value.trim();
+    const cards = await fetchCards(searchText);
+    // A newer search may finish first. Keep its results on screen.
+    if (currentRequestNumber !== reportRequestNumber) {
+      return;
+    }
+
+    cardsGrid.replaceChildren();
+    for (const card of cards) {
+      cardsGrid.append(createCardTile(card));
+    }
+    const emptyMessage = searchText
+      ? 'No reports match this dataset or report name.'
+      : 'No saved reports yet. Explore a dataset, then save a report when you are ready.';
+    showStatus(cardsStatus, cards.length ? '' : emptyMessage);
+  } catch (error) {
+    if (currentRequestNumber !== reportRequestNumber) {
+      return;
+    }
+    cardsGrid.replaceChildren();
+    showStatus(cardsStatus, error.message, 'error');
+  }
+}
+
+function createCardTile(card) {
+  // The title link covers the card; action buttons remain above it in the CSS.
+  const titleLink = createElement('a', {
+    href: `/builder.html?card=${card.id}`,
+    class: 'stretched-link',
+  }, card.title);
+  const title = createElement('h3', { class: 'saved-card-title' }, titleLink);
+  const towns = createElement('p', { class: 'saved-card-towns' }, card.towns.join(', '));
+  const updatedTime = createElement('time', { datetime: card.updatedAt }, formatDate(card.updatedAt));
+  const metadata = createElement('dl', { class: 'saved-card-meta' });
+  metadata.append(
+    createElement('dt', {}, 'Dataset'),
+    createElement('dd', {}, `${card.dataset.name}, ${card.dataset.vintage}`),
+    createElement('dt', {}, 'Created by'),
+    createElement('dd', {}, card.createdBy.name),
+    createElement('dt', {}, 'Updated'),
+    createElement('dd', {}, updatedTime),
+  );
+
+  const body = createElement('div', { class: 'saved-card-body' }, title, towns, metadata);
+  const buttons = cardActionButtons(card, {
+    user: currentUser,
+    status: cardsStatus,
+    reload: loadCards,
   });
-  document.getElementById('dashboard-search').addEventListener('submit', (event) => {
-    event.preventDefault();
-    renderDatasets();
-    loadCards();
-  });
+  const actions = createElement('div', { class: 'saved-card-actions' }, ...buttons);
+  return createElement('li', { class: 'saved-card' }, body, actions);
+}
+
+function handleSearchInput() {
+  // Invalidate any active request while the next search waits for the debounce.
+  reportRequestNumber += 1;
   renderDatasets();
-  await loadCards();
-});
+  scheduleReportSearch();
+}
+
+function handleSearchSubmit(event) {
+  event.preventDefault();
+  renderDatasets();
+  loadCards();
+}
+
+boot(initializeDashboard);
