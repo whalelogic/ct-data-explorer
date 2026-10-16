@@ -1,93 +1,233 @@
 import { api, loadSession } from './api.js';
 import { reportActionButtons, fetchReports } from './report-library.js';
-import { h } from './dom.js';
+import { h as createElement } from './dom.js';
 import { boot, debounce, formatDate, renderHeader, showStatus } from './layout.js';
 
-boot(async () => {
-  const { user } = await loadSession();
-  renderHeader(user);
-  const datasets = await api('/datasets');
-  const active = datasets.filter((d) => d.isActive);
-  const datasetGrid = document.getElementById('datasets-grid');
-  const datasetStatus = document.getElementById('datasets-status');
-  const grid = document.getElementById('reports-grid');
-  const reportsStatus = document.getElementById('reports-status');
-  const search = document.getElementById('search-input');
-  let reportRequest = 0;
+const datasetGrid = document.getElementById('datasets-grid');
+const datasetStatus = document.getElementById('datasets-status');
+const reportsGrid = document.getElementById('reports-grid');
+const reportsStatus = document.getElementById('reports-status');
+const searchInput = document.getElementById('search-input');
+const onlyMine = document.getElementById('only-mine');
+const reportSort = document.getElementById('report-sort');
+const scheduleReportSearch = debounce(loadReports, 250);
 
-  function renderDatasets() {
-    const query = search.value.trim().toLowerCase();
-    const matches = active.filter((dataset) => dataset.name.toLowerCase().includes(query));
-    datasetGrid.replaceChildren(...matches.map(datasetTile));
-    const empty = query ? 'No datasets match this name.'
-      : `No active datasets yet. ${user.role === 'admin' ? 'Select Upload dataset to add one.' : 'Ask an administrator to upload one.'}`;
-    showStatus(datasetStatus, matches.length ? '' : empty);
+let currentUser;
+let publishedDatasets = [];
+let matchingReports = [];
+let reportRequestNumber = 0;
+let reportsLoaded = false;
+
+async function initializeDashboard() {
+  const session = await loadSession();
+  currentUser = session.user;
+  renderHeader(currentUser);
+  document.getElementById('manage-datasets').hidden = currentUser.role !== 'admin';
+  searchInput.addEventListener('input', handleSearchInput);
+  document.getElementById('dashboard-search').addEventListener('submit', handleSearchSubmit);
+  document.getElementById('clear-search').addEventListener('click', clearSearch);
+  document.getElementById('retry-datasets').addEventListener('click', loadDatasets);
+  document.getElementById('retry-reports').addEventListener('click', loadReports);
+  onlyMine.addEventListener('change', renderReports);
+  reportSort.addEventListener('change', renderReports);
+  await Promise.all([loadDatasets(), loadReports()]);
+}
+
+async function loadDatasets() {
+  datasetGrid.setAttribute('aria-busy', 'true');
+  document.getElementById('retry-datasets').hidden = true;
+  showStatus(datasetStatus, 'Loading datasets…');
+  try {
+    const datasets = await api('/datasets');
+    publishedDatasets = datasets.filter((dataset) => dataset.isActive);
+    publishedDatasets.sort((first, second) => (first.displayName || first.name).localeCompare(second.displayName || second.name));
+    renderDatasets();
+  } catch (error) {
+    showStatus(datasetStatus, error.message, 'error');
+    document.getElementById('retry-datasets').hidden = false;
+  } finally {
+    datasetGrid.setAttribute('aria-busy', 'false');
   }
+}
 
-  function datasetTile(dataset) {
-    const href = `/builder.html?dataset=${dataset.id}`;
-    return h('li', { class: 'saved-report' },
-      h('div', { class: 'saved-report-body' },
-        h('h3', { class: 'saved-report-title' }, h('a', { href: `/dataset.html?id=${dataset.id}`, class: 'stretched-link' }, dataset.name)),
-        h('p', { class: 'muted small' }, `${dataset.vintage} · Version ${dataset.version} · ${dataset.rowCount} rows`),
-        h('p', { class: 'small' }, dataset.source),
-      ),
-      h('div', { class: 'saved-report-actions' }, h('a', { href }, 'Make report')),
-    );
-  }
-
-  async function loadReports() {
-    const request = ++reportRequest;
-    try {
-      const query = search.value.trim();
-      const reports = await fetchReports(query);
-      if (request !== reportRequest) return;
-      grid.replaceChildren(...reports.map(reportTile));
-      const empty = query ? 'No reports match this dataset or report name.' : 'No saved reports yet. Choose a dataset or select Make report to begin.';
-      showStatus(reportsStatus, reports.length ? '' : empty);
-    } catch (err) {
-      if (request !== reportRequest) return;
-      grid.replaceChildren();
-      showStatus(reportsStatus, err.message, 'error');
+function renderDatasets() {
+  const searchText = searchInput.value.trim().toLowerCase();
+  datasetGrid.replaceChildren();
+  let matchingDatasetCount = 0;
+  for (const dataset of publishedDatasets) {
+    const searchableValues = [dataset.displayName, dataset.name, dataset.source, dataset.vintage];
+    const matchesSearch = searchableValues.some((value) => String(value).toLowerCase().includes(searchText));
+    if (matchesSearch) {
+      datasetGrid.append(createDatasetTile(dataset));
+      matchingDatasetCount += 1;
     }
   }
-
-  /** The title link stretches over the whole report (see .stretched-link); the action buttons sit above it. */
-  function reportTile(report) {
-    return h(
-      'li',
-      { class: 'saved-report' },
-      h(
-        'div',
-        { class: 'saved-report-body' },
-        h('h3', { class: 'saved-report-title' }, h('a', { href: `/builder.html?report=${report.id}`, class: 'stretched-link' }, report.title)),
-        h('p', { class: 'saved-report-towns' }, report.towns.join(', ')),
-        h(
-          'dl',
-          { class: 'saved-report-meta' },
-          h('dt', {}, 'Dataset'),
-          h('dd', {}, `${report.dataset.name}, ${report.dataset.vintage}`),
-          h('dt', {}, 'Created by'),
-          h('dd', {}, report.createdBy.name),
-          h('dt', {}, 'Updated'),
-          h('dd', {}, h('time', { datetime: report.updatedAt }, formatDate(report.updatedAt))),
-        ),
-      ),
-      h('div', { class: 'saved-report-actions' }, ...reportActionButtons(report, { user, status: reportsStatus, reload: loadReports })),
-    );
+  document.getElementById('dataset-count').textContent = searchText
+    ? `${matchingDatasetCount} of ${publishedDatasets.length}`
+    : String(publishedDatasets.length);
+  let emptyMessage = 'No datasets match your search. Try a different name, source, or period.';
+  if (!searchText) {
+    const nextStep = currentUser.role === 'admin'
+      ? 'Use Manage datasets to upload and approve data.'
+      : 'Your data administrator can publish a dataset here.';
+    emptyMessage = `No published datasets yet. ${nextStep}`;
   }
+  showStatus(datasetStatus, matchingDatasetCount ? '' : emptyMessage);
+}
 
-  const scheduleReports = debounce(loadReports, 250);
-  search.addEventListener('input', () => {
-    reportRequest++;
-    renderDatasets();
-    scheduleReports();
-  });
-  document.getElementById('dashboard-search').addEventListener('submit', (event) => {
-    event.preventDefault();
-    renderDatasets();
-    loadReports();
-  });
+function createDatasetTile(dataset) {
+  const exploreUrl = `/explore?dataset=${dataset.id}`;
+  const detailsUrl = `/dataset?id=${dataset.id}`;
+  const hasApprovedFields = dataset.approvedFields === null || dataset.approvedFields?.length > 0;
+  const titleLink = createElement('a', {
+    href: hasApprovedFields ? exploreUrl : detailsUrl,
+    class: 'stretched-link',
+  }, dataset.displayName || dataset.name);
+  const title = createElement('h3', { class: 'saved-report-title' }, titleLink);
+  const metadata = `${dataset.vintage} · Version ${dataset.version} · ${dataset.rowCount.toLocaleString()} rows`;
+  let reviewStatus = 'Awaiting field approval';
+  if (hasApprovedFields) {
+    reviewStatus = dataset.curationReviewed ? 'Fields reviewed' : 'Field review pending';
+  }
+  const body = createElement('div', { class: 'saved-report-body' });
+  body.append(
+    createElement('p', { class: 'dashboard-dataset-period' }, dataset.vintage),
+    title,
+    createElement('p', { class: 'muted small' }, metadata),
+    createElement('p', { class: 'dashboard-dataset-source' }, dataset.source),
+    ...(dataset.description ? [createElement('p', { class: 'small muted' }, dataset.description)] : []),
+    createElement('p', { class: 'dashboard-review', 'data-reviewed': dataset.curationReviewed }, reviewStatus),
+  );
+  const actions = createElement('div', { class: 'saved-report-actions' });
+  if (hasApprovedFields) {
+    actions.append(createElement('a', { href: exploreUrl }, 'Explore'));
+    actions.append(createElement('a', { href: `/builder?dataset=${dataset.id}` }, 'New report'));
+  }
+  actions.append(createElement('a', { href: detailsUrl }, 'Details'));
+  return createElement('li', { class: 'saved-report dashboard-dataset' }, body, actions);
+}
+
+async function loadReports() {
+  const requestNumber = ++reportRequestNumber;
+  reportsLoaded = false;
+  matchingReports = [];
+  reportsGrid.replaceChildren();
+  reportsGrid.setAttribute('aria-busy', 'true');
+  document.getElementById('reports-empty').hidden = true;
+  document.getElementById('retry-reports').hidden = true;
+  document.getElementById('report-count').textContent = '';
+  document.getElementById('reports-limit').hidden = true;
+  showStatus(reportsStatus, 'Loading reports…');
+  try {
+    const reports = await fetchReports(searchInput.value.trim());
+    // A newer search may finish first; never replace it with an older response.
+    if (requestNumber !== reportRequestNumber) {
+      return;
+    }
+    matchingReports = reports;
+    reportsLoaded = true;
+    showStatus(reportsStatus, '');
+    renderReports();
+  } catch (error) {
+    if (requestNumber !== reportRequestNumber) {
+      return;
+    }
+    showStatus(reportsStatus, error.message, 'error');
+    document.getElementById('retry-reports').hidden = false;
+  } finally {
+    if (requestNumber === reportRequestNumber) {
+      reportsGrid.setAttribute('aria-busy', 'false');
+    }
+  }
+}
+
+function renderReports() {
+  if (!reportsLoaded) {
+    return;
+  }
+  const visibleReports = matchingReports.filter((report) => !onlyMine.checked || report.createdBy.id === currentUser.id);
+  visibleReports.sort(compareReports);
+  reportsGrid.replaceChildren();
+  for (const report of visibleReports) {
+    reportsGrid.append(createReportTile(report));
+  }
+  document.getElementById('report-count').textContent = String(visibleReports.length);
+  document.getElementById('reports-limit').hidden = matchingReports.length < 200;
+  document.getElementById('reports-empty').hidden = visibleReports.length > 0;
+  let title = 'Your first report starts with a dataset';
+  let description = 'Choose the places and measures you need, then save your report here.';
+  if (searchInput.value.trim()) {
+    title = 'No reports match your search';
+    description = 'Try another dataset or report name, or clear the search to see more reports.';
+  } else if (onlyMine.checked) {
+    title = 'You haven’t saved a report yet';
+    description = 'Create a report, or turn off Only my reports to browse your team’s work.';
+  }
+  document.getElementById('reports-empty-title').textContent = title;
+  document.getElementById('reports-empty-description').textContent = description;
+}
+
+function compareReports(first, second) {
+  if (reportSort.value === 'title') {
+    return first.title.localeCompare(second.title);
+  }
+  const difference = new Date(second.updatedAt) - new Date(first.updatedAt);
+  return reportSort.value === 'oldest' ? -difference : difference;
+}
+
+function createReportTile(report) {
+  const titleLink = createElement('a', {
+    href: `/builder?report=${report.id}`,
+    class: 'stretched-link',
+  }, report.title);
+  const title = createElement('h3', { class: 'saved-report-title' }, titleLink);
+  // Keep large selections readable without hiding the full selection in the builder.
+  const townSummary = report.towns.length > 3
+    ? `${report.towns.slice(0, 3).join(', ')} + ${report.towns.length - 3} more`
+    : report.towns.join(', ');
+  const towns = createElement('p', { class: 'saved-report-towns' }, townSummary || 'No towns selected');
+  const updatedTime = createElement('time', { datetime: report.updatedAt }, formatDate(report.updatedAt));
+  const metadata = createElement('dl', { class: 'saved-report-meta' });
+  metadata.append(
+    createElement('dt', {}, 'Dataset'),
+    createElement('dd', {}, `${report.dataset.displayName || report.dataset.name}, ${report.dataset.vintage}`),
+    createElement('dt', {}, 'Created by'),
+    createElement('dd', {}, report.createdBy.id === currentUser.id ? 'You' : report.createdBy.name),
+    createElement('dt', {}, 'Updated'),
+    createElement('dd', {}, updatedTime),
+  );
+  const body = createElement('div', { class: 'saved-report-body' }, title, towns, metadata);
+  const actions = createElement('div', { class: 'saved-report-actions' });
+  actions.append(createElement('a', { href: `/builder?report=${report.id}` }, 'Open report'));
+  actions.append(...reportActionButtons(report, {
+    user: currentUser,
+    status: document.getElementById('report-action-status'),
+    reload: loadReports,
+  }).filter(Boolean));
+  return createElement('li', { class: 'saved-report' }, body, actions);
+}
+
+function handleSearchInput() {
+  // Invalidate active requests immediately, including during the debounce window.
+  reportRequestNumber += 1;
+  reportsLoaded = false;
+  document.getElementById('clear-search').hidden = !searchInput.value;
   renderDatasets();
-  await loadReports();
-});
+  scheduleReportSearch();
+}
+
+function handleSearchSubmit(event) {
+  event.preventDefault();
+  renderDatasets();
+  loadReports();
+}
+
+function clearSearch() {
+  searchInput.value = '';
+  document.getElementById('clear-search').hidden = true;
+  renderDatasets();
+  loadReports();
+  searchInput.focus();
+}
+
+boot(initializeDashboard);

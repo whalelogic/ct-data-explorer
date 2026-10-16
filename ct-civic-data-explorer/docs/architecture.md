@@ -35,5 +35,6 @@ flowchart TB
 ```
 
 - Every report starts as a **selection** (towns, indicators, and a layout of text, chart and table blocks). The Reports service turns it into one report-data object, which the browser preview, the PDF and the AI summary all use, so they always match.
+- Town selection has no count limit. `report-charts.js` includes every requested numeric indicator in the output: grouped bars and lines use separate charts per unit and at most six series per chart, while bars use one chart per indicator. A chart layout block may expand into multiple titled chart blocks. Source records are preserved without aggregation or truncation.
 - Rates such as poverty rate are computed on the server from stored values.
 - The AI summary is optional; reports build and export without it.

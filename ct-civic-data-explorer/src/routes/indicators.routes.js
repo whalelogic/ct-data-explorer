@@ -5,7 +5,7 @@ import { validate } from '../middleware/validate.js';
 import { createIndicator, listIndicators } from '../services/indicators.service.js';
 import { presentIndicator } from '../services/presenters.js';
 
-const key = z
+const indicatorKeySchema = z
   .string()
   .trim()
   .toLowerCase()
@@ -14,25 +14,34 @@ const key = z
 
 const indicatorSchema = z
   .object({
-    key,
+    key: indicatorKeySchema,
     label: z.string().trim().min(1, 'Label is required').max(120),
     unit: z.enum(['count', 'currency', 'percent', 'density', 'area']),
     decimals: z.coerce.number().int().min(0).max(4).default(0),
     derivation: z.enum(['direct', 'ratio']).default('direct'),
-    numeratorKey: key.optional(),
-    denominatorKey: key.optional(),
+    numeratorKey: indicatorKeySchema.optional(),
+    denominatorKey: indicatorKeySchema.optional(),
   })
   .refine(
-    (v) => v.derivation === 'direct' || (v.numeratorKey && v.denominatorKey),
+    hasRequiredRatioKeys,
     { message: 'A ratio needs a numerator key and a denominator key', path: ['numeratorKey'] },
   );
 
 export const indicatorsRouter = Router();
 
-indicatorsRouter.get('/', async (_req, res) => {
-  res.json((await listIndicators()).map(presentIndicator));
-});
+indicatorsRouter.get('/', requireRole('admin'), listIndicatorsHandler);
+indicatorsRouter.post('/', requireRole('admin'), validate(indicatorSchema), createIndicatorHandler);
 
-indicatorsRouter.post('/', requireRole('admin'), validate(indicatorSchema), async (req, res) => {
-  res.status(201).json(presentIndicator(await createIndicator(req.valid.body)));
-});
+function hasRequiredRatioKeys(indicator) {
+  return indicator.derivation === 'direct' || (indicator.numeratorKey && indicator.denominatorKey);
+}
+
+async function listIndicatorsHandler(_request, response) {
+  const indicators = await listIndicators();
+  response.json(indicators.map(presentIndicator));
+}
+
+async function createIndicatorHandler(request, response) {
+  const indicator = await createIndicator(request.valid.body);
+  response.status(201).json(presentIndicator(indicator));
+}

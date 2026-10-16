@@ -91,7 +91,7 @@ async function issueLink(userId, purpose, db) {
   await tokens.create({ userId, purpose, tokenHash: hashToken(token), expiresAt }, db);
   // The token rides in the URL fragment, which browsers never send to the server,
   // so it cannot end up in access logs or Referer headers.
-  return `${config.baseUrl}/set-password.html#token=${token}`;
+  return `${config.baseUrl}/set-password#token=${token}`;
 }
 
 function hashToken(token) {

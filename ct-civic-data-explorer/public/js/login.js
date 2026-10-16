@@ -1,29 +1,38 @@
 import { api, setCsrfToken } from './api.js';
 import { showStatus } from './layout.js';
 
-const form = document.getElementById('login-form');
-const status = document.getElementById('status');
+const loginForm = document.getElementById('login-form');
+const loginStatus = document.getElementById('status');
 
-form.addEventListener('submit', async (event) => {
+async function handleLogin(event) {
   event.preventDefault();
-  const button = form.querySelector('button[type="submit"]');
-  button.disabled = true;
-  showStatus(status, '');
+  const submitButton = loginForm.querySelector('button[type="submit"]');
+  submitButton.disabled = true;
+  showStatus(loginStatus, '');
+
   try {
     const session = await api('/auth/login', {
       method: 'POST',
-      json: { email: form.email.value, password: form.password.value },
+      json: {
+        email: loginForm.email.value,
+        password: loginForm.password.value,
+      },
     });
     setCsrfToken(session.csrfToken);
-    location.assign(safeNextPath());
-  } catch (err) {
-    showStatus(status, err.message, 'error');
-    button.disabled = false;
+    location.assign(getNextPage());
+  } catch (error) {
+    showStatus(loginStatus, error.message, 'error');
+    submitButton.disabled = false;
   }
-});
-
-/** Only follow same-origin paths, so ?next= cannot redirect off-site. */
-function safeNextPath() {
-  const next = new URLSearchParams(location.search).get('next');
-  return next && next.startsWith('/') && !/^\/[/\\]/.test(next) ? next : '/';
 }
+
+/** Only allow local paths, so the next parameter cannot redirect off-site. */
+function getNextPage() {
+  const nextPath = new URLSearchParams(location.search).get('next');
+  if (nextPath && nextPath.startsWith('/') && !/^\/[/\\]/.test(nextPath)) {
+    return nextPath;
+  }
+  return '/';
+}
+
+loginForm.addEventListener('submit', handleLogin);

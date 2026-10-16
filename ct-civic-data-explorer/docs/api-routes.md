@@ -9,13 +9,14 @@
 | Method | Path | Access | What it does |
 | --- | --- | --- | --- |
 | GET | `/` (`index.html`) | Public file | Dashboard page (its API calls require sign-in) |
-| GET | `/login.html` | Public | Sign-in page |
-| GET | `/set-password.html` | Public | Set a password from an invite or reset link |
-| GET | `/builder.html` | Public file | Report builder page |
-| GET | `/dataset.html` | Public file | Dataset detail page |
-| GET | `/town.html` | Public file | Town profile page |
-| GET | `/admin.html` | Public file | Admin page (datasets, indicators) |
-| GET | `/users.html` | Public file | User management page |
+| GET | `/login` | Public | Sign-in page |
+| GET | `/set-password` | Public | Set a password from an invite or reset link |
+| GET | `/explore` | Public file | Interactive exploration (data requires sign-in); `?embed=1` uses compact same-origin chrome |
+| GET | `/builder` | Public file | Report builder page |
+| GET | `/dataset` | Public file | Dataset detail page |
+| GET | `/town` | Public file | Town profile page |
+| GET | `/admin` | Public file | Admin page (datasets, indicators) |
+| GET | `/users` | Public file | User management page |
 | GET | `/js/*`, `/css/*` | Public | Front-end scripts and styles |
 | GET | `/shared/*` | Public | Code shared by server and browser (formatting, theme) |
 | GET | `/vendor/chart.js/*` | Public | Chart.js library |
@@ -42,7 +43,7 @@
 
 | Method | Path | Access | What it does |
 | --- | --- | --- | --- |
-| GET | `/api/indicators` | Signed in | List indicators |
+| GET | `/api/indicators` | Admin | List indicators |
 | POST | `/api/indicators` | Admin | Create an indicator |
 
 ## Datasets: `/api/datasets`
@@ -52,6 +53,10 @@
 | GET | `/api/datasets` | Signed in | List datasets (staff see active ones only) |
 | GET | `/api/datasets/:id` | Signed in | Dataset overview with paged rows (`?offset=&limit=`, limit max 100) |
 | GET | `/api/datasets/:id/report-options` | Signed in | Towns, indicators and filters available for reports |
+| GET | `/api/datasets/:id/presentation` | Signed in | Shared display settings, revision and editable fields; staff see approved fields of published datasets |
+| PUT | `/api/datasets/:id/presentation` | Signed in | Save display settings and optional style with the current revision; stale revisions return 409; approval and source data stay unchanged |
+| GET | `/api/datasets/:id/curation` | Admin | Available fields and approval/review status |
+| PUT | `/api/datasets/:id/curation` | Admin | Save approvedFields; empty approval unpublishes the dataset |
 | POST | `/api/datasets` | Admin | Upload a CSV or .xlsx file (multipart, 10 MB max) |
 | PATCH | `/api/datasets/:id` | Admin | Turn a dataset on or off (`{"isActive": true}`) |
 
