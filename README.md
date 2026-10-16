@@ -1,6 +1,6 @@
 # CT Data Explorer
 
-#### A capstone project for the SCSU Computer Science program: an internal web app for CTData Collaborative staff to upload datasets, build reports (text, charts and tables for chosen towns), and publish them as interactive web pages.
+#### A capstone project for the SCSU Computer Science program: CTData staff curate datasets and approved fields, then signed-in users choose Connecticut locations and explore charts and tables. Saved reports and PDF exports are optional next steps.
 
 #### __Contributors:__
 - [@whalelogic](Keith Thomson) - Systems architecture, configurations, docker, and CI/CD

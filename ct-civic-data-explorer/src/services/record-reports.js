@@ -1,79 +1,215 @@
-/** Reports over original rows: no implicit aggregation, even for repeated town totals. */
+/** Reports keep the original source rows, including repeated town totals. */
+import { resolveReportStyle } from '../shared/report-style.js';
 import { HttpError } from '../lib/http-error.js';
-import * as records from '../repositories/dataset-records.js';
+import * as datasetRecords from '../repositories/dataset-records.js';
 import { parseMarkup } from './markup.js';
 import { presentDataset } from './presenters.js';
 import { formatDatasetCell } from './tabular-data.js';
+import { approvedDefinitions, requireApprovedSelection } from './field-curation.js';
+import { applyFieldPresentation, appendFieldNotes } from './presentation.js';
+import { buildChartBlocks } from './report-charts.js';
 
 export async function buildRecordReport(selection, dataset, places, now) {
-  const rows = await records.list(dataset.id, { townIds: places.map((place) => place.id) });
-  return renderRecordReport(selection, presentDataset(dataset), rows, now);
+  const townIds = places.map((place) => place.id);
+  const sourceRows = await datasetRecords.list(dataset.id, { townIds });
+  return renderRecordReport(selection, presentDataset(dataset), sourceRows, now);
 }
 
 export function renderRecordReport(selection, dataset, sourceRows, now = new Date()) {
-  const definitions = dataset.columns;
-  const selected = selection.indicators.map((key) => {
-    const column = definitions.find((item) => item.key === key && item.role !== 'town');
-    if (!column) throw new HttpError(400, `Column "${key}" is not available in this dataset.`);
-    return column;
-  });
-  const filters = Object.entries(selection.recordFilters ?? {}).map(([key, value]) => {
-    const column = definitions.find((item) => item.key === key && item.role === 'dimension');
-    if (!column) throw new HttpError(400, `Unknown category filter "${key}".`);
-    return [key, value];
-  });
-  const records = sourceRows.filter((row) => filters.every(([key, value]) => String(row.cell_values[key] ?? '') === value));
-  if (!records.length) throw new HttpError(400, 'No source rows match these towns and filters.');
-  if (records.length > 1000) throw new HttpError(400, 'Filter this report to at most 1,000 source rows.');
-  const primaryDimension = definitions.find((column) => column.role === 'dimension');
-  const counts = new Map();
-  records.forEach((row) => counts.set(row.town_id, (counts.get(row.town_id) ?? 0) + 1));
-  const places = records.map((row) => ({
-    id: row.id, name: row.name, geoType: row.geo_type,
-    label: counts.get(row.town_id) > 1
-      ? `${row.name} — ${primaryDimension && row.cell_values[primaryDimension.key] ? row.cell_values[primaryDimension.key] : `row ${row.source_row}`}`
-      : row.name,
-  }));
-  const usedLabels = new Set();
-  places.forEach((place, index) => {
-    if (usedLabels.has(place.label)) place.label += ` (source row ${records[index].source_row})`;
-    usedLabels.add(place.label);
-  });
-  const rows = selected.map((column) => ({ ...column, displayLabel: column.label,
-    cells: records.map((row) => ({ value: column.type === 'number' && row.cell_values[column.key] != null
-      ? row.cell_values[column.key] * (column.scale ?? 1) : null,
-    display: formatDatasetCell(row.cell_values[column.key], column) })),
-  }));
-  function table(keys) {
-    const chosen = keys.length ? selected.filter((column) => keys.includes(column.key)) : selected;
-    const town = definitions.find((column) => column.role === 'town');
-    const columns = [town, ...(primaryDimension && [...counts.values()].some((count) => count > 1)
-      && !chosen.includes(primaryDimension) ? [primaryDimension] : []), ...chosen];
-    const dimensionIndex = primaryDimension ? columns.indexOf(primaryDimension) : -1;
-    return { type: 'records', columns,
-      repeatColumns: dimensionIndex > 0 && columns.length > 2 && [...counts.values()].some((count) => count > 1) ? [0, dimensionIndex] : [0],
-      records: records.map((row) => ({
-      values: columns.map((column) => formatDatasetCell(row.cell_values[column.key], column)),
-    })) };
+  const columns = applyFieldPresentation(approvedDefinitions(dataset.columns, dataset.approvedFields, { includeTown: true }), {}, selection.fieldOverrides);
+  const dataColumns = columns.filter((column) => column.role !== 'town');
+  requireApprovedSelection(selection, dataColumns, dataset.approvedFields);
+
+  const selectedColumns = findSelectedColumns(selection.indicators, dataColumns);
+  const filteredRecords = filterRecords(sourceRows, selection.recordFilters ?? {}, columns);
+  const primaryDimension = columns.find((column) => column.role === 'dimension');
+  const { places, hasRepeatedTowns } = buildRecordPlaces(filteredRecords, primaryDimension);
+  const indicatorRows = buildIndicatorRows(selectedColumns, filteredRecords);
+  const tableData = {
+    columns,
+    selectedColumns,
+    primaryDimension,
+    hasRepeatedTowns,
+    records: filteredRecords,
+  };
+
+  const blocks = [];
+  let hasDataBlock = false;
+  for (const layoutBlock of selection.layout) {
+    if (layoutBlock.type === 'text') {
+      blocks.push({ type: 'text', nodes: parseMarkup(layoutBlock.text) });
+    } else if (layoutBlock.type === 'table') {
+      blocks.push(buildRecordTable(layoutBlock.indicators, tableData));
+      hasDataBlock = true;
+    } else {
+      const chartBlocks = buildChartBlocks(layoutBlock, indicatorRows, places);
+      if (chartBlocks.length > 0) {
+        blocks.push(...chartBlocks);
+        hasDataBlock = true;
+      }
+    }
   }
-  const blocks = selection.layout.map((block) => {
-    if (block.type === 'text') return { type: 'text', nodes: parseMarkup(block.text) };
-    if (block.type === 'table') return table(block.indicators);
-    let series = rows.filter((row) => row.type === 'number' && (!block.indicators.length || block.indicators.includes(row.key)));
-    if (!block.indicators.length && series.length) series = series.filter((row) => row.unit === series[0].unit);
-    if (block.chartType === 'bar') series = series.slice(0, 1);
-    if (!series.length) return null;
-    if (new Set(series.map((row) => row.unit)).size > 1) throw new HttpError(400, 'Chart columns must share a unit. Use separate charts for counts and percentages.');
-    if (records.length > 40) throw new HttpError(400, 'Filter charts to at most 40 source rows, or use a table.');
-    return { type: 'chart', chart: { type: block.chartType, unit: series[0].unit,
-      decimals: Math.max(...series.map((row) => row.decimals)), labels: places.map((place) => place.label),
-      benchmarkIndex: places.findIndex((place) => place.geoType === 'state'),
-      series: series.map((row) => ({ key: row.key, label: row.label, values: row.cells.map((cell) => cell.value) })) } };
-  }).filter(Boolean);
-  if (!blocks.some((block) => block.type === 'records' || block.type === 'chart')) blocks.push(table([]));
+  if (!hasDataBlock) {
+    blocks.push(buildRecordTable([], tableData));
+  }
+
+  appendFieldNotes(blocks, indicatorRows);
+
   const generatedOn = now.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
-  return { rowBased: true, title: selection.title || selection.towns.join(' and '),
-    subtitle: selection.subtitle || `${dataset.name}, ${dataset.vintage}`, showTitle: selection.showTitle,
-    dataset, places, indicators: rows, blocks, generatedOn,
-    sourceLine: `Source: ${dataset.source}. Dataset: ${dataset.name}, ${dataset.vintage} (version ${dataset.version}). Generated ${generatedOn}. Source rows are preserved; repeated values are not summed.` };
+  return {
+    style: resolveReportStyle(dataset.reportStyle, selection.styleOverrides),
+    rowBased: true,
+    title: selection.title || defaultTitle(selection.towns),
+    subtitle: selection.subtitle || `${dataset.displayName || dataset.name}, ${dataset.vintage}`,
+    showTitle: selection.showTitle,
+    dataset,
+    places,
+    indicators: indicatorRows,
+    blocks,
+    generatedOn,
+    sourceLine: `Source: ${dataset.source}. Dataset: ${dataset.name}, ${dataset.vintage} (version ${dataset.version}). `
+      + `Generated ${generatedOn}. Source rows are preserved; repeated values are not summed.`,
+  };
+}
+
+function defaultTitle(townNames) {
+  if (townNames.length > 3) {
+    return `${townNames.length} Connecticut towns`;
+  }
+  return townNames.join(' and ');
+}
+
+function findSelectedColumns(selectedKeys, columns) {
+  const selectedColumns = [];
+  for (const columnKey of selectedKeys) {
+    const column = columns.find((candidate) => candidate.key === columnKey);
+    if (!column) {
+      throw new HttpError(400, `Column "${columnKey}" is not available in this dataset.`);
+    }
+    selectedColumns.push(column);
+  }
+  return selectedColumns;
+}
+
+function filterRecords(sourceRows, selectedFilters, columns) {
+  const filters = Object.entries(selectedFilters);
+  for (const [columnKey] of filters) {
+    const column = columns.find((candidate) => {
+      return candidate.key === columnKey && candidate.role === 'dimension';
+    });
+    if (!column) {
+      throw new HttpError(400, `Unknown category filter "${columnKey}".`);
+    }
+  }
+
+  const matchingRecords = [];
+  for (const record of sourceRows) {
+    let matchesAllFilters = true;
+    for (const [columnKey, filterValue] of filters) {
+      const cellValue = String(record.cell_values[columnKey] ?? '');
+      if (cellValue !== filterValue) {
+        matchesAllFilters = false;
+        break;
+      }
+    }
+    if (matchesAllFilters) {
+      matchingRecords.push(record);
+    }
+  }
+
+  if (matchingRecords.length === 0) {
+    throw new HttpError(400, 'No source rows match these towns and filters.');
+  }
+  return matchingRecords;
+}
+
+function buildRecordPlaces(records, primaryDimension) {
+  const rowCountsByTown = new Map();
+  for (const record of records) {
+    const previousCount = rowCountsByTown.get(record.town_id) ?? 0;
+    rowCountsByTown.set(record.town_id, previousCount + 1);
+  }
+
+  const places = [];
+  const usedLabels = new Set();
+  let hasRepeatedTowns = false;
+  for (const record of records) {
+    let label = record.name;
+    if (rowCountsByTown.get(record.town_id) > 1) {
+      hasRepeatedTowns = true;
+      const category = primaryDimension && record.cell_values[primaryDimension.key];
+      label += ` — ${category || `row ${record.source_row}`}`;
+    }
+    if (usedLabels.has(label)) {
+      label += ` (source row ${record.source_row})`;
+    }
+    usedLabels.add(label);
+    places.push({
+      id: record.id,
+      name: record.name,
+      geoType: record.geo_type,
+      label,
+    });
+  }
+  return { places, hasRepeatedTowns };
+}
+
+function buildIndicatorRows(columns, records) {
+  const indicatorRows = [];
+  for (const column of columns) {
+    const cells = [];
+    for (const record of records) {
+      const rawValue = record.cell_values[column.key];
+      let value = null;
+      if (column.type === 'number' && rawValue != null) {
+        value = rawValue * (column.scale ?? 1);
+      }
+      cells.push({
+        value,
+        display: formatDatasetCell(rawValue, column),
+      });
+    }
+    indicatorRows.push({
+      ...column,
+      displayLabel: column.label,
+      cells,
+    });
+  }
+  return indicatorRows;
+}
+
+function buildRecordTable(selectedKeys, tableData) {
+  const { selectedColumns, primaryDimension, hasRepeatedTowns, records } = tableData;
+  let chosenColumns = selectedColumns;
+  if (selectedKeys.length > 0) {
+    chosenColumns = selectedColumns.filter((column) => selectedKeys.includes(column.key));
+  }
+
+  const townColumn = tableData.columns.find((column) => column.role === 'town');
+  const tableColumns = [townColumn];
+  if (primaryDimension && hasRepeatedTowns && !chosenColumns.includes(primaryDimension)) {
+    tableColumns.push(primaryDimension);
+  }
+  tableColumns.push(...chosenColumns);
+
+  const dimensionIndex = primaryDimension ? tableColumns.indexOf(primaryDimension) : -1;
+  const repeatColumns = [0];
+  if (dimensionIndex > 0 && tableColumns.length > 2 && hasRepeatedTowns) {
+    repeatColumns.push(dimensionIndex);
+  }
+
+  const tableRecords = [];
+  for (const record of records) {
+    const values = [];
+    for (const column of tableColumns) {
+      values.push(formatDatasetCell(record.cell_values[column.key], column));
+    }
+    tableRecords.push({ values });
+  }
+  return {
+    type: 'records',
+    columns: tableColumns,
+    repeatColumns,
+    records: tableRecords,
+  };
 }

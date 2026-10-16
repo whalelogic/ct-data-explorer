@@ -7,10 +7,10 @@
  * markup.js), chart and table. A report may hold any number of each.
  */
 import { z } from 'zod';
+import { fieldPresentationSchema, reportStyleSchema } from './presentation.js';
 
 export const BLOCK_TYPES = Object.freeze(['text', 'chart', 'table']);
 export const CHART_TYPES = Object.freeze(['bar', 'grouped_bar', 'line']);
-export const MAX_COMPARISON_TOWNS = 3;
 export const MAX_LAYOUT_BLOCKS = 30;
 export const MAX_TEXT_LENGTH = 4000;
 
@@ -22,8 +22,9 @@ const textBlock = z.object({
 });
 const chartBlock = z.object({
   type: z.literal('chart'),
-  chartType: z.enum(CHART_TYPES).default('bar'),
-  indicators: z.array(z.string()).max(6).default([]), // empty: chart the indicators sharing the first one's unit
+  title: z.string().trim().max(120).optional(),
+  chartType: z.enum(CHART_TYPES).default('grouped_bar'),
+  indicators: z.array(z.string()).max(25).default([]), // empty: chart every selected numeric indicator
 });
 const tableBlock = z.object({
   type: z.literal('table'),
@@ -35,7 +36,7 @@ export const blockSchema = z.discriminatedUnion('type', [textBlock, chartBlock, 
 });
 
 export const DEFAULT_LAYOUT = Object.freeze([
-  { type: 'chart', chartType: 'bar', indicators: [] },
+  { type: 'chart', chartType: 'grouped_bar', indicators: [] },
   { type: 'table', indicators: [] },
 ]);
 
@@ -49,10 +50,11 @@ export const selectionSchema = z.preprocess(
       ),
       towns: z
         .array(requiredText('Town', 100))
-        .min(1, 'Choose a town')
-        .max(1 + MAX_COMPARISON_TOWNS, `Choose at most ${MAX_COMPARISON_TOWNS} comparison towns`),
+        .min(1, 'Choose a town'),
       benchmark: z.boolean().default(true),
       indicators: z.array(requiredText('Indicator', 100)).min(1, 'Select at least one indicator for the report').max(25),
+      styleOverrides: reportStyleSchema.optional(),
+      fieldOverrides: z.record(z.string().min(1).max(100), fieldPresentationSchema).optional(),
       showTitle: z.boolean().default(true),
       title: z.string().trim().max(200).default(''),
       subtitle: z.string().trim().max(300).default(''),
@@ -69,6 +71,12 @@ export const selectionSchema = z.preprocess(
       const duplicateIndicator = findDuplicate(s.indicators);
       if (duplicateIndicator) {
         ctx.addIssue({ code: 'custom', path: ['indicators'], message: `"${duplicateIndicator}" is selected more than once` });
+      }
+
+      for (const key of Object.keys(s.fieldOverrides ?? {})) {
+        if (!s.indicators.includes(key)) {
+          ctx.addIssue({ code: 'custom', path: ['fieldOverrides', key], message: 'Customize only selected report fields' });
+        }
       }
 
       s.layout.forEach((block, i) => {
