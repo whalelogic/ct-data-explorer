@@ -5,11 +5,11 @@ import { h as createElement } from './dom.js';
 export function renderHeader(user) {
   const navigationLinks = [
     ['/', 'Dashboard'],
-    ['/explore', 'Explore'],
-    ['/builder', 'Reports'],
+    ['/explore', 'Explore reports'],
+    ['/builder', 'Report builder'],
   ];
   if (user.role === 'admin') {
-    navigationLinks.push(['/admin', 'Data management']);
+    navigationLinks.push(['/admin', 'Datasets']);
     navigationLinks.push(['/users', 'People']);
   }
 
@@ -37,6 +37,23 @@ export function renderHeader(user) {
   );
   brandLink.href = '/';
   header.append(navigation, account);
+}
+
+/** Admin pages share one sub-navigation: datasets, adding one, and people. */
+const ADMIN_LINKS = [
+  ['/admin', 'Datasets'],
+  ['/admin/datasets/new', 'Add dataset'],
+  ['/users', 'People'],
+];
+
+export function renderAdminNav(container) {
+  container.replaceChildren();
+  for (const [url, label] of ADMIN_LINKS) {
+    container.append(createElement('a', {
+      href: url,
+      'aria-current': location.pathname === url ? 'page' : null,
+    }, label));
+  }
 }
 
 /** An empty message hides the status element. */
@@ -89,7 +106,8 @@ function isCurrentPage(url) {
   if (url === '/') {
     return location.pathname === '/';
   }
-  return location.pathname === url;
+  // Report viewer pages live under /explore/ and the upload page under /admin/.
+  return location.pathname === url || location.pathname.startsWith(`${url}/`);
 }
 
 async function signOut() {

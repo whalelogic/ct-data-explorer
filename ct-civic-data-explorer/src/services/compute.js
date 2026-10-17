@@ -4,6 +4,8 @@
  * never computed in the browser, so a denominator cannot drift between screens (SRS Risk T1).
  */
 
+import { computeRatio } from './custom-indicators.js';
+
 /**
  * @param {{ key: string, unit: string, derivation: string, numerator_key?: string | null, denominator_key?: string | null }} indicator
  * @param {Map<string, number> | undefined} values raw observation values for one place, keyed by indicator key
@@ -11,6 +13,10 @@
  */
 export function computeValue(indicator, values) {
   if (!values) return null;
+  // A report's custom ratio divides two dataset indicators, which may themselves be ratios.
+  if (indicator.derivation === 'custom') {
+    return computeRatio(computeValue(indicator.numerator, values), computeValue(indicator.denominator, values), indicator.multiplier);
+  }
   if (indicator.derivation === 'ratio') {
     const numerator = values.get(indicator.numerator_key);
     const denominator = values.get(indicator.denominator_key);

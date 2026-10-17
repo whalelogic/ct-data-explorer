@@ -32,7 +32,9 @@ export async function mountDatasetPresentation(container, id, onSave) {
   reset = h('button', { type: 'button', class: 'link', onClick: resetDefaults }, 'Use source defaults');
   const styleContainer = h('div');
   styleEditor = mountReportStyleEditor(styleContainer, { prefix: 'shared-style', onChange: () => showStatus(status, 'Unsaved shared styling.') });
-  form.append(general, control('Dataset description', description), fieldsSection, styleContainer);
+  // Colors matter less than names, so they start folded away.
+  const styleSection = h('details', { class: 'presentation-style' }, h('summary', {}, 'Report colors and appearance'), styleContainer);
+  form.append(general, control('Dataset description', description), fieldsSection, styleSection);
   form.append(h('div', { class: 'button-row' }, save, reload, reset), status);
   form.addEventListener('submit', saveDefaults);
   form.addEventListener('input', () => showStatus(status, 'Unsaved changes to shared defaults.'));

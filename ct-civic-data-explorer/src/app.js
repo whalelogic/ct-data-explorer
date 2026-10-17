@@ -50,6 +50,15 @@ export function createApp({ sessionStore, logRequests = config.env !== 'test' } 
     app.get(pageUrl, (_req, res) => res.sendFile(`${page}.html`, { root: publicDirectory }));
   }
 
+  // Adding a dataset has its own page; the admin page is for finding and managing datasets.
+  app.get('/admin/datasets/new', (_req, res) => res.sendFile('upload.html', { root: publicDirectory }));
+
+  // Saved reports have readable addresses. The page loads the report through the API,
+  // which requires sign-in, so the address alone reveals nothing.
+  app.get(/^\/explore\/([a-z0-9]+(?:-[a-z0-9]+)*)\.html$/, (_req, res) => {
+    res.sendFile('report.html', { root: publicDirectory });
+  });
+
   // Static assets. Pages are plain HTML; the API is the security boundary.
   app.use(express.static(path.join(here, '..', 'public')));
   app.use('/shared', express.static(path.join(here, 'shared')));

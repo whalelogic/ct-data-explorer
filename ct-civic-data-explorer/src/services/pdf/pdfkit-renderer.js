@@ -93,6 +93,9 @@ function drawBody(document, report) {
 
     document.moveDown(1);
   }
+  if (report.summaries?.length) {
+    drawSummaries(document, report.summaries);
+  }
 
   for (let blockIndex = 0; blockIndex < report.blocks.length; blockIndex++) {
     const block = report.blocks[blockIndex];
@@ -115,6 +118,51 @@ function drawBody(document, report) {
     document.x = MARGIN;
     document.moveDown(document.reportStyle.spacing === 'compact' ? 0.5 : 1);
   }
+}
+
+/**
+ * Report-wide values (e.g. average population per town) side by side, up to three per line:
+ * label, value, then how it was worked out.
+ */
+function drawSummaries(document, summaries) {
+  const width = contentWidth(document);
+  const perLine = Math.min(3, summaries.length);
+  const gap = 18;
+  const cellWidth = (width - gap * (perLine - 1)) / perLine;
+  const size = bodySize(document);
+  // Label, the figure, a plain line, then the Connecticut figure: no working on the page.
+  const parts = (summary) => [
+    { text: summary.label.toUpperCase(), font: 'Poppins-Bold', size: size - 2, color: MUTED },
+    { text: summary.display, font: 'Poppins-ExtraBold', size: 24, color: document.reportStyle.headingColor },
+    { text: summary.detail ?? '', font: 'Poppins-Regular', size: size - 1, color: MUTED },
+    ...(summary.benchmark ? [
+      { text: summary.benchmark.display, font: 'Poppins-Bold', size: size + 2, color: INK, gap: 6 },
+      { text: summary.benchmark.label, font: 'Poppins-Regular', size: size - 1, color: MUTED },
+    ] : []),
+  ];
+  const heightOf = (summary) => parts(summary).reduce((total, part) => {
+    document.font(part.font).fontSize(part.size);
+    return total + (part.gap ?? 0) + document.heightOfString(part.text, { width: cellWidth });
+  }, 0);
+
+  for (let start = 0; start < summaries.length; start += perLine) {
+    const line = summaries.slice(start, start + perLine);
+    const lineHeight = Math.max(...line.map(heightOf));
+    ensureSpace(document, lineHeight + 12);
+    const top = document.y;
+    line.forEach((summary, index) => {
+      let y = top;
+      for (const part of parts(summary)) {
+        y += part.gap ?? 0;
+        document.font(part.font).fontSize(part.size).fillColor(part.color);
+        document.text(part.text, MARGIN + index * (cellWidth + gap), y, { width: cellWidth });
+        y = document.y;
+      }
+    });
+    document.x = MARGIN;
+    document.y = top + lineHeight + 12;
+  }
+  document.moveDown(0.4);
 }
 
 /** Keep a short introduction on the same page as the chart that follows it. */
@@ -254,7 +302,11 @@ function fontFor(bold, italic) {
   return 'Poppins-Regular';
 }
 
-function seriesColor(document, seriesIndex) {
+/** A color chosen for this series in the builder wins over the report palette. */
+function seriesColor(document, seriesIndex, series) {
+  if (series?.color) {
+    return series.color;
+  }
   const palette = document.reportStyle.palette;
   return palette[seriesIndex % palette.length];
 }
@@ -322,6 +374,11 @@ function drawChartPart(document, chart, scale, range) {
   document.font('Poppins-Bold');
   document.fontSize(12);
   const titleHeight = document.heightOfString(title, { width }) + 8;
+  // A custom chart title keeps the plotted fields visible as a muted line beneath it.
+  const detail = [chart.subtitle, range].filter(Boolean).join(' · ');
+  document.font('Poppins-Regular');
+  document.fontSize(document.reportStyle.textSize === 'large' ? 10.5 : 9);
+  const detailHeight = detail ? document.heightOfString(detail, { width }) + 6 : 0;
   const legend = chartLegendLayout(document, chart, width);
   const axisWidth = 50;
   const groupWidth = (width - axisWidth) / chart.labels.length;
@@ -335,8 +392,9 @@ function drawChartPart(document, chart, scale, range) {
       shortenedLabels.push(labelIndex);
     }
   }
-  const headingHeight = titleHeight + (range ? 18 : 0) + legend.height + 20;
-  const plotHeight = CHART_HEIGHT - 30;
+  const headingHeight = titleHeight + detailHeight + legend.height + 20;
+  // The subtitle line comes out of the plot, so a chart takes the same page space either way.
+  const plotHeight = CHART_HEIGHT - 30 - detailHeight;
   ensureSpace(document, headingHeight + plotHeight + labelHeight + 12);
   const top = document.y;
   document.font('Poppins-Bold');
@@ -344,12 +402,12 @@ function drawChartPart(document, chart, scale, range) {
   document.fillColor(document.reportStyle.headingColor);
   document.text(title, MARGIN, top, { width });
   let headingY = top + titleHeight;
-  if (range) {
+  if (detail) {
     document.font('Poppins-Regular');
     document.fontSize(document.reportStyle.textSize === 'large' ? 10.5 : 9);
     document.fillColor(MUTED);
-    document.text(range, MARGIN, headingY, { width });
-    headingY += 18;
+    document.text(detail, MARGIN, headingY - 4, { width });
+    headingY += detailHeight;
   }
   drawChartLegend(document, legend, headingY);
   headingY += legend.height;
@@ -444,7 +502,7 @@ function drawChartLegend(document, legend, top) {
     for (let column = 0; column < row.series.length; column++) {
       const x = MARGIN + column * legend.columnWidth;
       document.rect(x, top + 3, 9, 9);
-      document.fill(seriesColor(document, row.start + column));
+      document.fill(seriesColor(document, row.start + column, row.series[column]));
       document.fillColor(INK);
       document.text(row.series[column].label, x + 13, top + 2, { width: legend.columnWidth - 26 });
     }
@@ -480,13 +538,13 @@ function drawChartLines(document, chart, plot, groupWidth, scale) {
     }
 
     document.lineWidth(2);
-    document.strokeColor(seriesColor(document, seriesIndex));
+    document.strokeColor(seriesColor(document, seriesIndex, series));
     document.stroke();
 
     for (const point of points) {
       if (point) {
         document.circle(point[0], point[1], 2.5);
-        document.fill(seriesColor(document, seriesIndex));
+        document.fill(seriesColor(document, seriesIndex, series));
       }
     }
   }
@@ -505,7 +563,7 @@ function drawChartBars(document, chart, plot, groupWidth, scale) {
         continue;
       }
 
-      let color = seriesColor(document, seriesIndex);
+      let color = seriesColor(document, seriesIndex, series);
       if (chart.type === 'bar' && valueIndex === chart.benchmarkIndex) {
         color = document.reportStyle.benchmarkColor;
       }

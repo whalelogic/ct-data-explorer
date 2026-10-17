@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Report · CT Civic Data Explorer</title>
+    <link rel="stylesheet" href="/css/app.css" />
+    <script defer src="/vendor/chart.js/chart.umd.min.js"></script>
+    <script type="module" src="/js/report-page.js"></script>
+  </head>
+  <body class="viewer-page">
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site"><a class="brand" href="/">CT Civic Data Explorer</a></header>
+    <main id="main" class="container viewer-main">
+      <!-- The interactive version of a saved report: the same figures as its PDF. -->
+      <div class="viewer-bar">
+        <div class="viewer-bar-title">
+          <p class="eyebrow"><a href="/explore">Explore</a> / Report</p>
+          <h1 id="viewer-heading">Loading report…</h1>
+          <p id="viewer-meta" class="viewer-meta"></p>
+        </div>
+        <div class="viewer-actions" id="viewer-actions" hidden>
+          <button type="button" id="copy-link" class="secondary">Copy link</button>
+          <button type="button" id="viewer-pdf" class="secondary">Export PDF</button>
+          <a id="edit-report" class="button">Edit in builder</a>
+        </div>
+      </div>
+      <p id="page-status" class="status" role="alert" hidden></p>
+      <p id="viewer-status" class="status" role="status" aria-live="polite" hidden></p>
+
+      <div class="viewer-layout">
+        <div id="viewer-report" class="viewer-report"></div>
+        <aside id="viewer-details" class="viewer-details" aria-labelledby="details-title" hidden></aside>
+      </div>
+    </main>
+  </body>
+</html>

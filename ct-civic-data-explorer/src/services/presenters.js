@@ -1,8 +1,9 @@
 /** Map database rows to the camelCase shapes the API returns. Never exposes hashes or lockout state. */
 import { indicatorLabel } from '../shared/format.js';
-import { selectionSchema, upgradeLegacySelection } from './selection.js';
+import { selectionSchema, upgradeSelection } from './selection.js';
 import { visibleDatasetColumns } from './field-curation.js';
 import { applyFieldPresentation } from './presentation.js';
+import { isTownKeyed, rowLabelColumn, rowNoun } from './row-labels.js';
 
 export function presentUser(user) {
   return {
@@ -45,6 +46,9 @@ export function presentDataset(dataset) {
     uploadedBy: dataset.uploaded_by_name,
     dataFormat: dataset.data_format ?? 'indicators',
     columns: applyFieldPresentation(visibleDatasetColumns(dataset), dataset.presentation),
+    rowLabelKey: rowLabelColumn(dataset)?.key ?? null,
+    townKeyed: isTownKeyed(dataset),
+    rowNoun: rowNoun(dataset),
     importNotes: dataset.import_notes ?? [],
     approvedFields: dataset.approved_fields ?? null,
     curationReviewed: Boolean(dataset.curation_reviewed_at),
@@ -67,11 +71,15 @@ export function presentIndicator(indicator) {
 }
 
 export function presentReport(report) {
+  const selection = currentSelection(report.selection);
   return {
     id: report.id,
     title: report.title,
-    selection: currentSelection(report.selection),
-    towns: report.selection?.towns ?? [],
+    slug: report.slug,
+    viewUrl: report.slug ? `/explore/${report.slug}.html` : null,
+    selection,
+    rows: selection?.rows ?? [],
+    allRows: Boolean(selection?.allRows),
     createdBy: { id: report.created_by, name: report.creator_name },
     dataset: {
       name: report.dataset_name,
@@ -90,5 +98,5 @@ function currentSelection(storedSelection) {
   if (parsedSelection.success) {
     return parsedSelection.data;
   }
-  return upgradeLegacySelection(storedSelection);
+  return upgradeSelection(storedSelection);
 }
