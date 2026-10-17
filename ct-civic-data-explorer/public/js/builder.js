@@ -7,6 +7,7 @@ import { resolveReportStyle } from '/shared/report-style.js';
 import { mountReportStyleEditor } from './report-style-editor.js';
 import { api, loadSession } from './api.js';
 import { clearReport, renderReport } from './report-view.js';
+import { setAssistantApply, setAssistantContext, takePendingProposal } from './assistant.js';
 import { h as createElement } from './dom.js';
 import { boot, debounce, downloadBlob, renderHeader, showStatus } from './layout.js';
 
@@ -71,6 +72,11 @@ async function initializeBuilder() {
   const datasets = await api('/datasets');
   activeDatasets = datasets.filter((dataset) => dataset.isActive);
   await loadInitialSelection();
+  // A report the assistant set up on another page, for this dataset.
+  const pending = takePendingProposal();
+  if (pending && !savedReport && activeDatasets.some((dataset) => dataset.id === pending.datasetId)) {
+    reportSelection = assistantSelection(pending.selection);
+  }
 
   renderDatasetOptions();
   fillFormControls();
@@ -97,7 +103,45 @@ async function initializeBuilder() {
   updateTabCounts();
   savedSnapshot = createSnapshot();
   updateSaveState();
+  setAssistantContext(() => ({
+    page: 'builder',
+    datasetId: findSelectedDataset()?.id,
+    selection: {
+      compareBy: reportSelection.compareBy,
+      rows: reportSelection.rows.slice(0, 200),
+      allRows: reportSelection.allRows,
+      indicators: reportSelection.indicators.slice(0, 50),
+    },
+  }));
+  setAssistantApply(applyAssistantProposal);
   await refreshPreview();
+}
+
+/** A selection from the assistant, with the builder's per-report settings filled in. */
+function assistantSelection(selection) {
+  return {
+    ...selection,
+    fieldOverrides: selection.fieldOverrides ?? {},
+    styleOverrides: selection.styleOverrides ?? {},
+    recordFilters: selection.recordFilters ?? {},
+    customIndicators: selection.customIndicators ?? [],
+    rows: selection.rows ?? [],
+  };
+}
+
+/** Replace the report being built with the assistant's proposal; the report name and save state stay. */
+async function applyAssistantProposal(proposal) {
+  reportSelection = assistantSelection(proposal.selection);
+  renderDatasetOptions();
+  fillFormControls();
+  getElement('report-name').value = savedReport?.title ?? '';
+  await loadDatasetColumns();
+  expandedBlocks.clear();
+  updateStyleEditor();
+  renderFields();
+  renderLayout();
+  selectTab('fields', { focus: false });
+  selectionChanged();
 }
 
 async function loadInitialSelection() {
@@ -665,10 +709,12 @@ async function loadDatasetColumns() {
   chooseCompareOption();
   renderCompareOptions();
   renderRowSelection();
-  // Ratios whose fields this dataset does not have cannot be kept.
+  // Calculated fields whose fields this dataset does not have cannot be kept. Summaries
+  // (average, median…) use one field; ratios and filled-row averages need a second one.
   const fieldKeys = new Set(availableIndicators.map((field) => field.key));
   reportSelection.customIndicators = (reportSelection.customIndicators ?? []).filter((custom) => {
-    return fieldKeys.has(custom.numerator) && fieldKeys.has(custom.denominator);
+    const needsSecond = (custom.calculation ?? 'ratio') === 'ratio' || custom.calculation === 'average_filled';
+    return fieldKeys.has(custom.numerator) && (!needsSecond || fieldKeys.has(custom.denominator));
   });
   rebuildFieldIndex();
   reportSelection.indicators = reportSelection.indicators.filter((key) => indicatorsByKey.has(key));

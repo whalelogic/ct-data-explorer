@@ -13,6 +13,14 @@ The interactive workflow advances the dynamic reporting direction in `SRS.docx` 
 
 Older links to `/explore?dataset=…` open the builder with that dataset. Saved reports that stored `towns` are read as `rows`, so they keep working.
 
+### Data assistant
+
+With `AI_PROVIDER=anthropic`, every signed-in page shows an **Ask about the data** button in the bottom-right corner. The assistant answers questions about published data and, for staff and administrators, sets up reports: it replies with **Apply to my report** in the builder, or **Open in report builder** elsewhere.
+
+It runs on the server (`services/ai/assistant.js`, `POST /api/assistant`) with read-only tools that call the same services as the app, as the signed-in user: listing published datasets, describing their approved fields, reading figures and summaries, and proposing a report setup (checked by building it). Figures come only from those tools, never from the model's memory. Values from uploaded record datasets never leave the server; only their field names and Connecticut place names do. Requests are limited to 40 per person per 10 minutes, and the conversation is kept in the browser tab only. Who may generate reports is decided in one place, `canGenerateReports()`.
+
+Credentials resolve like the Anthropic SDK: `ANTHROPIC_API_KEY`, or an `ant auth login` profile. The model is `AI_MODEL` (default `claude-opus-5-5`) at `AI_EFFORT` (default `low`), with Anthropic's server-side refusal fallback enabled.
+
 ### Calculated fields
 
 In the builder's **Show** step, **Add a calculated field › + New calculated field** first asks what to **Calculate**:

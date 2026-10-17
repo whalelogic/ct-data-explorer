@@ -11,36 +11,31 @@
     <a class="skip-link" href="#main">Skip to content</a>
     <header class="site"><a class="brand" href="/">CT Civic Data Explorer</a></header>
     <main id="main" class="container">
-      <div class="workspace-heading dashboard-heading">
+      <!-- One line of greeting, search that filters as you type, and the one main action. -->
+      <div class="dash-head">
         <div>
-          <p class="section-kicker">Your workspace</p>
-          <h1>Dashboard</h1>
-          <p class="page-intro">Find a dataset, build a report, or pick up where you left off.</p>
+          <h1 id="dash-greeting">Welcome back</h1>
+          <p class="page-intro">Start a report from a dataset, or pick up a saved one.</p>
         </div>
-        <div class="dashboard-primary-actions">
-          <a class="button secondary" href="/explore">Explore reports</a>
-          <a class="button" href="/builder">New report <span aria-hidden="true">↗</span></a>
+        <div class="dash-head-actions">
+          <form id="dashboard-search" class="dash-search" role="search" aria-label="Search datasets and reports">
+            <label for="search-input" class="sr-only">Search datasets and reports</label>
+            <input type="search" id="search-input" maxlength="100" placeholder="Search datasets and reports"
+              autocomplete="off" aria-controls="datasets-grid reports-grid" />
+            <button id="clear-search" type="button" class="link" hidden>Clear</button>
+          </form>
+          <a class="button" href="/builder">+ New report</a>
         </div>
       </div>
       <p id="page-status" class="status" role="alert" hidden></p>
 
-      <form id="dashboard-search" class="dashboard-search" role="search" aria-label="Search the dashboard">
-        <label for="search-input">Find a dataset or report</label>
-        <div class="inline-form">
-          <input type="search" id="search-input" maxlength="100"
-            placeholder="Search by dataset or report name" autocomplete="off" aria-controls="datasets-grid reports-grid" />
-          <button id="clear-search" type="button" class="secondary" hidden>Clear search</button>
-          <button type="submit">Search</button>
-        </div>
-      </form>
-
       <section class="dashboard-section" aria-labelledby="datasets-heading">
         <div class="dashboard-section-heading">
           <div>
-            <h2 id="datasets-heading">Available datasets <span id="dataset-count" class="dashboard-count" aria-live="polite"></span></h2>
-            <p class="muted small">Choose data to explore or use in a new report.</p>
+            <h2 id="datasets-heading">Datasets <span id="dataset-count" class="dashboard-count" aria-live="polite"></span></h2>
+            <p class="muted small">Published data you can build reports with.</p>
           </div>
-          <a id="manage-datasets" href="/admin" hidden>Manage datasets <span aria-hidden="true">↗</span></a>
+          <a id="manage-datasets" href="/admin" hidden>Manage datasets</a>
         </div>
         <p id="datasets-status" class="status" role="status">Loading datasets…</p>
         <button id="retry-datasets" type="button" class="secondary" hidden>Retry datasets</button>
@@ -51,7 +46,7 @@
         <div class="dashboard-section-heading">
           <div>
             <h2 id="reports-heading">Saved reports <span id="report-count" class="dashboard-count" aria-live="polite"></span></h2>
-            <p class="muted small">Reopen, export, or adapt your team’s work.</p>
+            <p class="muted small">Your team’s reports, newest first.</p>
           </div>
           <div class="dashboard-report-controls">
             <label class="dashboard-owner-filter"><input id="only-mine" type="checkbox" /> Only my reports</label>

@@ -81,6 +81,12 @@
 | DELETE | `/api/reports/:id` | Signed in (owner only) | Delete a report (`204`) |
 | GET | `/api/reports/:id/pdf` | Signed in | Download a saved report as PDF, rebuilt from current data |
 
+## Assistant: `/api/assistant`
+
+| Method | Path | Access | Purpose |
+| --- | --- | --- | --- |
+| POST | `/api/assistant` | Signed in (CSRF) | Chat with the data assistant. Body: `{ messages: [{ role, content }], context?: { page, datasetId, selection } }`. Returns `{ reply, proposal }`; `proposal` (`{ datasetId, selection }`) is set only for staff and administrators when a report was set up. 503 when no AI provider is configured; 429 after 40 requests in 10 minutes. |
+
 ## Users: `/api/users`
 
 | Method | Path | Access | What it does |

@@ -1,6 +1,7 @@
 /** Page header and UI helpers shared by signed-in pages. */
 import { api } from './api.js';
 import { h as createElement } from './dom.js';
+import { mountAssistant } from './assistant.js';
 
 export function renderHeader(user) {
   const navigationLinks = [
@@ -37,6 +38,8 @@ export function renderHeader(user) {
   );
   brandLink.href = '/';
   header.append(navigation, account);
+  // The data assistant appears on every signed-in page when the server has AI set up.
+  mountAssistant();
 }
 
 /** Admin pages share one sub-navigation: datasets, adding one, and people. */

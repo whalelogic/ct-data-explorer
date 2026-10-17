@@ -23,6 +23,7 @@ import { datasetsRouter } from './routes/datasets.routes.js';
 import { indicatorsRouter } from './routes/indicators.routes.js';
 import { townsRouter } from './routes/towns.routes.js';
 import { usersRouter } from './routes/users.routes.js';
+import { assistantRouter } from './routes/assistant.routes.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
@@ -99,6 +100,7 @@ export function createApp({ sessionStore, logRequests = config.env !== 'test' } 
   app.use('/api/datasets', datasetsRouter);
   app.use('/api/reports', reportsRouter);
   app.use('/api/users', usersRouter);
+  app.use('/api/assistant', assistantRouter);
   app.use('/api', apiNotFound);
 
   app.use(errorHandler);

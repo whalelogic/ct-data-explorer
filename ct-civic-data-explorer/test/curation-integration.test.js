@@ -7,6 +7,7 @@ import session from 'express-session';
 import request from 'supertest';
 import { createApp } from '../src/app.js';
 import { pool } from '../src/db/pool.js';
+import { canGenerateReports, setAssistantClientForTests } from '../src/services/ai/assistant.js';
 
 const REPORT_PATHS = ['/api/reports/preview', '/api/reports/pdf', '/api/reports/summary'];
 
@@ -552,6 +553,94 @@ test('town files with county and planning region rows upload and report those ro
 
     await uploadDataset(admin, testTag, `${testTag}-bad`, 'Town,Jobs\nGotham County,1\n').expect(422);
   } finally {
+    await removeTestData(userIds, testTag);
+  }
+});
+
+/** A stand-in for the Claude client that plays back tool calls and records what it was sent. */
+function scriptedClaude(steps) {
+  const requests = [];
+  let id = 0;
+  return {
+    requests,
+    beta: {
+      messages: {
+        async create(params) {
+          requests.push(structuredClone(params));
+          const step = steps.shift();
+          if (!step) throw new Error('scripted Claude ran out of steps');
+          if (step.text) {
+            return { stop_reason: 'end_turn', content: [{ type: 'text', text: step.text }] };
+          }
+          return { stop_reason: 'tool_use', content: [{ type: 'tool_use', id: `tool_${++id}`, name: step.tool, input: step.input }] };
+        },
+      },
+    },
+  };
+}
+
+function lastToolResult(claude) {
+  return claude.requests.at(-1).messages.at(-1).content[0];
+}
+
+test('the data assistant reads published figures, keeps record values private and proposes reports', {
+  skip: process.env.CT_CURATION_INTEGRATION !== '1',
+}, async () => {
+  const testTag = `assistant-test-${crypto.randomUUID()}`;
+  const userIds = [];
+  const app = createApp({ sessionStore: new session.MemoryStore(), logRequests: false });
+  try {
+    const { admin, staff } = await createTestClients(app, testTag, userIds);
+    const numeric = await uploadDataset(admin, testTag, `${testTag}-towns`, 'Town,pop,households\nAndover,1234,500\nBridgewater,2000,800\n').expect(201);
+    await sendWriteRequest(admin, 'put', `/api/datasets/${numeric.body.id}/curation`, { approvedFields: ['pop', 'households'] }).expect(200);
+    await sendWriteRequest(admin, 'patch', `/api/datasets/${numeric.body.id}`, { isActive: true }).expect(200);
+    const records = await uploadDataset(admin, testTag, `${testTag}-programs`, 'Program,Clients\nFood pantry,1200\nHousing help,300\n', { labelColumn: 'Program', labelIsTown: 'false' }).expect(201);
+    await sendWriteRequest(admin, 'put', `/api/datasets/${records.body.id}/curation`, { approvedFields: ['c1'] }).expect(200);
+    await sendWriteRequest(admin, 'patch', `/api/datasets/${records.body.id}`, { isActive: true }).expect(200);
+
+    const figures = scriptedClaude([
+      { tool: 'get_figures', input: { dataset_id: numeric.body.id, compare_by: 'town', places: ['Andover', 'Bridgewater'], fields: ['pop'], include_statewide: false, summaries: [{ field: 'pop', calculation: 'average' }] } },
+      { tool: 'get_figures', input: { dataset_id: records.body.id, compare_by: 'town', places: [], fields: ['c1'], include_statewide: false, summaries: [] } },
+      { text: 'The average is **1,617.00** people per town.' },
+    ]);
+    setAssistantClientForTests(figures);
+    const session = await staff.agent.get('/api/auth/me').expect(200);
+    assert.deepEqual(session.body.features, { aiSummary: session.body.features.aiSummary, assistant: true, assistantReports: true });
+    const answer = await sendWriteRequest(staff, 'post', '/api/assistant', {
+      messages: [{ role: 'user', content: 'What is the average population?' }],
+      context: { page: 'dataset', datasetId: numeric.body.id },
+    }).expect(200);
+    assert.equal(answer.body.reply, 'The average is **1,617.00** people per town.');
+    assert.equal(answer.body.proposal, null);
+    // The app context rides along with the question, and the figures come from the report engine.
+    assert.match(figures.requests[0].messages[0].content[0].text, new RegExp(`Open dataset: id ${numeric.body.id}`));
+    const first = JSON.parse(figures.requests[1].messages.at(-1).content[0].content);
+    assert.deepEqual(first.values, { Population: { Andover: '1,234', Bridgewater: '2,000' } });
+    assert.equal(first.summaries[0].value, '1,617.00');
+    const privateResult = lastToolResult(figures);
+    assert.equal(privateResult.is_error, true);
+    assert.match(privateResult.content, /private/);
+    assert.ok(!JSON.stringify(figures.requests).includes('Food pantry'), 'record values never reach the model');
+
+    const proposing = scriptedClaude([
+      { tool: 'propose_report', input: { dataset_id: numeric.body.id, compare_by: 'town', rows: ['Andover'], fields: ['pop', 'households'], summaries: [{ field: 'pop', calculation: 'median', name: 'Median population' }], include_statewide: false, title: '' } },
+      { text: 'I set up a report on Andover.' },
+    ]);
+    setAssistantClientForTests(proposing);
+    const proposal = await sendWriteRequest(staff, 'post', '/api/assistant', {
+      messages: [{ role: 'user', content: 'Build a report on Andover' }],
+    }).expect(200);
+    assert.equal(proposal.body.proposal.datasetId, numeric.body.id);
+    assert.deepEqual(proposal.body.proposal.selection.rows, ['Andover']);
+    assert.deepEqual(proposal.body.proposal.selection.indicators, ['pop', 'households', 'ratio_1']);
+    assert.equal(proposal.body.proposal.selection.customIndicators[0].calculation, 'median');
+    await sendWriteRequest(staff, 'post', '/api/reports/preview', proposal.body.proposal.selection).expect(200);
+
+    await sendWriteRequest(staff, 'post', '/api/assistant', { messages: [{ role: 'assistant', content: 'Hi' }] }).expect(400);
+    await staff.agent.post('/api/assistant').send({ messages: [{ role: 'user', content: 'Hi' }] }).expect(403);
+    assert.equal(canGenerateReports({ role: 'viewer' }), false);
+  } finally {
+    setAssistantClientForTests(undefined);
     await removeTestData(userIds, testTag);
   }
 });

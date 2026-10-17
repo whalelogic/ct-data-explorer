@@ -12,6 +12,7 @@ import { mountIndicatorEditor } from './indicator-editor.js';
 import { boot, formatDate, renderHeader, showStatus } from './layout.js';
 import { mountTabs } from './tabs.js';
 import { renderShapePanel } from './data-shape.js';
+import { setAssistantContext } from './assistant.js';
 import { fieldUnitLabel } from '/shared/field-groups.js';
 
 const PAGE_SIZE = 25;
@@ -40,6 +41,7 @@ async function initializeDatasetPage() {
   }
 
   isAdmin = user.role === 'admin';
+  setAssistantContext(() => ({ page: 'dataset', datasetId: Number(datasetId) }));
   getElement('back-link').href = isAdmin ? '/admin' : '/';
   getElement('previous').addEventListener('click', loadPreviousPage);
   getElement('next').addEventListener('click', loadNextPage);
