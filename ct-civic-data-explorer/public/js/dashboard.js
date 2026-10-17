@@ -1,5 +1,5 @@
 import { api, loadSession } from './api.js';
-import { reportActionButtons, fetchReports } from './report-library.js';
+import { reportActionButtons, fetchReports, summarizeRows } from './report-library.js';
 import { h as createElement } from './dom.js';
 import { boot, debounce, formatDate, renderHeader, showStatus } from './layout.js';
 
@@ -76,11 +76,11 @@ function renderDatasets() {
 }
 
 function createDatasetTile(dataset) {
-  const exploreUrl = `/explore?dataset=${dataset.id}`;
+  const reportUrl = `/builder?dataset=${dataset.id}`;
   const detailsUrl = `/dataset?id=${dataset.id}`;
   const hasApprovedFields = dataset.approvedFields === null || dataset.approvedFields?.length > 0;
   const titleLink = createElement('a', {
-    href: hasApprovedFields ? exploreUrl : detailsUrl,
+    href: detailsUrl,
     class: 'stretched-link',
   }, dataset.displayName || dataset.name);
   const title = createElement('h3', { class: 'saved-report-title' }, titleLink);
@@ -100,8 +100,7 @@ function createDatasetTile(dataset) {
   );
   const actions = createElement('div', { class: 'saved-report-actions' });
   if (hasApprovedFields) {
-    actions.append(createElement('a', { href: exploreUrl }, 'Explore'));
-    actions.append(createElement('a', { href: `/builder?dataset=${dataset.id}` }, 'New report'));
+    actions.append(createElement('a', { href: reportUrl }, 'Create report'));
   }
   actions.append(createElement('a', { href: detailsUrl }, 'Details'));
   return createElement('li', { class: 'saved-report dashboard-dataset' }, body, actions);
@@ -177,15 +176,12 @@ function compareReports(first, second) {
 
 function createReportTile(report) {
   const titleLink = createElement('a', {
-    href: `/builder?report=${report.id}`,
+    href: report.viewUrl ?? `/builder?report=${report.id}`,
     class: 'stretched-link',
   }, report.title);
   const title = createElement('h3', { class: 'saved-report-title' }, titleLink);
   // Keep large selections readable without hiding the full selection in the builder.
-  const townSummary = report.towns.length > 3
-    ? `${report.towns.slice(0, 3).join(', ')} + ${report.towns.length - 3} more`
-    : report.towns.join(', ');
-  const towns = createElement('p', { class: 'saved-report-towns' }, townSummary || 'No towns selected');
+  const towns = createElement('p', { class: 'saved-report-towns' }, summarizeRows(report));
   const updatedTime = createElement('time', { datetime: report.updatedAt }, formatDate(report.updatedAt));
   const metadata = createElement('dl', { class: 'saved-report-meta' });
   metadata.append(
@@ -198,7 +194,10 @@ function createReportTile(report) {
   );
   const body = createElement('div', { class: 'saved-report-body' }, title, towns, metadata);
   const actions = createElement('div', { class: 'saved-report-actions' });
-  actions.append(createElement('a', { href: `/builder?report=${report.id}` }, 'Open report'));
+  if (report.viewUrl) {
+    actions.append(createElement('a', { href: report.viewUrl }, 'View'));
+  }
+  actions.append(createElement('a', { href: `/builder?report=${report.id}` }, 'Edit'));
   actions.append(...reportActionButtons(report, {
     user: currentUser,
     status: document.getElementById('report-action-status'),
