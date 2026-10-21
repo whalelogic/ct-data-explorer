@@ -11,23 +11,35 @@
     <a class="skip-link" href="#main">Skip to content</a>
     <header class="site"><a class="brand" href="/">CT Civic Data Explorer</a></header>
     <main id="main" class="container">
-      <div class="workspace-heading">
-        <div>
-          <p class="section-kicker">Staff workspace</p>
-          <h1>Data management</h1>
-          <p class="page-intro">Upload data, review its fields, then publish it for exploration.</p>
-        </div>
-        <a href="/users">Manage users</a>
-      </div>
+      <div class="workspace-heading"><h1>Data management</h1></div>
       <p id="page-status" class="status" role="alert" hidden></p>
-      <section class="panel" aria-labelledby="datasets-heading">
-        <h2 id="datasets-heading">Add a dataset</h2>
-        <p class="muted">
-          Use the year or period shown in the town or housing profile you are matching. Review
-          source notes and select fields before publishing.
-        </p>
+      <div data-tabs="data-management">
+        <div class="workspace-tabs" role="tablist" aria-label="Data management">
+          <button type="button" role="tab" id="datasets-tab" aria-controls="datasets-panel" aria-selected="true" tabindex="0">Datasets</button>
+          <button type="button" role="tab" id="upload-tab" aria-controls="upload-panel" aria-selected="false" tabindex="-1">Upload dataset</button>
+        </div>
+      <section class="panel tab-panel" id="datasets-panel" role="tabpanel" aria-labelledby="datasets-tab">
+        <div class="table-wrap">
+          <table class="data">
+            <caption class="sr-only">Dataset versions</caption>
+            <thead>
+              <tr>
+                <th scope="col">Dataset</th>
+                <th scope="col">Year or period</th>
+                <th scope="col" class="num">Version</th>
+                <th scope="col" class="num">Rows</th>
+                <th scope="col">Uploaded</th>
+                <th scope="col">Publication</th>
+                <th scope="col">Fields</th>
+              </tr>
+            </thead>
+            <tbody id="datasets-body"><tr><td colspan="7" class="muted">Loading datasets…</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+      <section class="panel tab-panel" id="upload-panel" role="tabpanel" aria-labelledby="upload-tab" hidden>
         <form id="upload-form" novalidate>
-          <label for="ds-file">Upload a CSV or Excel file</label>
+          <label for="ds-file">CSV or Excel file (.xlsx)</label>
           <input
             id="ds-file"
             name="file"
@@ -48,66 +60,36 @@
               </div>
               <div>
                 <label for="ds-vintage">Year or period</label>
-                <input id="ds-vintage" name="vintage" maxlength="50" required />
+                <input id="ds-vintage" name="vintage" maxlength="50" placeholder="Source year or period" required />
               </div>
             </div>
             <div id="worksheet-field" hidden>
-              <label for="ds-worksheet">Worksheet name (optional)</label>
+              <label for="ds-worksheet">Worksheet (optional)</label>
               <input
                 id="ds-worksheet"
                 name="worksheet"
                 maxlength="100"
-                placeholder="Leave blank to use the first sheet"
+                placeholder="First worksheet"
                 disabled
               />
-              <p class="muted small">
-                The first row contains column names. Import one sheet at a time. Formula cells use
-                their saved values; save the workbook in Excel before uploading.
-              </p>
+              <p class="muted small">Formula cells use saved values. Save in Excel before uploading.</p>
             </div>
             <input type="hidden" name="activate" value="false" />
-            <p class="muted small">
-              New uploads start as drafts. You will choose approved fields and publish on the next
-              screen.
-            </p>
-            <p class="muted small">
-              Include a Town column. Towns may appear on multiple rows; text and numeric columns are
-              detected automatically. Uploading the same name and period creates a new version.
-            </p>
-            <div class="button-row"><button type="submit">Upload and review fields</button></div>
+            <div class="workspace-actions"><button type="submit">Upload and review</button><span class="muted small">Creates a draft</span></div>
           </div>
         </form>
-        <details id="column-setup" hidden>
-          <summary>Optional indicator definitions</summary>
-          <p class="muted small">
-            New columns do not need registration. Use a definition for known indicator keys when you
-            need a particular unit or a computed ratio.
-          </p>
-          <div id="upload-indicator-editor"></div>
+        <details>
+          <summary>File requirements</summary>
+          <ul class="muted small">
+            <li>First row: field names. One worksheet per upload.</li>
+            <li>Use the year or period from the source.</li>
+            <li>Same dataset name and period: new version.</li>
+          </ul>
         </details>
         <p id="upload-status" class="status" role="status" hidden></p>
         <ul id="upload-errors" class="errors" hidden></ul>
-        <h2>Dataset versions</h2>
-        <div class="table-wrap">
-          <table class="data">
-            <caption class="sr-only">
-              Uploaded datasets. Open a dataset name to see its overview.
-            </caption>
-            <thead>
-              <tr>
-                <th scope="col">Dataset</th>
-                <th scope="col">Year or period</th>
-                <th scope="col" class="num">Version</th>
-                <th scope="col" class="num">Rows</th>
-                <th scope="col">Uploaded</th>
-                <th scope="col">Publication</th>
-                <th scope="col">Field review</th>
-              </tr>
-            </thead>
-            <tbody id="datasets-body"></tbody>
-          </table>
-        </div>
       </section>
+      </div>
     </main>
   </body>
 </html>

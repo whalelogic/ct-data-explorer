@@ -3,7 +3,8 @@ import { api, loadSession } from './api.js';
 import { clearReport, renderReport } from './report-view.js';
 import { h as createElement } from './dom.js';
 import { boot, debounce, downloadBlob, renderHeader, showStatus } from './layout.js';
-import { fieldUnitLabel, groupFieldsByUnit } from '/shared/field-groups.js';
+import { revealTab } from './tabs.js';
+import { fieldUnitLabel, fieldValueLabel } from '/shared/field-groups.js';
 import { unitLabel } from '/shared/format.js';
 
 const MAX_FIELDS = 25;
@@ -12,7 +13,7 @@ const MAX_FIELDS = 25;
 let urlParameters;
 let datasets = [];
 let selectedDataset;
-let datasetOptions = { columns: [], filters: [], places: [], hasState: false };
+let datasetOptions = { columns: [], filters: [], places: [], hasState: false, hasGeography: false };
 let selectedTowns = [];
 let selectedFieldKeys = [];
 let recordFilters = {};
@@ -46,7 +47,8 @@ async function initializeExplorer() {
   getElement('explorer-form').addEventListener('submit', preventFormSubmission);
   renderDatasetOptions();
   if (datasets.length === 0) {
-    showEmpty('No datasets are available yet.', 'CTData staff will publish a dataset and approved fields here when they are ready.');
+    showEmpty('No datasets available');
+    revealTab(getElement('explore-view'));
     return;
   }
 
@@ -56,7 +58,7 @@ async function initializeExplorer() {
   getElement('dataset').disabled = false;
   getElement('dataset').value = String(initialDataset.id);
   if (urlParameters.has('dataset') && !linkedDataset) {
-    showStatus(getElement('page-status'), 'The linked dataset is no longer available. Choose from the current datasets below.');
+    showStatus(getElement('page-status'), 'Linked dataset unavailable. Select a dataset.');
   }
 
   connectEventHandlers();
@@ -96,10 +98,21 @@ function connectEventHandlers() {
   getElement('share-view').addEventListener('click', shareView);
   getElement('open-builder').addEventListener('click', openBuilder);
   getElement('export-pdf').addEventListener('click', exportPdf);
+  getElement('show-view').addEventListener('click', showView);
+  getElement('choose-fields').addEventListener('click', showFields);
 }
 
 function handleDatasetChange() {
+  showFields();
   loadDataset(false);
+}
+
+function showFields() {
+  revealTab(getElement('explore-fields'));
+}
+
+function showView() {
+  revealTab(getElement('explore-view'));
 }
 
 function handleTownKeydown(event) {
@@ -134,13 +147,15 @@ async function loadDataset(useLinkedSelection) {
   getElement('location-controls').disabled = true;
   getElement('field-controls').disabled = true;
   getElement('filter-controls').hidden = true;
+  getElement('explore-filters-tab').hidden = true;
   getElement('dataset-source').hidden = true;
+  getElement('show-view').disabled = true;
 
   const selectedDatasetId = getElement('dataset').value;
   selectedDataset = datasets.find((dataset) => String(dataset.id) === selectedDatasetId);
   const datasetDescription = `${selectedDataset.source} · ${selectedDataset.vintage} · Version ${selectedDataset.version}`;
   getElement('dataset-caption').textContent = datasetDescription;
-  showStatus(getElement('preview-status'), 'Loading approved fields and available locations…');
+  showStatus(getElement('preview-status'), 'Loading dataset…');
   showStatus(getElement('field-status'), '');
   showStatus(getElement('town-status'), '');
 
@@ -154,13 +169,7 @@ async function loadDataset(useLinkedSelection) {
     if (!useLinkedSelection || !urlParameters.has('chart')) {
       chartType = datasetOptions.defaultChartType || 'grouped_bar';
     }
-    const reviewDescription = datasetOptions.curationReviewed
-      ? 'Available fields reviewed by CTData staff.'
-      : 'Legacy dataset: staff field review is pending.';
-    getElement('dataset-caption').textContent = `${selectedDataset.description || ''} ${datasetDescription}. ${reviewDescription}`.trim();
-    getElement('field-search-label').textContent = datasetOptions.curationReviewed
-      ? 'Search approved fields'
-      : 'Search available fields';
+    getElement('dataset-caption').textContent = datasetDescription;
 
     const availableTownNames = getAvailableTownNames();
     const requestedTowns = useLinkedSelection ? urlParameters.getAll('town') : selectedTowns;
@@ -176,10 +185,11 @@ async function loadDataset(useLinkedSelection) {
     const linkedTownsChanged = selectedTowns.length !== requestedTowns.length;
     const linkedFieldsChanged = selectedFieldKeys.length !== urlParameters.getAll('field').length;
     if (useLinkedSelection && (linkedTownsChanged || linkedFieldsChanged)) {
-      showStatus(getElement('page-status'), 'Some linked locations or fields are no longer available. Review your selection before sharing.');
+      showStatus(getElement('page-status'), 'Some linked fields or locations are unavailable.');
     }
     isLoadingOptions = false;
     handleSelectionChange();
+    if (useLinkedSelection && selectedFieldKeys.length > 0) showView();
   } catch (error) {
     if (requestId !== optionsRequestId) {
       return;
@@ -187,7 +197,8 @@ async function loadDataset(useLinkedSelection) {
 
     isLoadingOptions = false;
     showStatus(getElement('preview-status'), error.message, 'error');
-    showEmpty('This dataset could not be loaded.', 'Choose another dataset or try loading this one again.');
+    showEmpty('Dataset unavailable');
+    showView();
     const retryButton = createElement('button', {
       type: 'button',
       class: 'secondary',
@@ -226,7 +237,7 @@ function restoreSelection(useLinkedSelection, requestedTowns, availableTownNames
 
     for (const filter of datasetOptions.filters) {
       const requestedValue = urlParameters.get(`filter.${filter.key}`);
-      const isAvailable = filter.values.some((value) => String(value) === requestedValue);
+      const isAvailable = filter.freeText || filter.values.some((value) => String(value) === requestedValue);
       if (requestedValue !== null && isAvailable) {
         recordFilters[filter.key] = requestedValue;
       }
@@ -237,7 +248,7 @@ function restoreSelection(useLinkedSelection, requestedTowns, availableTownNames
   const includeState = useLinkedSelection ? urlParameters.get('state') === '1' : benchmarkCheckbox.checked;
   benchmarkCheckbox.checked = datasetOptions.hasState && includeState;
   benchmarkCheckbox.disabled = !datasetOptions.hasState;
-  getElement('benchmark-help').hidden = datasetOptions.hasState;
+  getElement('benchmark-control').hidden = !datasetOptions.hasState;
 }
 
 function renderLocationOptions(availableTownNames) {
@@ -249,18 +260,18 @@ function renderLocationOptions(availableTownNames) {
     townOptions.append(townOption);
   }
   getElement('town-input').value = '';
-  getElement('location-controls').disabled = availableTownNames.size === 0;
+  const hasTownOptions = availableTownNames.size > 0;
+  getElement('location-controls').disabled = !hasTownOptions && !datasetOptions.hasState;
+  getElement('location-controls').hidden = !hasTownOptions && !datasetOptions.hasState;
+  getElement('town-controls').hidden = !hasTownOptions;
 }
 
 function renderDatasetSource() {
-  const datasetName = createElement('strong', {}, selectedDataset.name);
-  const sourceDescription = `Source: ${selectedDataset.source} · Vintage: ${selectedDataset.vintage} · Version ${selectedDataset.version}`;
-  const datasetSource = createElement('span', {}, sourceDescription);
   const datasetLink = createElement('a', {
     href: `/dataset?id=${encodeURIComponent(selectedDataset.id)}`,
-  }, 'About this dataset');
+  }, 'Dataset details');
   const sourceContainer = getElement('dataset-source');
-  sourceContainer.replaceChildren(datasetName, datasetSource, datasetLink);
+  sourceContainer.replaceChildren(datasetLink);
   sourceContainer.hidden = false;
 }
 
@@ -272,7 +283,7 @@ function addTown() {
 
   let errorMessage = '';
   if (!matchingTown) {
-    errorMessage = 'Choose a town from this dataset’s available locations.';
+    errorMessage = 'Choose a listed town.';
   } else if (selectedTowns.includes(matchingTown.name)) {
     errorMessage = `${matchingTown.name} is already selected.`;
   }
@@ -329,7 +340,9 @@ function renderTowns() {
     townContainer.append(removeButton);
   }
   const availableTownCount = getAvailableTownNames().size;
-  getElement('town-help').textContent = `${selectedTowns.length} of ${availableTownCount} available towns selected. Select as many as you need.`;
+  getElement('town-help').textContent = selectedTowns.length
+    ? `${selectedTowns.length} of ${availableTownCount} towns`
+    : 'All towns';
   getElement('select-all-towns').disabled = selectedTowns.length === availableTownCount;
   getElement('clear-towns').disabled = selectedTowns.length === 0;
   townContainer.hidden = selectedTowns.length === 0;
@@ -348,16 +361,11 @@ function renderFields() {
   const visibleFields = getVisibleFields();
   const fieldList = getElement('field-list');
   fieldList.replaceChildren();
-  for (const group of groupFieldsByUnit(visibleFields)) {
-    const section = createElement('fieldset', { class: 'unit-field-group' });
-    section.append(createElement('legend', {}, group.label));
-    for (const field of group.fields) section.append(createFieldElement(field));
-    fieldList.append(section);
-  }
+  for (const field of visibleFields) fieldList.append(createFieldElement(field));
   if (visibleFields.length === 0) {
     const emptyMessage = datasetOptions.columns.length
       ? 'No fields match your search.'
-      : 'No fields have been approved for this dataset yet.';
+      : 'No approved fields';
     const emptyParagraph = createElement('p', { class: 'small muted' }, emptyMessage);
     fieldList.append(emptyParagraph);
   }
@@ -371,6 +379,7 @@ function createFieldElement(field) {
     for: checkboxId,
     class: 'explorer-field',
     'data-selected': String(isSelected),
+    ...(field.description ? { title: field.description } : {}),
   });
   const checkbox = createElement('input', {
     id: checkboxId,
@@ -381,12 +390,10 @@ function createFieldElement(field) {
   });
   const fieldDescription = createElement('span', { class: 'field-copy' });
   const fieldName = createElement('span', {}, field.displayLabel ?? field.label);
-  const fieldUnit = fieldUnitLabel(field);
+  const fieldUnit = field.type === 'text' ? 'Text'
+    : !field.unit || field.unit === 'number' ? 'Number' : `Number · ${fieldUnitLabel(field)}`;
   const unitDescription = createElement('span', { class: 'field-unit' }, fieldUnit);
   fieldDescription.append(fieldName, unitDescription);
-  if (field.description) {
-    fieldDescription.append(createElement('span', { class: 'field-unit' }, field.description));
-  }
   fieldLabel.append(checkbox, fieldDescription);
   return fieldLabel;
 }
@@ -395,7 +402,7 @@ function handleFieldChange(event) {
   const checkbox = event.currentTarget;
   if (checkbox.checked && selectedFieldKeys.length >= MAX_FIELDS) {
     checkbox.checked = false;
-    showStatus(getElement('field-status'), `Select up to ${MAX_FIELDS} fields. Clear a field to add another.`);
+    showStatus(getElement('field-status'), `Maximum ${MAX_FIELDS} fields`);
     return;
   }
 
@@ -420,25 +427,32 @@ function updateFieldCount(visibleFieldCount) {
 
 function renderFilters() {
   getElement('filter-controls').hidden = datasetOptions.filters.length === 0;
+  getElement('explore-filters-tab').hidden = getElement('location-controls').hidden && datasetOptions.filters.length === 0;
   const filterContainer = getElement('record-filters');
   filterContainer.replaceChildren();
   for (const filter of datasetOptions.filters) {
-    const filterSelect = createElement('select', {
+    const attributes = {
       id: `filter-${filter.key}`,
       'data-filter-key': filter.key,
       onChange: handleFilterChange,
-    });
-    const allCategoriesOption = createElement('option', { value: '' }, 'All categories');
-    filterSelect.append(allCategoriesOption);
-    for (const value of filter.values) {
-      const categoryOption = createElement('option', { value }, value);
-      filterSelect.append(categoryOption);
+    };
+    let filterControl;
+    if (filter.freeText) {
+      filterControl = createElement('input', { ...attributes, type: 'text', placeholder: 'Exact source value' });
+    } else {
+      filterControl = createElement('select', attributes);
+      filterControl.append(createElement('option', { value: '' }, 'All values'));
+      for (const value of filter.values) {
+        const field = datasetOptions.columns.find((column) => column.key === filter.key) ?? filter;
+        filterControl.append(createElement('option', { value }, fieldValueLabel(field, value)));
+      }
     }
-    filterSelect.value = recordFilters[filter.key] ?? '';
+    filterControl.value = recordFilters[filter.key] ?? '';
 
     const filterRow = createElement('div');
-    const filterLabel = createElement('label', { for: filterSelect.id }, filter.label);
-    filterRow.append(filterLabel, filterSelect);
+    const typeDescription = filter.type === 'text' ? '' : ` · ${fieldUnitLabel(filter)}`;
+    const filterLabel = createElement('label', { for: filterControl.id }, `${filter.displayLabel || filter.label}${typeDescription}`);
+    filterRow.append(filterLabel, filterControl);
     filterContainer.append(filterRow);
   }
 }
@@ -475,32 +489,20 @@ function renderChartControls() {
     }
   }
 
-  const hasSelection = selectedTowns.length > 0 && selectedFieldKeys.length > 0;
+  const hasSelection = selectedFieldKeys.length > 0;
   getElement('visualization-controls').hidden = !hasSelection;
-  getElement('chart-help').hidden = !hasSelection;
-  renderChartHelp(displayedChartType, numericFields.length);
+  renderChartHelp(displayedChartType, numericFields);
   return numericFields.map((field) => field.key);
 }
 
-function renderChartHelp(displayedChartType, chartFieldCount) {
-  let helpText;
-  if (displayedChartType === 'table') {
-    helpText = 'The table includes all selected fields with their original units. N/A means a value is unavailable.';
-  } else if (chartType === 'grouped_bar') {
-    const fieldSuffix = chartFieldCount === 1 ? '' : 's';
-    helpText = `Charting all ${chartFieldCount} selected numeric field${fieldSuffix}. Fields with the same unit are compared together. Larger groups continue in additional charts so every field is included.`;
-  } else if (chartType === 'line') {
-    helpText = 'Fields with the same unit share a line chart. Locations remain separate observations; connecting lines do not imply a time trend.';
-  } else {
-    helpText = 'Each selected numeric field has its own chart, with every selected town included.';
-  }
-  if (displayedChartType !== 'table') {
-    helpText += ' Hover over a data point for its value. Use the page controls to browse larger selections. The table includes every selected field, including text. N/A means a value is unavailable.';
-  }
-  if (datasetOptions.repeatedRows) {
-    helpText += ' Each source row is shown separately; repeated totals are never added together.';
-  }
-  getElement('chart-help').textContent = helpText;
+function renderChartHelp(displayedChartType, numericFields) {
+  const notes = [];
+  if (displayedChartType === 'line') notes.push('Lines follow source row order.');
+  const units = new Set(numericFields.map((field) => field.unit));
+  if (displayedChartType !== 'table' && units.size > 1) notes.push('Separate scales by unit.');
+  const chartHelp = getElement('chart-help');
+  chartHelp.textContent = notes.join(' ');
+  chartHelp.hidden = notes.length === 0;
 }
 
 function handleSelectionChange() {
@@ -514,35 +516,25 @@ function handleSelectionChange() {
   setActionButtonsEnabled(false);
   showStatus(getElement('action-status'), '');
   getElement('share-fallback').hidden = true;
+  getElement('show-view').disabled = selectedFieldKeys.length === 0;
   const chartFieldKeys = renderChartControls();
   updateSummary();
   clearReport(getElement('preview'));
 
   if (datasetOptions.columns.length === 0) {
     showStatus(getElement('preview-status'), '');
-    showEmpty('The fields are still being reviewed.', 'Choose another dataset to explore. Approved fields will appear here when CTData staff publish them.');
-    return;
-  }
-  const hasTownData = datasetOptions.places.some((place) => place.geoType === 'town');
-  if (!hasTownData) {
-    showStatus(getElement('preview-status'), '');
-    showEmpty('No town data is available.', 'Choose a dataset with town-level data to compare Connecticut communities.');
-    return;
-  }
-  if (selectedTowns.length === 0) {
-    showStatus(getElement('preview-status'), '');
-    showEmpty('Choose a location', 'Add one or more towns from the location selector to begin.');
+    showEmpty('No approved fields');
     return;
   }
   if (selectedFieldKeys.length === 0) {
     showStatus(getElement('preview-status'), '');
-    showEmpty('Select a field', 'Choose at least one available field. Your view updates automatically.');
+    showEmpty('No fields selected');
     return;
   }
 
   getElement('explorer-empty').hidden = true;
   getElement('preview').setAttribute('aria-busy', 'true');
-  showStatus(getElement('preview-status'), 'Updating your view…');
+  showStatus(getElement('preview-status'), 'Updating…');
   schedulePreview(chartFieldKeys);
 }
 
@@ -560,14 +552,14 @@ function createPreviewSelection(chartFieldKeys) {
     indicators: [...selectedFieldKeys],
     recordFilters: { ...recordFilters },
     showTitle: true,
-    title: '',
+    title: `${selectedDataset.displayName || selectedDataset.name} · ${selectedDataset.vintage}`,
     subtitle: '',
     layout,
   };
 }
 
 async function refreshPreview(chartFieldKeys) {
-  if (isLoadingOptions || selectedTowns.length === 0 || selectedFieldKeys.length === 0) {
+  if (isLoadingOptions || selectedFieldKeys.length === 0) {
     return;
   }
   const requestId = ++previewRequestId;
@@ -577,7 +569,7 @@ async function refreshPreview(chartFieldKeys) {
     if (requestId !== previewRequestId) {
       return;
     }
-    renderReport(getElement('preview'), report);
+    renderReport(getElement('preview'), { ...report, showTitle: false });
 
     // Wide tables must remain scrollable with the keyboard.
     for (const table of getElement('preview').querySelectorAll('.table-wrap')) {
@@ -587,27 +579,19 @@ async function refreshPreview(chartFieldKeys) {
     }
     lastPreviewSelection = selection;
     setActionButtonsEnabled(true);
-    const fieldSuffix = selectedFieldKeys.length === 1 ? '' : 's';
-    const townSuffix = selectedTowns.length === 1 ? '' : 's';
-    const stateDescription = selection.benchmark ? ' and Connecticut statewide' : '';
-    const successMessage = `${selectedFieldKeys.length} field${fieldSuffix} across ${selectedTowns.length} town${townSuffix}${stateDescription}. View updated.`;
-    showStatus(getElement('preview-status'), successMessage, 'success');
-    getElement('step-explore').dataset.active = 'true';
+    showStatus(getElement('preview-status'), '');
     writeUrl();
   } catch (error) {
     if (requestId !== previewRequestId) {
       return;
     }
     showStatus(getElement('preview-status'), error.message, 'error');
-    const errorHelp = datasetOptions.dataFormat === 'records'
-      ? 'Try a more specific source-row filter or choose Data table to view a larger selection.'
-      : 'Choose another field or location, or retry your view.';
-    showEmpty('Adjust your selection to continue.', errorHelp);
+    showEmpty('View unavailable');
     const retryButton = createElement('button', {
       type: 'button',
       class: 'secondary',
       onClick: handleSelectionChange,
-    }, 'Retry view');
+    }, 'Try again');
     getElement('explorer-empty').append(retryButton);
   } finally {
     if (requestId === previewRequestId) {
@@ -619,23 +603,22 @@ async function refreshPreview(chartFieldKeys) {
 function updateSummary() {
   getElement('view-heading').textContent = getSelectedTownTitle();
 
-  let summaryText = 'Choose a town and at least one field to begin.';
-  if (selectedTowns.length > 0 && selectedFieldKeys.length > 0) {
+  let summaryText = '';
+  if (selectedFieldKeys.length > 0) {
     const fieldSuffix = selectedFieldKeys.length === 1 ? '' : 's';
     const townSuffix = selectedTowns.length === 1 ? '' : 's';
     const stateDescription = getElement('benchmark').checked ? ' + statewide' : '';
-    summaryText = `${selectedFieldKeys.length} selected field${fieldSuffix} · ${selectedTowns.length} town${townSuffix}${stateDescription} · ${selectedDataset.vintage}`;
+    const locationDescription = selectedTowns.length
+      ? `${selectedTowns.length} town${townSuffix}${stateDescription}`
+      : `All source rows${stateDescription}`;
+    summaryText = `${selectedFieldKeys.length} field${fieldSuffix} · ${locationDescription}`;
   }
   getElement('selection-summary').textContent = summaryText;
-  getElement('step-locations').dataset.active = String(selectedTowns.length === 0);
-  getElement('step-fields').dataset.active = String(selectedTowns.length > 0 && selectedFieldKeys.length === 0);
-  getElement('step-visualize').dataset.active = String(selectedTowns.length > 0 && selectedFieldKeys.length > 0);
-  getElement('step-explore').dataset.active = 'false';
 }
 
 function getSelectedTownTitle() {
   if (selectedTowns.length === 0) {
-    return 'Your exploration';
+    return selectedDataset?.displayName || selectedDataset?.name || 'Your exploration';
   }
   if (selectedTowns.length > 3) {
     return `${selectedTowns.length} towns`;
@@ -643,14 +626,15 @@ function getSelectedTownTitle() {
   return selectedTowns.join(' + ');
 }
 
-function showEmpty(title, message) {
+function showEmpty(title) {
   getElement('preview').removeAttribute('aria-busy');
   const emptyContainer = getElement('explorer-empty');
-  const stepNumber = createElement('span', { class: 'step-number', 'aria-hidden': 'true' }, '01—04');
   const heading = createElement('h3', {}, title);
-  const description = createElement('p', {}, message);
   emptyContainer.hidden = false;
-  emptyContainer.replaceChildren(stepNumber, heading, description);
+  emptyContainer.replaceChildren(heading);
+  if (datasetOptions.columns.length > 0 && selectedFieldKeys.length === 0) {
+    emptyContainer.append(createElement('button', { type: 'button', class: 'secondary', onClick: showFields }, 'Choose fields'));
+  }
 }
 
 function setActionButtonsEnabled(enabled) {
@@ -690,13 +674,13 @@ async function shareView() {
   shareLink.searchParams.delete('embed');
   try {
     await navigator.clipboard.writeText(shareLink.href);
-    showStatus(getElement('action-status'), 'View link copied. Recipients must sign in to explore the current approved data.', 'success');
+    showStatus(getElement('action-status'), 'Link copied', 'success');
   } catch {
     getElement('share-fallback').hidden = false;
     getElement('share-link').value = shareLink.href;
     getElement('share-link').focus();
     getElement('share-link').select();
-    showStatus(getElement('action-status'), 'Copy the link below. Recipients must sign in to view this selection.');
+    showStatus(getElement('action-status'), 'Copy the view link.');
   }
 }
 
@@ -708,7 +692,7 @@ function openBuilder() {
     sessionStorage.setItem('ctdata:explore-selection', JSON.stringify(lastPreviewSelection));
     location.assign(`/builder?from=explore&dataset=${encodeURIComponent(selectedDataset.id)}`);
   } catch {
-    showStatus(getElement('action-status'), 'Your browser could not transfer this view. Allow site storage and try again.', 'error');
+    showStatus(getElement('action-status'), 'Allow site storage to create a report.', 'error');
   }
 }
 
@@ -718,7 +702,7 @@ async function exportPdf() {
   }
   const selection = lastPreviewSelection;
   getElement('export-pdf').disabled = true;
-  showStatus(getElement('action-status'), 'Preparing your PDF…');
+  showStatus(getElement('action-status'), 'Preparing PDF…');
   try {
     const { blob, filename } = await api('/reports/pdf', {
       method: 'POST',
@@ -726,7 +710,7 @@ async function exportPdf() {
       expect: 'blob',
     });
     downloadBlob(blob, filename);
-    showStatus(getElement('action-status'), 'Your PDF is ready.', 'success');
+    showStatus(getElement('action-status'), 'PDF ready', 'success');
   } catch (error) {
     showStatus(getElement('action-status'), error.message, 'error');
   } finally {

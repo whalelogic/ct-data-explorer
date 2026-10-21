@@ -1,6 +1,7 @@
 /** Page header and UI helpers shared by signed-in pages. */
 import { api } from './api.js';
 import { h as createElement } from './dom.js';
+import { initializeTabs, revealTab } from './tabs.js';
 
 export function renderHeader(user) {
   const navigationLinks = [
@@ -9,7 +10,7 @@ export function renderHeader(user) {
     ['/builder', 'Reports'],
   ];
   if (user.role === 'admin') {
-    navigationLinks.push(['/admin', 'Data management']);
+    navigationLinks.push(['/admin', 'Data']);
     navigationLinks.push(['/users', 'People']);
   }
 
@@ -44,6 +45,7 @@ export function showStatus(statusElement, message, kind = 'info') {
   statusElement.textContent = message ?? '';
   statusElement.dataset.kind = kind;
   statusElement.hidden = !message;
+  if (message && kind === 'error') revealTab(statusElement);
 }
 
 export function formatDate(isoDate) {
@@ -74,7 +76,15 @@ export function downloadBlob(blob, filename) {
 
 /** Show setup failures in #page-status instead of leaving the page blank. */
 export function boot(initializePage) {
-  initializePage().catch(showPageSetupError);
+  initializeTabs();
+  document.addEventListener('pointerdown', closeActionMenus);
+  initializePage().then(() => initializeTabs()).catch(showPageSetupError);
+}
+
+function closeActionMenus(event) {
+  for (const menu of document.querySelectorAll('details.report-more[open], td.actions details[open]')) {
+    if (!menu.contains(event.target)) menu.open = false;
+  }
 }
 
 function showPageSetupError(error) {
@@ -89,6 +99,8 @@ function isCurrentPage(url) {
   if (url === '/') {
     return location.pathname === '/';
   }
+  if (url === '/admin' && location.pathname === '/dataset') return true;
+  if (url === '/explore' && location.pathname === '/town') return true;
   return location.pathname === url;
 }
 

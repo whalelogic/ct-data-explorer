@@ -134,3 +134,23 @@ test('reports preserve all matching rows beyond the former 1000-row limit', () =
   assert.equal(table.records.length, 1001);
   assert.deepEqual(table.records.at(-1).values, ['Andover', 'Category 1001', '637', '25.0%']);
 });
+
+test('large series projections are rejected before allocation and explicit category aggregation can reduce them', () => {
+  const rowPlaces = Array.from({ length: 1000 }, (_, index) => ({ label: `Row ${index + 1}`, sourceRow: index + 2 }));
+  const rows = Array.from({ length: 25 }, (_, index) => indicator(`m${index}`, 'count', Array(1000).fill(1)));
+  const series = {
+    key: 'series', label: 'Series', type: 'text',
+    cells: rowPlaces.map((_, index) => ({ rawValue: String(index % 60), display: String(index % 60) })),
+  };
+  const category = {
+    key: 'category', label: 'Category', type: 'text',
+    cells: rowPlaces.map(() => ({ rawValue: 'All records', display: 'All records' })),
+  };
+  const block = { chartType: 'grouped_bar', indicators: [], axisField: 'category', seriesField: 'series' };
+  const context = { fields: [...rows, series, category], rowBased: true };
+  assert.throws(() => buildChartBlocks(block, rows, rowPlaces, context), /1,500,000 plotted cells.*Filter the rows.*explicitly aggregate/);
+  const chartBlocks = buildChartBlocks({ ...block, aggregation: 'sum' }, rows, rowPlaces, context);
+  assert.equal(chartBlocks.length, 250);
+  assert.deepEqual(chartBlocks[0].chart.labels, ['All records']);
+  assert.equal(chartBlocks[0].chart.series[0].values[0], 17);
+});

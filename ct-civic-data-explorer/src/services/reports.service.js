@@ -12,13 +12,12 @@ import * as reports from '../repositories/reports.js';
 import * as datasets from '../repositories/datasets.js';
 import * as indicators from '../repositories/indicators.js';
 import * as observations from '../repositories/observations.js';
-import * as towns from '../repositories/towns.js';
 import { computeValue } from './compute.js';
 import { parseMarkup } from './markup.js';
 import { presentDataset, presentIndicator, presentPlace } from './presenters.js';
 import { selectionSchema } from './selection.js';
 import { buildRecordReport } from './record-reports.js';
-import { datasetIndicators, requireApprovedSelection } from './field-curation.js';
+import { approvedDefinitions, datasetIndicators, requireApprovedSelection } from './field-curation.js';
 import { applyFieldPresentation, appendFieldNotes } from './presentation.js';
 import { buildChartBlocks } from './report-charts.js';
 
@@ -30,28 +29,41 @@ const TIME_ZONE = 'America/New_York';
  */
 export async function buildReport(selection, { now = new Date() } = {}) {
   const dataset = await requireActiveDataset(selection.dataset);
-  const places = await resolvePlaces(selection);
   if (dataset.data_format === 'records') {
-    return buildRecordReport(selection, dataset, places, now);
+    return buildRecordReport(selection, dataset, now);
   }
-  const selectedIndicators = await resolveIndicators(selection, dataset);
+  let places = await resolvePlaces(selection, dataset);
+  const { selectedIndicators, availableIndicators } = await resolveIndicators(selection, dataset);
   const placeIds = places.map((place) => place.id);
   const valuesByPlace = await observations.valuesByTown(dataset.id, placeIds);
-  const rows = buildIndicatorRows(selectedIndicators, places, valuesByPlace);
+  let fieldRows = buildIndicatorRows(availableIndicators, places, valuesByPlace);
+  if (Object.keys(selection.recordFilters ?? {}).length) {
+    const matchingIndexes = places.flatMap((_, index) => {
+      const matches = Object.entries(selection.recordFilters).every(([key, value]) => {
+        return String(fieldRows.find((row) => row.key === key)?.cells[index]?.value ?? '') === value;
+      });
+      return matches ? [index] : [];
+    });
+    if (!matchingIndexes.length) throw new HttpError(400, 'No source rows match these locations and filters.');
+    places = matchingIndexes.map((index) => places[index]);
+    fieldRows = fieldRows.map((row) => ({ ...row, cells: matchingIndexes.map((index) => row.cells[index]) }));
+  }
+  const rows = selectedIndicators.map((indicator) => fieldRows.find((row) => row.key === indicator.key));
 
   const placeSummaries = places.map(presentPlace);
   const generatedOn = now.toLocaleDateString('en-CA', { timeZone: TIME_ZONE }); // YYYY-MM-DD
   const datasetSummary = presentDataset(dataset);
   const blocks = [];
+  const chartContext = { fields: fieldRows, datasetName: datasetSummary.displayName, axisLabel: 'Location' };
   for (const layoutBlock of selection.layout) {
-    blocks.push(...buildBlocks(layoutBlock, rows, placeSummaries));
+    blocks.push(...buildBlocks(layoutBlock, rows, placeSummaries, chartContext));
   }
 
   appendFieldNotes(blocks, rows);
 
   return {
     style: resolveReportStyle(dataset.presentation?.style, selection.styleOverrides),
-    title: selection.title || defaultTitle(placeSummaries),
+    title: selection.title || defaultTitle(datasetSummary, rows),
     subtitle: selection.subtitle || `${dataset.presentation?.displayName || dataset.name}, ${dataset.vintage}`,
     showTitle: selection.showTitle,
     dataset: datasetSummary,
@@ -59,9 +71,7 @@ export async function buildReport(selection, { now = new Date() } = {}) {
     indicators: rows,
     blocks,
     generatedOn,
-    sourceLine:
-      `Source: ${dataset.source}. Dataset: ${dataset.name}, ${dataset.vintage} (version ${dataset.version}). ` +
-      `Generated ${generatedOn} with CT Civic Data Explorer.`,
+    sourceLine: `Source: ${dataset.source} · ${dataset.name}, ${dataset.vintage} · v${dataset.version} · ${generatedOn}`,
   };
 }
 
@@ -158,8 +168,8 @@ async function requireActiveDataset({ name, vintage }) {
   return dataset;
 }
 
-async function resolvePlaces(selection) {
-  const matchingPlaces = await towns.findByNames(selection.towns);
+async function resolvePlaces(selection, dataset) {
+  const matchingPlaces = await observations.previewPlaces(dataset.id, { offset: 0, limit: 10000 });
   const townsByName = new Map();
   const matchingNames = new Set();
   for (const place of matchingPlaces) {
@@ -171,7 +181,7 @@ async function resolvePlaces(selection) {
   }
 
   const places = [];
-  for (const name of selection.towns) {
+  for (const name of selection.towns ?? []) {
     const lowerCaseName = name.toLowerCase();
     const town = townsByName.get(lowerCaseName);
     if (town) {
@@ -181,14 +191,15 @@ async function resolvePlaces(selection) {
     if (matchingNames.has(lowerCaseName)) {
       throw new HttpError(400, `${name} is the statewide row; use the statewide benchmark option instead`);
     }
-    throw new HttpError(400, `"${name}" does not match any Connecticut town`);
+    throw new HttpError(400, `Location "${name}" is not available in this dataset.`);
   }
+  if (!(selection.towns ?? []).length) places.push(...matchingPlaces.filter((place) => place.geo_type !== 'state'));
   if (selection.benchmark) {
-    const state = await towns.findState();
-    if (state) {
-      places.push(state);
-    }
+    const state = matchingPlaces.find((place) => place.geo_type === 'state');
+    if (!state) throw new HttpError(400, 'A statewide benchmark is not available in this dataset.');
+    places.push(state);
   }
+  if (!places.length) throw new HttpError(400, 'No locations are available in this dataset.');
   return places;
 }
 
@@ -212,21 +223,27 @@ async function resolveIndicators(selection, dataset) {
     }
     selectedIndicators.push(indicator);
   }
-  return applyFieldPresentation(selectedIndicators, { fields: dataset.presentation?.fields }, selection.fieldOverrides);
+  return {
+    selectedIndicators,
+    availableIndicators: applyFieldPresentation(
+      approvedDefinitions(availableIndicators, dataset.approved_fields),
+      { fields: dataset.presentation?.fields }, selection.fieldOverrides,
+    ),
+  };
 }
 
 /**
  * A chart layout block can expand into several charts to include all its measures.
  * Text is parsed once so the preview and PDF draw the same structure.
  */
-function buildBlocks(block, rows, places) {
+function buildBlocks(block, rows, places, chartContext) {
   switch (block.type) {
     case 'text': {
       const nodes = parseMarkup(block.text);
       return nodes.length > 0 ? [{ type: 'text', nodes }] : [];
     }
     case 'chart':
-      return buildChartBlocks(block, rows, places);
+      return buildChartBlocks(block, rows, places, chartContext);
     case 'table':
       return [{
         type: 'table',
@@ -239,18 +256,6 @@ function buildBlocks(block, rows, places) {
   }
 }
 
-function defaultTitle(places) {
-  const names = [];
-  for (const place of places) {
-    if (place.geoType === 'town') {
-      names.push(place.name);
-    }
-  }
-  if (names.length <= 1) {
-    return names[0] ?? 'Connecticut';
-  }
-  if (names.length > 3) {
-    return `${names.length} Connecticut towns`;
-  }
-  return `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
+function defaultTitle(dataset, rows) {
+  return `${dataset.displayName || dataset.name}: ${rows.map((row) => row.label).join(' · ')}`.slice(0, 200);
 }

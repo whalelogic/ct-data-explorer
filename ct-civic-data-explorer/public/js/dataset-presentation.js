@@ -3,13 +3,18 @@ import { mountReportStyleEditor } from './report-style-editor.js';
 import { api } from './api.js';
 import { h } from './dom.js';
 import { showStatus } from './layout.js';
+import { initializeTabs } from './tabs.js';
+import { unitLabel } from '/shared/format.js';
 
 let styleEditor;
 let current;
 let orderedFields = [];
+let fieldSettings = {};
+let activeFieldKey;
 let datasetId;
 let onSaved;
-let status, form, name, description, chart, fieldsList, save, reload, reset;
+let status, form, name, description, chart, fieldPicker, fieldEditor, save, reload, reset;
+let fieldLabel, fieldDescription, decimals, decimalsControl, fieldMeta, moveUp, moveDown, fieldPosition;
 
 export async function mountDatasetPresentation(container, id, onSave) {
   datasetId = id;
@@ -22,23 +27,59 @@ export async function mountDatasetPresentation(container, id, onSave) {
   for (const [value, label] of [['grouped_bar', 'Compare fields'], ['bar', 'Separate charts'], ['line', 'Line charts']]) {
     chart.append(h('option', { value }, label));
   }
-  const general = h('div', { class: 'presentation-general' });
-  general.append(control('Dataset display name', name), control('Default chart style', chart));
-  fieldsList = h('ol', { class: 'presentation-fields' });
-  const fieldsSection = h('details', { open: true });
-  fieldsSection.append(h('summary', {}, 'Field names, descriptions and order'), fieldsList);
-  save = h('button', { type: 'submit' }, 'Save shared defaults');
-  reload = h('button', { type: 'button', class: 'secondary', onClick: load }, 'Reload defaults');
-  reset = h('button', { type: 'button', class: 'link', onClick: resetDefaults }, 'Use source defaults');
+  const names = h('div', { class: 'presentation-general' },
+    control('Dataset name', name), control('Default chart', chart));
+  const namesPanel = h('div', {}, names, control('Description', description));
+  const fieldsPanel = buildFieldEditor();
   const styleContainer = h('div');
-  styleEditor = mountReportStyleEditor(styleContainer, { prefix: 'shared-style', onChange: () => showStatus(status, 'Unsaved shared styling.') });
-  form.append(general, control('Dataset description', description), fieldsSection, styleContainer);
-  form.append(h('div', { class: 'button-row' }, save, reload, reset), status);
+  const tabs = h('div', { 'data-tabs': 'dataset-presentation' });
+  const tablist = h('div', { class: 'workspace-tabs', role: 'tablist', 'aria-label': 'Shared defaults' });
+  for (const [index, [key, label, panel]] of [
+    ['names', 'Names', namesPanel], ['fields', 'Field labels', fieldsPanel], ['style', 'Style', styleContainer],
+  ].entries()) {
+    const tabId = `presentation-${key}-tab`;
+    const panelId = `presentation-${key}-panel`;
+    tablist.append(h('button', {
+      id: tabId, type: 'button', role: 'tab', 'aria-controls': panelId,
+      'aria-selected': index === 0 ? 'true' : 'false', tabindex: index === 0 ? 0 : -1,
+    }, label));
+    panel.id = panelId;
+    panel.classList.add('tab-panel');
+    panel.setAttribute('role', 'tabpanel');
+    panel.setAttribute('aria-labelledby', tabId);
+    panel.hidden = index !== 0;
+  }
+  tabs.append(tablist, namesPanel, fieldsPanel, styleContainer);
+  save = h('button', { type: 'submit' }, 'Save defaults');
+  reload = h('button', { type: 'button', class: 'secondary', onClick: load }, 'Reload');
+  reset = h('button', { type: 'button', class: 'link', onClick: resetDefaults }, 'Reset to source');
+  form.append(h('p', { class: 'muted small' }, 'Shared dataset defaults'),
+    tabs, h('div', { class: 'button-row' }, save, reload, reset), status);
   form.addEventListener('submit', saveDefaults);
-  form.addEventListener('input', () => showStatus(status, 'Unsaved changes to shared defaults.'));
+  form.addEventListener('input', () => showStatus(status, 'Unsaved defaults.'));
   container.replaceChildren(form);
+  styleEditor = mountReportStyleEditor(styleContainer, {
+    prefix: 'shared-style', onChange: () => showStatus(status, 'Unsaved defaults.'),
+  });
+  initializeTabs(container);
   await load();
+}
 
+function buildFieldEditor() {
+  fieldPicker = h('select', { id: 'presentation-field', onChange: selectField });
+  fieldMeta = h('p', { class: 'muted small' });
+  fieldLabel = h('input', { id: 'presentation-field-name', maxlength: 120 });
+  fieldDescription = h('input', { id: 'presentation-field-description', maxlength: 500, placeholder: 'Optional' });
+  decimals = h('select', { id: 'presentation-field-decimals' });
+  decimalsControl = control('Decimals', decimals);
+  moveUp = h('button', { type: 'button', class: 'secondary', onClick: () => moveField(-1), 'aria-label': 'Move field up' }, '↑');
+  moveDown = h('button', { type: 'button', class: 'secondary', onClick: () => moveField(1), 'aria-label': 'Move field down' }, '↓');
+  fieldPosition = h('span', { class: 'muted small' });
+  fieldEditor = h('div', {}, fieldMeta,
+    h('div', { class: 'field-editor-controls' }, control('Display name', fieldLabel), decimalsControl),
+    control('Description', fieldDescription),
+    h('div', { class: 'button-row' }, h('span', {}, 'Order'), moveUp, moveDown, fieldPosition));
+  return h('div', {}, control('Field', fieldPicker), fieldEditor);
 }
 
 async function load() {
@@ -58,6 +99,10 @@ async function load() {
 function setFields() {
   const order = new Map(current.settings.fieldOrder.map((key, index) => [key, index]));
   orderedFields = [...current.fields].sort((a, b) => (order.get(a.key) ?? Infinity) - (order.get(b.key) ?? Infinity));
+  fieldSettings = Object.fromEntries(orderedFields
+    .filter((field) => current.settings.fields[field.key])
+    .map((field) => [field.key, structuredClone(current.settings.fields[field.key])]));
+  if (!orderedFields.some((field) => field.key === activeFieldKey)) activeFieldKey = orderedFields[0]?.key;
 }
 
 function render() {
@@ -65,67 +110,80 @@ function render() {
   description.value = current.settings.description;
   chart.value = current.settings.defaultChartType;
   styleEditor.set(current.settings.style);
-  fieldsList.replaceChildren();
-  for (const [index, field] of orderedFields.entries()) {
-    const settings = current.settings.fields[field.key] ?? {};
-    const row = h('li', { class: 'presentation-field', 'data-field-key': field.key });
-    const source = h('div', { class: 'presentation-source' }, h('strong', {}, field.label), h('code', {}, field.key));
-    const label = h('input', {
-      id: `presentation-label-${index}`, maxlength: 120, value: settings.label ?? '',
-      placeholder: field.label, 'data-setting': 'label',
-    });
-    const decimals = h('select', { id: `presentation-decimals-${index}`, 'data-setting': 'decimals', disabled: field.type === 'text' });
-    decimals.append(h('option', { value: '' }, `Source default${field.type === 'text' ? '' : ` (${field.decimals})`}`));
-    for (let digits = 0; digits <= 4; digits++) {
-      decimals.append(h('option', { value: String(digits) }, String(digits)));
-    }
-    decimals.value = settings.decimals === undefined ? '' : String(settings.decimals);
-    const help = h('input', {
-      id: `presentation-help-${index}`, maxlength: 500, value: settings.description ?? '',
-      placeholder: 'Help users understand this field', 'data-setting': 'description',
-    });
-    const orderButtons = h('div', { class: 'order' });
-    for (const direction of [-1, 1]) {
-      orderButtons.append(h('button', {
-        type: 'button', class: 'icon', disabled: direction < 0 ? index === 0 : index === orderedFields.length - 1,
-        'aria-label': `Move ${field.label} ${direction < 0 ? 'up' : 'down'}`,
-        onClick: () => moveField(index, direction),
-      }, direction < 0 ? '↑' : '↓'));
-    }
-    row.append(source, control(`Display name for ${field.label}`, label), control(`Decimals for ${field.label}`, decimals), orderButtons);
-    const helpControl = control(`Description for ${field.label}`, help);
-    helpControl.className = 'presentation-field-help';
-    row.append(helpControl);
-    fieldsList.append(row);
+  renderFieldPicker();
+}
+
+function renderFieldPicker() {
+  fieldPicker.replaceChildren();
+  for (const field of orderedFields) {
+    fieldPicker.append(h('option', { value: field.key }, fieldSettings[field.key]?.label || field.label));
   }
+  fieldPicker.disabled = !orderedFields.length;
+  fieldEditor.hidden = !orderedFields.length;
+  if (!orderedFields.length) {
+    fieldPicker.append(h('option', { value: '' }, 'No approved fields'));
+    return;
+  }
+  fieldPicker.value = activeFieldKey;
+  renderActiveField();
+}
+
+function renderActiveField() {
+  const index = orderedFields.findIndex((field) => field.key === activeFieldKey);
+  const field = orderedFields[index];
+  if (!field) return;
+  const settings = fieldSettings[field.key] ?? {};
+  const type = field.type === 'text' ? 'Text' : 'Number';
+  const unit = field.type !== 'text' && field.unit && field.unit !== 'number' ? ` · ${unitLabel(field.unit)}` : '';
+  fieldMeta.textContent = `${type}${unit} · Source: ${field.label}`;
+  fieldLabel.value = settings.label ?? '';
+  fieldLabel.placeholder = field.label;
+  fieldDescription.value = settings.description ?? '';
+  decimalsControl.hidden = field.type === 'text';
+  decimals.disabled = field.type === 'text';
+  decimals.replaceChildren(h('option', { value: '' }, `Source (${field.decimals ?? 0})`));
+  for (let digits = 0; digits <= 4; digits++) decimals.append(h('option', { value: String(digits) }, String(digits)));
+  decimals.value = settings.decimals === undefined ? '' : String(settings.decimals);
+  moveUp.disabled = index === 0;
+  moveDown.disabled = index === orderedFields.length - 1;
+  fieldPosition.textContent = `${index + 1} / ${orderedFields.length}`;
+}
+
+function storeActiveField() {
+  if (!activeFieldKey) return;
+  const settings = {};
+  if (fieldLabel.value.trim()) settings.label = fieldLabel.value.trim();
+  if (fieldDescription.value.trim()) settings.description = fieldDescription.value.trim();
+  if (decimals.value !== '' && !decimals.disabled) settings.decimals = Number(decimals.value);
+  if (Object.keys(settings).length) fieldSettings[activeFieldKey] = settings;
+  else delete fieldSettings[activeFieldKey];
+}
+
+function selectField() {
+  storeActiveField();
+  activeFieldKey = fieldPicker.value;
+  renderFieldPicker();
 }
 
 function read() {
-  const fields = {};
-  for (const row of fieldsList.children) {
-    const settings = {};
-    for (const input of row.querySelectorAll('[data-setting]')) {
-      if (input.value.trim() && !input.disabled) {
-        settings[input.dataset.setting] = input.dataset.setting === 'decimals' ? Number(input.value) : input.value.trim();
-      }
-    }
-    if (Object.keys(settings).length) fields[row.dataset.fieldKey] = settings;
-  }
+  storeActiveField();
   return {
     style: styleEditor.read(),
     revision: current.settings.revision,
     displayName: name.value.trim(), description: description.value.trim(),
-    defaultChartType: chart.value, fields, fieldOrder: orderedFields.map((field) => field.key),
+    defaultChartType: chart.value, fields: structuredClone(fieldSettings), fieldOrder: orderedFields.map((field) => field.key),
   };
 }
 
-function moveField(index, direction) {
-  current.settings = read();
+function moveField(direction) {
+  storeActiveField();
+  const index = orderedFields.findIndex((field) => field.key === activeFieldKey);
   const next = index + direction;
+  if (next < 0 || next >= orderedFields.length) return;
   [orderedFields[index], orderedFields[next]] = [orderedFields[next], orderedFields[index]];
-  render();
-  fieldsList.children[next].querySelector('input').focus();
-  showStatus(status, 'Unsaved field order.');
+  renderFieldPicker();
+  fieldPicker.focus();
+  showStatus(status, 'Unsaved order.');
 }
 
 function resetDefaults() {
@@ -133,7 +191,7 @@ function resetDefaults() {
   current.settings = { revision: current.settings.revision, displayName: '', description: '', defaultChartType: 'grouped_bar', fields: {}, fieldOrder: [] };
   setFields();
   render();
-  showStatus(status, 'Source defaults selected. Save to apply them to this dataset.');
+  showStatus(status, 'Source defaults selected. Save to apply.');
 }
 
 async function saveDefaults(event) {
@@ -147,7 +205,7 @@ async function saveDefaults(event) {
     current = await api(`/datasets/${datasetId}/presentation`, { method: 'PUT', json: settings });
     setFields();
     render();
-    showStatus(status, 'Shared defaults saved. Reports with their own overrides keep those choices.', 'ok');
+    showStatus(status, 'Defaults saved.', 'ok');
     await onSaved();
   } catch (error) {
     showStatus(status, error.message, 'error');

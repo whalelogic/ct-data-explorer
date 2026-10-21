@@ -1,7 +1,7 @@
 import { api, loadSession } from './api.js';
 import { h as createElement } from './dom.js';
-import { mountIndicatorEditor } from './indicator-editor.js';
 import { boot, formatDate, renderHeader, showStatus } from './layout.js';
+import { revealTab } from './tabs.js';
 
 function getElement(id) {
   return document.getElementById(id);
@@ -14,12 +14,16 @@ async function initializeAdminPage() {
     return;
   }
   renderHeader(user);
-  mountIndicatorEditor(getElement('upload-indicator-editor'), 'upload-indicator');
 
-  const datasets = await api('/datasets');
-  renderDatasets(datasets);
   getElement('ds-file').addEventListener('change', handleFileSelection);
   getElement('upload-form').addEventListener('submit', uploadDataset);
+  try {
+    renderDatasets(await api('/datasets'));
+  } catch (error) {
+    getElement('datasets-body').replaceChildren(createElement('tr', {},
+      createElement('td', { colspan: 7, class: 'muted' }, 'Datasets unavailable.')));
+    throw error;
+  }
 }
 
 function renderDatasets(datasets) {
@@ -31,7 +35,7 @@ function renderDatasets(datasets) {
 
   if (!datasets.length) {
     const emptyCell = createElement('td', { colspan: 7, class: 'muted' },
-      'No datasets yet. Upload a CSV or Excel file to get started.');
+      'No datasets yet.');
     tableBody.append(createElement('tr', {}, emptyCell));
   }
 }
@@ -69,7 +73,6 @@ function openDatasetRow(event) {
 function handleFileSelection() {
   const selectedFile = getElement('ds-file').files[0];
   getElement('upload-details').hidden = !selectedFile;
-  getElement('column-setup').hidden = !selectedFile;
 
   const isExcelFile = selectedFile && /\.xlsx$/i.test(selectedFile.name);
   getElement('worksheet-field').hidden = !isExcelFile;
@@ -87,6 +90,8 @@ function handleFileSelection() {
 async function uploadDataset(event) {
   event.preventDefault();
   const uploadForm = event.currentTarget;
+  if (uploadForm.getAttribute('aria-busy') === 'true') return;
+  revealTab(uploadForm);
   if (!uploadForm.reportValidity()) {
     return;
   }
@@ -94,7 +99,11 @@ async function uploadDataset(event) {
   const submitButton = uploadForm.querySelector('button[type="submit"]');
   const formData = new FormData(uploadForm);
   formData.set('activate', 'false');
-  submitButton.disabled = true;
+  const controls = [...uploadForm.querySelectorAll('button, input')];
+  const disabled = controls.map((control) => control.disabled);
+  controls.forEach((control) => { control.disabled = true; });
+  submitButton.textContent = 'Uploading…';
+  uploadForm.setAttribute('aria-busy', 'true');
   getElement('upload-errors').hidden = true;
   showStatus(getElement('upload-status'), 'Uploading and validating…');
 
@@ -102,6 +111,7 @@ async function uploadDataset(event) {
     const dataset = await api('/datasets', { method: 'POST', form: formData });
     location.assign(`/dataset?id=${dataset.id}`);
   } catch (error) {
+    revealTab(uploadForm);
     showStatus(getElement('upload-status'), error.message, 'error');
     if (Array.isArray(error.details)) {
       const errorList = getElement('upload-errors');
@@ -113,7 +123,9 @@ async function uploadDataset(event) {
       errorList.hidden = false;
     }
   } finally {
-    submitButton.disabled = false;
+    controls.forEach((control, index) => { control.disabled = disabled[index]; });
+    submitButton.textContent = 'Upload and review';
+    uploadForm.removeAttribute('aria-busy');
   }
 }
 

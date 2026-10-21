@@ -59,7 +59,7 @@ async function verifyAllTownCharts(client, selection, townNames) {
   const chartBlocks = report.blocks.filter((block) => block.type === 'chart');
   const chartKeys = chartBlocks.flatMap((block) => block.chart.series.map((series) => series.key));
 
-  assert.equal(report.title, '169 Connecticut towns');
+  assert.equal(report.title, `${report.dataset.displayName}: ${report.indicators.map((field) => field.label).join(' · ')}`.slice(0, 200));
   assert.deepEqual(report.places.map((place) => place.name), townNames);
   assert.deepEqual(chartKeys.sort(), [...selection.indicators].sort());
   for (const chartBlock of chartBlocks) {
@@ -166,7 +166,8 @@ test('HTTP and database curation protects every report path and preserves source
     // Published views expose the approved measure and preserve both source rows.
     const recordOptions = await staff.agent.get(`${recordDatasetPath}/report-options`).expect(200);
     assert.deepEqual(recordOptions.body.columns.map((field) => field.key), ['c2']);
-    assert.deepEqual(recordOptions.body.filters, []);
+    assert.deepEqual(recordOptions.body.filters.map((field) => field.key), ['c2']);
+    assert.deepEqual(recordOptions.body.filters[0].values, ['123', '124']);
     assert.deepEqual(recordOptions.body.places.map((place) => place.name), ['Andover']);
     assert.equal(recordOptions.body.repeatedRows, true);
 
@@ -261,6 +262,8 @@ test('HTTP and database curation protects every report path and preserves source
     assert.deepEqual(indicatorOptions.body.places.map((place) => place.name), townNames);
     assert.equal(indicatorOptions.body.repeatedRows, false);
     assert.equal(indicatorOptions.body.hasState, false);
+    assert.deepEqual(indicatorOptions.body.filters.map((field) => field.key), [approvedIndicatorKey]);
+    assert.equal(indicatorOptions.body.filters[0].values[0], '456');
 
     const indicatorOverview = await staff.agent.get(indicatorDatasetPath).expect(200);
     assert.deepEqual(indicatorOverview.body.indicators.map((indicator) => indicator.key), [approvedIndicatorKey]);
@@ -284,6 +287,10 @@ test('HTTP and database curation protects every report path and preserves source
       indicators: [approvedIndicatorKey],
     };
     await sendWriteRequest(staff, 'post', '/api/reports/preview', indicatorSelection).expect(200);
+    const filteredIndicators = await sendWriteRequest(staff, 'post', '/api/reports/preview', {
+      ...indicatorSelection, towns: [], recordFilters: { [approvedIndicatorKey]: '456' },
+    }).expect(200);
+    assert.deepEqual(filteredIndicators.body.places.map((place) => place.name), ['Andover']);
 
     for (const client of [staff, admin]) {
       const hiddenIndicatorSelection = { ...indicatorSelection, indicators: [hiddenIndicatorKey] };
@@ -408,6 +415,177 @@ test('staff customize shared presentation and report overrides without bypassing
     const numericOverride = await sendWriteRequest(staff, 'post', '/api/reports/preview', { ...numericSelection, fieldOverrides: { pop: { label: 'People', decimals: 0 } } }).expect(200);
     assert.equal(numericOverride.body.indicators[0].label, 'People');
     assert.equal(numericOverride.body.indicators[0].cells[0].display, '1,234');
+  } finally {
+    await removeTestData(userIds, testTag);
+  }
+});
+
+test('generic datasets retain source records through approval, flexible charts, saved reports and PDFs', {
+  skip: process.env.CT_CURATION_INTEGRATION !== '1',
+}, async () => {
+  const testTag = `generic-records-test-${crypto.randomUUID()}`;
+  const userIds = [];
+  const app = createApp({ sessionStore: new session.MemoryStore(), logRequests: false });
+  try {
+    const { admin, staff } = await createTestClients(app, testTag, userIds);
+    const csv = [
+      'Category,Segment,Jobs,Percentage (decimal format),Hidden category,Private amount',
+      'Retail,North,10,0.1,SECRET-A,9000',
+      'Retail,North,10,0.1,SECRET-A,9000',
+      'Retail,North,20,0.2,SECRET-B,9000',
+      'Retail,South,5,0.3,SECRET-C,9000',
+      'Services,North,7,0.4,SECRET-D,9000',
+      '',
+    ].join('\n');
+    const uploaded = await uploadDataset(admin, testTag, testTag, csv).expect(201);
+    const datasetPath = `/api/datasets/${uploaded.body.id}`;
+    assert.equal(uploaded.body.dataFormat, 'records');
+    assert.equal(uploaded.body.rowCount, 5);
+    await sendWriteRequest(admin, 'put', `${datasetPath}/curation`, { approvedFields: ['c0', 'c1', 'c2', 'c3'] }).expect(200);
+    await sendWriteRequest(admin, 'patch', datasetPath, { isActive: true }).expect(200);
+    await sendWriteRequest(staff, 'put', `${datasetPath}/presentation`, {
+      revision: 0, displayName: 'Employment by category',
+      fields: { c0: { label: 'Industry' }, c2: { label: 'Employment', decimals: 0 } },
+    }).expect(200);
+
+    const options = await staff.agent.get(`${datasetPath}/report-options`).expect(200);
+    assert.deepEqual(options.body.places, []);
+    assert.equal(options.body.hasGeography, false);
+    assert.equal(options.body.hasLocations, false);
+    assert.equal(options.body.hasState, false);
+    assert.deepEqual(options.body.columns.map((field) => field.key), ['c0', 'c1', 'c2', 'c3']);
+    assert.equal(options.body.columns[0].displayLabel, 'Industry');
+    assert.equal(options.body.columns[2].displayLabel, 'Employment');
+    assert.equal(options.body.columns[3].unit, 'percent');
+    assert.deepEqual(options.body.filters.find((field) => field.key === 'c2').values, ['5', '7', '10', '20']);
+    assert.ok(!JSON.stringify(options.body).includes('Hidden category'));
+
+    const overview = await staff.agent.get(datasetPath).expect(200);
+    assert.equal(overview.body.preview.total, 5);
+    assert.equal(overview.body.preview.rows.length, 5);
+    assert.deepEqual(overview.body.preview.rows.map((row) => row.sourceRow), [2, 3, 4, 5, 6]);
+    assert.ok(!JSON.stringify(overview.body).includes('SECRET'));
+
+    const chart = {
+      type: 'chart', chartType: 'grouped_bar', indicators: ['c2'],
+      axisField: 'c0', seriesField: 'c1', aggregation: 'none', title: 'Employment source records',
+    };
+    const selection = {
+      dataset: { name: testTag, vintage: '2026' },
+      indicators: ['c0', 'c1', 'c2', 'c3'],
+      title: 'Our employment report',
+      layout: [chart, { type: 'table' }],
+    };
+    const raw = await sendWriteRequest(staff, 'post', '/api/reports/preview', selection).expect(200);
+    assert.equal(raw.body.title, 'Our employment report');
+    const rawChart = raw.body.blocks.find((block) => block.type === 'chart').chart;
+    assert.equal(rawChart.title, 'Employment source records');
+    assert.equal(rawChart.aggregation, 'none');
+    assert.equal(rawChart.labels.length, 5);
+    assert.equal(new Set(rawChart.labels).size, 5);
+    assert.deepEqual(rawChart.series.flatMap((series) => series.values.filter((value) => value != null)).sort((a, b) => a - b), [5, 7, 10, 10, 20]);
+    assert.equal(raw.body.blocks.find((block) => block.type === 'records').records.length, 5);
+    assert.deepEqual(raw.body.indicators.find((field) => field.key === 'c2').cells.map((cell) => cell.value), [10, 10, 20, 5, 7]);
+
+    const aggregate = await sendWriteRequest(staff, 'post', '/api/reports/preview', {
+      ...selection, layout: [{ ...chart, aggregation: 'sum', title: '' }, { type: 'table' }],
+    }).expect(200);
+    const aggregateChart = aggregate.body.blocks.find((block) => block.type === 'chart').chart;
+    assert.deepEqual(aggregateChart.labels, ['Retail', 'Services']);
+    assert.deepEqual(aggregateChart.series.find((series) => series.label.endsWith('North')).values, [40, 7]);
+    assert.deepEqual(aggregateChart.series.find((series) => series.label.endsWith('South')).values, [5, null]);
+    assert.equal(aggregate.body.blocks.find((block) => block.type === 'records').records.length, 5);
+
+    const mixed = await sendWriteRequest(staff, 'post', '/api/reports/preview', {
+      ...selection, layout: [{ ...chart, indicators: ['c2', 'c3'], title: '' }],
+    }).expect(200);
+    const mixedCharts = mixed.body.blocks.filter((block) => block.type === 'chart');
+    assert.equal(mixedCharts.length, 2);
+    assert.equal(new Set(mixedCharts.map((block) => block.chart.unit)).size, 2);
+    for (const block of mixedCharts) {
+      assert.ok(block.chart.series.every((series) => series.unit === block.chart.unit));
+    }
+
+    const filtered = await sendWriteRequest(staff, 'post', '/api/reports/preview', {
+      ...selection, recordFilters: { c2: '10' },
+    }).expect(200);
+    assert.equal(filtered.body.blocks.find((block) => block.type === 'records').records.length, 2);
+    for (const invalid of [
+      { ...selection, layout: [{ ...chart, axisField: 'c4' }] },
+      { ...selection, layout: [{ ...chart, seriesField: 'c4' }] },
+      { ...selection, recordFilters: { c4: 'SECRET-A' } },
+      { ...selection, layout: [{ ...chart, axisField: '@location' }] },
+      { ...selection, towns: ['Andover'] },
+      { ...selection, benchmark: true },
+    ]) {
+      await sendWriteRequest(staff, 'post', '/api/reports/preview', invalid).expect(400);
+    }
+
+    const defaultTitles = await sendWriteRequest(staff, 'post', '/api/reports/preview', {
+      ...selection, title: '', layout: [{ ...chart, title: '' }],
+    }).expect(200);
+    assert.match(defaultTitles.body.title, /Employment by category/);
+    assert.match(defaultTitles.body.blocks[0].chart.title, /Employment/);
+    assert.match(defaultTitles.body.blocks[0].chart.title, /Industry/);
+
+    const saved = await sendWriteRequest(staff, 'post', '/api/reports', { title: 'Saved employment', selection }).expect(201);
+    const restored = await staff.agent.get(`/api/reports/${saved.body.id}`).expect(200);
+    assert.deepEqual(restored.body.selection.towns, []);
+    assert.equal(restored.body.selection.benchmark, false);
+    assert.equal(restored.body.selection.title, selection.title);
+    assert.deepEqual(restored.body.selection.layout[0], chart);
+    const reopened = await sendWriteRequest(staff, 'post', '/api/reports/preview', restored.body.selection).expect(200);
+    assert.equal(reopened.body.blocks.find((block) => block.type === 'records').records.length, 5);
+    const pdf = await staff.agent.get(`/api/reports/${saved.body.id}/pdf`).expect(200).expect('Content-Type', /pdf/);
+    assert.ok(pdf.body.length > 1000);
+    assert.match(pdf.body.toString('ascii', 0, 8), /^%PDF-/);
+  } finally {
+    await removeTestData(userIds, testTag);
+  }
+});
+
+test('mixed Town dimensions cannot expose withheld place labels or drop Connecticut source records', {
+  skip: process.env.CT_CURATION_INTEGRATION !== '1',
+}, async () => {
+  const testTag = `mixed-location-test-${crypto.randomUUID()}`;
+  const userIds = [];
+  const app = createApp({ sessionStore: new session.MemoryStore(), logRequests: false });
+  try {
+    const { admin, staff } = await createTestClients(app, testTag, userIds);
+    for (const location of ['Andover', 'Connecticut']) {
+      const name = `${testTag}-${location}`;
+      const uploaded = await uploadDataset(admin, testTag, name, `Town,Jobs\n${location},10\nNew York,20\n`).expect(201);
+      const path = `/api/datasets/${uploaded.body.id}`;
+      await sendWriteRequest(admin, 'put', `${path}/curation`, { approvedFields: ['c1'] }).expect(200);
+      await sendWriteRequest(admin, 'patch', path, { isActive: true }).expect(200);
+      const options = await staff.agent.get(`${path}/report-options`).expect(200);
+      assert.deepEqual(options.body.places, []);
+      assert.equal(options.body.hasGeography, false);
+      assert.equal(options.body.hasState, false);
+      assert.deepEqual(options.body.columns.map((field) => field.key), ['c1']);
+
+      const selection = {
+        dataset: { name, vintage: '2026' }, indicators: ['c1'],
+        layout: [{ type: 'chart' }, { type: 'table' }],
+      };
+      const preview = await sendWriteRequest(staff, 'post', '/api/reports/preview', selection).expect(200);
+      assert.equal(preview.body.places.length, 2);
+      assert.deepEqual(preview.body.indicators[0].cells.map((cell) => cell.value), [10, 20]);
+      assert.equal(preview.body.blocks.find((block) => block.type === 'records').records.length, 2);
+      const renderedLabels = preview.body.places.flatMap((place) => [place.label, place.name]);
+      assert.ok(renderedLabels.every((label) => !label.includes(location) && !label.includes('New York')));
+      assert.ok(preview.body.places.every((place) => !place.geoType));
+      await sendWriteRequest(staff, 'post', '/api/reports/preview', { ...selection, benchmark: true }).expect(400);
+      await sendWriteRequest(staff, 'post', '/api/reports/preview', { ...selection, towns: [location] }).expect(400);
+
+      // Approving the ordinary dimension reveals source text without enabling geography.
+      await sendWriteRequest(admin, 'put', `${path}/curation`, { approvedFields: ['c0', 'c1'] }).expect(200);
+      const approved = await sendWriteRequest(staff, 'post', '/api/reports/preview', {
+        ...selection, indicators: ['c0', 'c1'],
+      }).expect(200);
+      assert.deepEqual(approved.body.indicators[0].cells.map((cell) => cell.rawValue), [location, 'New York']);
+      assert.equal(approved.body.blocks.find((block) => block.type === 'records').records.length, 2);
+    }
   } finally {
     await removeTestData(userIds, testTag);
   }

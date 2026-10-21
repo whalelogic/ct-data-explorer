@@ -66,9 +66,8 @@ test('identical source rows remain distinct rather than being deduplicated', () 
   assert.deepEqual(result.rows.map((row) => row.sourceRow), [2, 3]);
 });
 
-test('duplicate headers, unknown towns and invalid known numeric columns reject the whole file', () => {
+test('duplicate headers and invalid known numeric columns reject the whole file', () => {
   for (const input of [
-    [['Town', 'pop'], ['Unknown town', 1]],
     [['Town', 'pop'], ['Andover', 'bad number']],
     [['Town', 'Town', 'pop'], ['Andover', 'Andover', 1]],
     [['Town', 'Industry', 'industry'], ['Andover', 'A', 'B']],
@@ -78,6 +77,59 @@ test('duplicate headers, unknown towns and invalid known numeric columns reject 
     assert.deepEqual(result.rows, []);
     assert.deepEqual(result.observations, []);
   }
+});
+
+test('category datasets need no Town column and preserve every typed source record', () => {
+  const result = prepareTabularDataset(records([
+    ['Category', 'Jobs', 'Note'],
+    ['Construction', 10, 'First record'],
+    ['Construction', 10, 'First record'],
+    ['Services', 20.25, ''],
+  ]), known);
+  assert.equal(result.problemCount, 0);
+  assert.equal(result.dataFormat, 'records');
+  assert.equal(result.rowCount, 3);
+  assert.deepEqual(result.columns.map(({ type, role }) => ({ type, role })), [
+    { type: 'text', role: 'dimension' }, { type: 'number', role: 'measure' }, { type: 'text', role: 'dimension' },
+  ]);
+  assert.deepEqual(result.rows.map((row) => row.townId), [null, null, null]);
+  assert.deepEqual(result.rows.map((row) => row.sourceRow), [2, 3, 4]);
+  assert.equal(result.rows[2].cells.c1, 20.25);
+  assert.equal(result.rows[2].cells.c2, null);
+  assert.deepEqual(result.observations, []);
+});
+
+test('arbitrary location fields retain text without inferred Connecticut geography', () => {
+  const result = prepareTabularDataset(records([
+    ['Location', 'Value'], ['Andover', 1], ['New York', 2],
+  ]), known);
+  assert.equal(result.problemCount, 0);
+  assert.equal(result.columns[0].role, 'dimension');
+  assert.deepEqual(result.rows.map((row) => row.townId), [null, null]);
+  assert.deepEqual(result.rows.map((row) => row.cells.c0), ['Andover', 'New York']);
+});
+
+test('unmatched and mixed Town records remain selectable dimensions and retain every row', () => {
+  for (const names of [['New York'], ['Andover', 'New York', '']]) {
+    const result = prepareTabularDataset(records([['Town', 'Value'], ...names.map((name) => [name, 1])]), known);
+    assert.equal(result.problemCount, 0);
+    assert.equal(result.dataFormat, 'records');
+    assert.equal(result.columns[0].role, 'dimension');
+    assert.equal(result.rowCount, names.length);
+    assert.deepEqual(result.rows.map((row) => row.townId), names.map(() => null));
+    assert.deepEqual(result.rows.map((row) => row.cells.c0), names.map((name) => name || null));
+  }
+});
+
+test('mixed Town dimensions never infer state benchmarks or matched-town labels', () => {
+  const result = prepareTabularDataset(records([
+    ['Town', 'Jobs'], ['Connecticut', 10], ['Andover (source label)', 20], ['New York', 30],
+  ]), { ...known, towns: [...known.towns, { id: 3, name: 'Connecticut', geo_type: 'state' }] });
+  assert.equal(result.problemCount, 0);
+  assert.equal(result.columns[0].role, 'dimension');
+  assert.deepEqual(result.rows.map((row) => row.townId), [null, null, null]);
+  assert.deepEqual(result.rows.map((row) => row.cells.c0), ['Connecticut', 'Andover (source label)', 'New York']);
+  assert.ok(!result.notes.some((note) => note.includes('matched to') || note.includes('towns have multiple rows')));
 });
 
 test('existing unique numeric datasets retain the legacy calculation path', () => {

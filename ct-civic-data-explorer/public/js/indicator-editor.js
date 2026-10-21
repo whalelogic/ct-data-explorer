@@ -43,7 +43,7 @@ export function mountIndicatorEditor(container, prefix, onCreated = async () => 
       form.reset();
       form.elements.decimals.value = '0';
       updateRatioFields();
-      showStatus(status, `Added ${created.label}. Uploaded columns appear when a dataset includes their values; ratios appear when both inputs are available.`, 'ok');
+      showStatus(status, `Added ${created.label}.`, 'ok');
       await onCreated();
     } catch (err) {
       showStatus(status, err.message, 'error');

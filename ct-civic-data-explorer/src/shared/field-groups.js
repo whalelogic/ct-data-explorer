@@ -7,6 +7,18 @@ export function fieldUnitLabel(field) {
   return unitLabel(field.unit);
 }
 
+/** Filter option labels follow display units while option values retain source identity. */
+export function fieldValueLabel(field, value) {
+  if (field.type !== 'number' || !Number.isFinite(Number(value))) return String(value);
+  const scaled = Number(value) * (field.scale ?? 1);
+  const formatted = scaled.toLocaleString('en-US', {
+    minimumFractionDigits: field.unit === 'percent' ? field.decimals ?? 1 : 0,
+    maximumFractionDigits: field.decimals ?? 9,
+  });
+  if (field.unit === 'percent') return `${formatted}%`;
+  return field.unit === 'currency' ? `$${formatted}` : formatted;
+}
+
 export function groupFieldsByUnit(fields) {
   const groups = new Map();
   for (const field of fields) {

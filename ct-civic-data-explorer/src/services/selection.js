@@ -11,6 +11,7 @@ import { fieldPresentationSchema, reportStyleSchema } from './presentation.js';
 
 export const BLOCK_TYPES = Object.freeze(['text', 'chart', 'table']);
 export const CHART_TYPES = Object.freeze(['bar', 'grouped_bar', 'line']);
+export const AGGREGATIONS = Object.freeze(['none', 'sum', 'average', 'min', 'max']);
 export const MAX_LAYOUT_BLOCKS = 30;
 export const MAX_TEXT_LENGTH = 4000;
 
@@ -25,6 +26,9 @@ const chartBlock = z.object({
   title: z.string().trim().max(120).optional(),
   chartType: z.enum(CHART_TYPES).default('grouped_bar'),
   indicators: z.array(z.string()).max(25).default([]), // empty: chart every selected numeric indicator
+  axisField: z.string().trim().max(100).optional(),
+  seriesField: z.string().trim().max(100).optional(),
+  aggregation: z.enum(AGGREGATIONS).default('none'),
 });
 const tableBlock = z.object({
   type: z.literal('table'),
@@ -36,7 +40,7 @@ export const blockSchema = z.discriminatedUnion('type', [textBlock, chartBlock, 
 });
 
 export const DEFAULT_LAYOUT = Object.freeze([
-  { type: 'chart', chartType: 'grouped_bar', indicators: [] },
+  { type: 'chart', chartType: 'grouped_bar', indicators: [], aggregation: 'none' },
   { type: 'table', indicators: [] },
 ]);
 
@@ -50,15 +54,15 @@ export const selectionSchema = z.preprocess(
       ),
       towns: z
         .array(requiredText('Town', 100))
-        .min(1, 'Choose a town'),
-      benchmark: z.boolean().default(true),
-      indicators: z.array(requiredText('Indicator', 100)).min(1, 'Select at least one indicator for the report').max(25),
+        .default([]),
+      benchmark: z.boolean().default(false),
+      indicators: z.array(requiredText('Field', 100)).min(1, 'Select at least one field for the report').max(25),
       styleOverrides: reportStyleSchema.optional(),
       fieldOverrides: z.record(z.string().min(1).max(100), fieldPresentationSchema).optional(),
       showTitle: z.boolean().default(true),
       title: z.string().trim().max(200).default(''),
       subtitle: z.string().trim().max(300).default(''),
-      recordFilters: z.record(z.string().regex(/^c\d+$/), z.string().max(4000)).default({}),
+      recordFilters: z.record(z.string().min(1).max(100), z.string().max(4000)).default({}),
       layout: z
         .array(blockSchema)
         .max(MAX_LAYOUT_BLOCKS, `A report can hold at most ${MAX_LAYOUT_BLOCKS} blocks`)

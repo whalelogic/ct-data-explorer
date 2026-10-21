@@ -1,21 +1,34 @@
 /** Shared style controls, with independent state for each mounted editor. */
 import { DEFAULT_REPORT_STYLE, resolveReportStyle, contrastRatio, REPORT_TEXT_COLOR } from '/shared/report-style.js';
 import { h } from './dom.js';
+import { initializeTabs } from './tabs.js';
 
 const COLOR_SETTINGS = [
-  ['benchmarkColor', 'Statewide benchmark'],
-  ['headingColor', 'Report headings'],
-  ['tableHeaderColor', 'Table header background'],
+  ['benchmarkColor', 'Statewide'],
+  ['headingColor', 'Headings'],
+  ['tableHeaderColor', 'Table header'],
 ];
 
 export function mountReportStyleEditor(container, { prefix, overrides = false, onChange = () => {} }) {
   const editor = { prefix, overrides, onChange, shared: {}, choices: {}, controls: new Map() };
   editor.fieldset = h('fieldset', { class: 'report-style-editor' });
-  editor.fieldset.append(h('legend', {}, overrides ? 'Report appearance' : 'Shared report appearance'));
-  editor.fieldset.append(h('p', { class: 'muted small' }, overrides
-    ? 'Enable an override to change this report. Disabled settings follow the latest shared defaults.'
-    : 'These choices apply to Explore, new reports and reports that use shared defaults.'));
-  const paletteRow = createSetting(editor, 'palette', 'Chart series colors');
+  editor.fieldset.append(h('legend', {}, overrides ? 'Report overrides' : 'Shared appearance'));
+  if (overrides) editor.fieldset.append(h('p', { class: 'muted small' }, 'Unchecked settings use shared defaults.'));
+  const tabs = h('div', { 'data-tabs': `${prefix}-appearance` });
+  const tablist = h('div', { class: 'workspace-tabs', role: 'tablist', 'aria-label': 'Appearance settings' });
+  const panels = new Map();
+  for (const [index, [key, label]] of [['colors', 'Colors'], ['layout', 'Text & spacing'], ['preview', 'Preview']].entries()) {
+    const tabId = `${prefix}-${key}-tab`;
+    const panelId = `${prefix}-${key}-panel`;
+    tablist.append(h('button', {
+      id: tabId, type: 'button', role: 'tab', 'aria-controls': panelId,
+      'aria-selected': index === 0 ? 'true' : 'false', tabindex: index === 0 ? 0 : -1,
+    }, label));
+    panels.set(key, h('div', { id: panelId, class: 'tab-panel', role: 'tabpanel', 'aria-labelledby': tabId, hidden: index !== 0 }));
+  }
+  tabs.append(tablist, ...panels.values());
+  editor.fieldset.append(tabs);
+  const paletteRow = createSetting(editor, panels.get('colors'), 'palette', 'Series');
   for (let index = 0; index < 6; index++) {
     const input = h('input', { type: 'color', id: `${prefix}-series-${index}`, 'aria-label': `Chart series ${index + 1} color` });
     input.addEventListener('input', changeStyle.bind(null, editor, 'palette'));
@@ -23,17 +36,17 @@ export function mountReportStyleEditor(container, { prefix, overrides = false, o
     paletteRow.append(input);
   }
   for (const [key, label] of COLOR_SETTINGS) {
-    const row = createSetting(editor, key, label);
+    const row = createSetting(editor, panels.get('colors'), key, label);
     const input = h('input', { type: 'color', id: `${prefix}-${key}`, 'aria-label': label });
     input.addEventListener('input', changeStyle.bind(null, editor, key));
     row.append(input);
     editor.controls.get(key).inputs.push(input);
   }
   for (const [key, label, values] of [
-    ['textSize', 'Report text size', [['standard', 'Standard'], ['large', 'Large']]],
-    ['spacing', 'Report spacing', [['comfortable', 'Comfortable'], ['compact', 'Compact']]],
+    ['textSize', 'Text size', [['standard', 'Standard'], ['large', 'Large']]],
+    ['spacing', 'Spacing', [['comfortable', 'Comfortable'], ['compact', 'Compact']]],
   ]) {
-    const row = createSetting(editor, key, label);
+    const row = createSetting(editor, panels.get('layout'), key, label);
     const input = h('select', { id: `${prefix}-${key}`, 'aria-label': label });
     for (const [value, text] of values) input.append(h('option', { value }, text));
     input.addEventListener('change', changeStyle.bind(null, editor, key));
@@ -41,20 +54,22 @@ export function mountReportStyleEditor(container, { prefix, overrides = false, o
     editor.controls.get(key).inputs.push(input);
   }
   editor.warning = h('p', { class: 'status', role: 'status', hidden: true });
-  editor.sampleTitle = h('strong', {}, 'Report preview');
+  editor.sampleTitle = h('strong', {}, 'Report title');
   editor.sampleBars = h('div', { class: 'style-sample-bars', 'aria-hidden': 'true' });
   for (let index = 0; index < 6; index++) editor.sampleBars.append(h('span'));
-  editor.sampleHeader = h('div', { class: 'style-sample-header' }, 'Town', h('span', {}, 'Value'));
+  editor.sampleHeader = h('div', { class: 'style-sample-header' }, 'Category', h('span', {}, 'Value'));
   editor.sample = h('div', { class: 'style-sample' });
-  editor.sample.append(editor.sampleTitle, editor.sampleBars, editor.sampleHeader, h('p', {}, 'Sample report text and table heading'));
-  const reset = h('button', { type: 'button', class: 'link', onClick: resetStyling.bind(null, editor) }, overrides ? 'Use all shared styling' : 'Use CTData styling');
-  editor.fieldset.append(editor.warning, editor.sample, reset);
+  editor.sample.append(editor.sampleTitle, editor.sampleBars, editor.sampleHeader, h('p', {}, 'Report text'));
+  panels.get('preview').append(editor.sample);
+  const reset = h('button', { type: 'button', class: 'link', onClick: resetStyling.bind(null, editor) }, overrides ? 'Reset overrides' : 'Reset style');
+  editor.fieldset.append(editor.warning, reset);
   container.replaceChildren(editor.fieldset);
+  initializeTabs(container);
   setStyle(editor);
   return { set: setStyle.bind(null, editor), read: readStyle.bind(null, editor) };
 }
 
-function createSetting(editor, key, label) {
+function createSetting(editor, panel, key, label) {
   const title = h('span', { class: 'style-setting-label' }, label);
   const inputs = h('div', { class: 'style-setting-inputs' });
   const row = h('div', { class: 'style-setting' }, title, inputs);
@@ -64,7 +79,7 @@ function createSetting(editor, key, label) {
     row.append(h('label', { class: 'check style-override-toggle' }, toggle, 'Override'));
   }
   editor.controls.set(key, { toggle, inputs: [] });
-  editor.fieldset.append(row);
+  panel.append(row);
   return inputs;
 }
 
@@ -117,8 +132,8 @@ function updateStyleSample(editor) {
     bar.style.height = `${20 + index * 5}px`;
   }
   const errors = [];
-  if (contrastRatio(effective.headingColor, '#FFFFFF') < 4.5) errors.push('Choose a darker heading color for readable text on white.');
-  if (contrastRatio(effective.tableHeaderColor, REPORT_TEXT_COLOR) < 4.5) errors.push('Choose a lighter table header background for readable text.');
+  if (contrastRatio(effective.headingColor, '#FFFFFF') < 4.5) errors.push('Headings need a darker color.');
+  if (contrastRatio(effective.tableHeaderColor, REPORT_TEXT_COLOR) < 4.5) errors.push('Table headers need a lighter color.');
   editor.warning.textContent = errors.join(' ');
   editor.warning.hidden = errors.length === 0;
 }

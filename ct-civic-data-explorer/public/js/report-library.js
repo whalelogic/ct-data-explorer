@@ -12,7 +12,7 @@ export function fetchReports(query) {
  * creator; the API enforces the same rule.
  * @param {object} report report from GET /api/reports
  * @param {{ user: object, status: HTMLElement, reload: () => Promise<void> }} context
- * @returns {(HTMLElement | null)[]}
+ * @returns {HTMLElement[]}
  */
 export function reportActionButtons(report, { user, status, reload }) {
   const own = report.createdBy.id === user.id;
@@ -27,7 +27,7 @@ export function reportActionButtons(report, { user, status, reload }) {
   };
 
   const rename = () => {
-    const title = prompt('New name for this report', report.title)?.trim();
+    const title = prompt('Report title', report.title)?.trim();
     if (title && title !== report.title) act(() => api(`/reports/${report.id}`, { method: 'PUT', json: { title } }));
   };
 
@@ -35,21 +35,39 @@ export function reportActionButtons(report, { user, status, reload }) {
     if (confirm(`Delete "${report.title}"? This cannot be undone.`)) act(() => api(`/reports/${report.id}`, { method: 'DELETE' }));
   };
 
+  const more = h('details', { class: 'report-more' });
+  more.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && more.open) {
+      event.preventDefault();
+      more.open = false;
+      more.querySelector('summary').focus();
+    }
+  });
+  const runAction = (action) => () => {
+    more.open = false;
+    action();
+  };
+  more.append(
+    h('summary', { 'aria-label': `More actions for ${report.title}` }, 'More'),
+    h('div', { class: 'report-more-actions' },
+      h('button', { type: 'button', class: 'secondary', onClick: runAction(() => act(() => api(`/reports/${report.id}/duplicate`, { method: 'POST' }))) }, 'Duplicate'),
+      own ? h('button', { type: 'button', class: 'secondary', onClick: runAction(rename) }, 'Rename') : null,
+      own ? h('button', { type: 'button', class: 'danger', onClick: runAction(remove) }, 'Delete') : null,
+    ),
+  );
   return [
-    h('button', { type: 'button', class: 'secondary', onClick: () => downloadPdf(report, status) }, 'PDF'),
-    h('button', { type: 'button', class: 'secondary', onClick: () => act(() => api(`/reports/${report.id}/duplicate`, { method: 'POST' })) }, 'Duplicate'),
-    own ? h('button', { type: 'button', class: 'secondary', onClick: rename }, 'Rename') : null,
-    own ? h('button', { type: 'button', class: 'danger', onClick: remove }, 'Delete') : null,
+    h('button', { type: 'button', class: 'secondary', 'aria-label': `Export PDF: ${report.title}`, onClick: () => downloadPdf(report, status) }, 'Export PDF'),
+    more,
   ];
 }
 
 async function downloadPdf(report, status) {
-  showStatus(status, `Generating PDF for "${report.title}"…`);
+  showStatus(status, 'Generating PDF…');
   try {
     const { blob, filename } = await api(`/reports/${report.id}/pdf`, { expect: 'blob' });
     downloadBlob(blob, filename);
-    showStatus(status, `Downloaded ${filename}.`, 'ok');
+    showStatus(status, 'PDF downloaded.', 'ok');
   } catch (err) {
-    showStatus(status, `No PDF was created: ${err.message}`, 'error');
+    showStatus(status, err.message, 'error');
   }
 }

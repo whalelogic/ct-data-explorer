@@ -120,9 +120,9 @@ Table towns {
 Table dataset_records {
   id int [pk, increment]
   dataset_id int [not null, ref: > datasets.id]
-  town_id int [not null, ref: > towns.id]
+  town_id int [ref: > towns.id, note: 'optional matched Connecticut geography']
   source_row int [not null]
-  cell_values json [not null, note: 'typed source values; repeated towns remain separate rows']
+  cell_values json [not null, note: 'typed source values; every source row remains separate']
 
   indexes {
     (dataset_id, source_row) [unique]

@@ -12,154 +12,105 @@
     <a class="skip-link" href="#main">Skip to content</a>
     <header class="site"><a class="brand" href="/">CT Civic Data Explorer</a></header>
     <main id="main" class="container">
-      <div class="explorer-intro">
-        <p class="eyebrow">CTData Collaborative</p>
+      <div class="page-toolbar">
         <h1>Explore data</h1>
-        <p>Choose locations and approved fields, then compare the results.</p>
+        <div class="workspace-actions" aria-label="View actions">
+          <button id="open-builder" type="button" disabled>New report</button>
+          <button id="share-view" type="button" class="secondary" disabled>Copy link</button>
+          <button id="export-pdf" type="button" class="secondary" disabled>Export PDF</button>
+        </div>
       </div>
-      <ol class="explorer-steps" aria-label="How to explore">
-        <li id="step-locations" data-active="true">
-          <span class="step-number">01</span>
-          Choose locations
-        </li>
-        <li id="step-fields">
-          <span class="step-number">02</span>
-          Select fields
-        </li>
-        <li id="step-visualize">
-          <span class="step-number">03</span>
-          Visualize
-        </li>
-        <li id="step-explore">
-          <span class="step-number">04</span>
-          Explore the details
-        </li>
-      </ol>
       <p id="page-status" class="status" role="alert" hidden></p>
-      <div class="explorer-layout">
-        <form id="explorer-form" class="explorer-controls panel" aria-label="Choose your data">
-          <fieldset class="explorer-step">
-            <legend>Start with a dataset</legend>
-            <label for="dataset">Available dataset</label>
-            <select id="dataset" disabled>
-              <option>Loading datasets…</option>
-            </select>
-            <p id="dataset-caption" class="muted small">
-              Choose a dataset to see its available fields and review status.
-            </p>
-          </fieldset>
-          <fieldset id="location-controls" class="explorer-step" disabled>
-            <legend>
-              <span class="step-number">01</span>
-              Choose locations
-            </legend>
-            <label for="town-input">Find a town</label>
-            <div class="explorer-town-entry">
-              <input
-                id="town-input"
-                list="town-options"
-                autocomplete="off"
-                placeholder="Start typing a town name"
-                aria-describedby="town-help"
-              />
-              <button id="add-town" type="button" class="secondary">Add</button>
-            </div>
-            <datalist id="town-options"></datalist>
-            <div class="explorer-town-actions">
-              <button id="select-all-towns" type="button" class="link">Select all towns</button>
-              <button id="clear-towns" type="button" class="link" disabled>Clear towns</button>
-            </div>
-            <p id="town-help" class="small muted" role="status" aria-live="polite">
-              Select as many available towns as you need.
-            </p>
-            <p id="town-status" class="status small" role="status" aria-live="polite" hidden></p>
-            <div id="chosen-towns" class="explorer-towns" role="region" aria-label="Selected towns" tabindex="0" hidden></div>
-            <label class="check">
-              <input type="checkbox" id="benchmark" />
-              Include Connecticut statewide
-            </label>
-            <p id="benchmark-help" class="small muted" hidden>
-              This dataset has no statewide figure.
-            </p>
-          </fieldset>
-          <fieldset id="field-controls" class="explorer-step" disabled>
-            <legend>
-              <span class="step-number">02</span>
-              Select fields
-            </legend>
-            <label id="field-search-label" for="field-search">Search fields</label>
-            <input
-              id="field-search"
-              class="field-search"
-              type="search"
-              placeholder="Search by name or unit"
-            />
-            <div class="explorer-field-summary">
-              <p id="field-count" class="small muted" role="status" aria-live="polite">
-                0 selected
-              </p>
-              <button id="clear-fields" type="button" class="link" disabled>Clear</button>
-            </div>
-            <div id="field-list" class="explorer-fields"></div>
-            <p id="field-status" class="status small" role="status" aria-live="polite" hidden></p>
-          </fieldset>
-          <fieldset id="filter-controls" class="explorer-step" hidden>
-            <legend>Refine source rows</legend>
-            <p class="small muted">
-              Choose categories to focus your view. Each source row stays separate.
-            </p>
-            <div id="record-filters"></div>
-          </fieldset>
-        </form>
-
-        <section class="explorer-stage" aria-labelledby="view-heading">
-          <div class="explorer-toolbar">
-            <div>
-              <p class="eyebrow">Your view</p>
-              <h2 id="view-heading">Your exploration</h2>
-            </div>
-            <button id="share-view" type="button" class="secondary" disabled>Copy view link</button>
-          </div>
-          <p id="selection-summary" class="explorer-selection">
-            Choose a town and at least one field to begin.
-          </p>
-          <div id="visualization-controls" class="explorer-view-controls" hidden>
-            <div>
-              <label for="chart-type">Display</label>
-              <select id="chart-type" aria-describedby="chart-help">
-                <option value="grouped_bar">Compare selected fields</option>
-                <option value="bar">Separate charts</option>
-                <option value="line">Line charts</option>
-                <option value="table">Data table</option>
-              </select>
-            </div>
-          </div>
-          <p id="chart-help" class="explorer-tip small muted" hidden></p>
-          <p id="preview-status" class="status" role="status" aria-live="polite" hidden></p>
-          <div id="explorer-empty" class="explorer-empty">
-            <span class="step-number" aria-hidden="true">01—04</span>
-            <h3>Choose a location</h3>
-            <p>Add a town, then select at least one field to see its chart and data table.</p>
-            <p class="small muted">Every view includes its dataset, vintage, and source.</p>
-          </div>
-          <div id="preview" aria-label="Your selected data"></div>
-          <div id="dataset-source" class="explorer-source" hidden></div>
-          <p id="action-status" class="status" role="status" aria-live="polite" hidden></p>
-          <div id="share-fallback" hidden>
-            <label for="share-link">Copy this link to reopen your view</label>
-            <input id="share-link" readonly />
-          </div>
-          <div class="explorer-footer">
-            <p class="small muted">Add context in a report or export this view as a PDF.</p>
-            <div class="button-row">
-              <button id="open-builder" type="button" class="secondary" disabled>
-                Open report builder
-              </button>
-              <button id="export-pdf" type="button" class="link" disabled>Download PDF</button>
-            </div>
-          </div>
-        </section>
+      <p id="action-status" class="status" role="status" aria-live="polite" hidden></p>
+      <p id="preview-status" class="status" role="status" aria-live="polite" hidden></p>
+      <div id="share-fallback" hidden>
+        <label for="share-link">View link</label>
+        <input id="share-link" readonly />
       </div>
+      <form id="explorer-form" class="panel" aria-label="Explore dataset">
+        <label for="dataset">Dataset</label>
+        <select id="dataset" disabled aria-describedby="dataset-caption">
+          <option>Loading datasets…</option>
+        </select>
+        <p id="dataset-caption" class="sr-only"></p>
+        <div data-tabs="explore">
+          <div class="workspace-tabs" role="tablist" aria-label="Explore dataset">
+            <button id="explore-fields-tab" type="button" role="tab" aria-controls="explore-fields" aria-selected="true" tabindex="0">Fields</button>
+            <button id="explore-filters-tab" type="button" role="tab" aria-controls="explore-filters" aria-selected="false" tabindex="-1" hidden>Filters</button>
+            <button id="explore-view-tab" type="button" role="tab" aria-controls="explore-view" aria-selected="false" tabindex="-1">View</button>
+          </div>
+          <section id="explore-fields" class="tab-panel" role="tabpanel" aria-labelledby="explore-fields-tab">
+            <fieldset id="field-controls" disabled>
+              <legend>Fields</legend>
+              <label id="field-search-label" for="field-search">Search fields</label>
+              <input id="field-search" class="field-search" type="search" placeholder="Name or unit" />
+              <div class="explorer-field-summary">
+                <p id="field-count" class="small muted" role="status" aria-live="polite">0 selected</p>
+                <button id="clear-fields" type="button" class="link" disabled>Clear</button>
+              </div>
+              <div id="field-list" class="explorer-fields"></div>
+              <p id="field-status" class="status small" role="status" aria-live="polite" hidden></p>
+            </fieldset>
+            <div class="workspace-actions">
+              <button id="show-view" type="button" disabled>View data</button>
+            </div>
+          </section>
+          <section id="explore-filters" class="tab-panel" role="tabpanel" aria-labelledby="explore-filters-tab" hidden>
+            <fieldset id="location-controls" disabled hidden>
+              <legend>Locations</legend>
+              <div id="town-controls">
+                <label for="town-input">Towns</label>
+                <div class="explorer-town-entry">
+                  <input id="town-input" list="town-options" autocomplete="off" placeholder="Find a town" aria-describedby="town-help" />
+                  <button id="add-town" type="button" class="secondary">Add</button>
+                </div>
+                <datalist id="town-options"></datalist>
+                <div class="explorer-town-actions">
+                  <button id="select-all-towns" type="button" class="link">Select all</button>
+                  <button id="clear-towns" type="button" class="link" disabled>Clear</button>
+                </div>
+                <p id="town-help" class="small muted" role="status" aria-live="polite">All towns</p>
+                <p id="town-status" class="status small" role="status" aria-live="polite" hidden></p>
+                <div id="chosen-towns" class="explorer-towns" role="region" aria-label="Selected towns" tabindex="0" hidden></div>
+              </div>
+              <label id="benchmark-control" class="check" hidden>
+                <input type="checkbox" id="benchmark" />
+                Connecticut comparison
+              </label>
+            </fieldset>
+            <fieldset id="filter-controls" hidden>
+              <legend>Filter rows</legend>
+              <div id="record-filters"></div>
+            </fieldset>
+          </section>
+          <section id="explore-view" class="tab-panel explorer-stage" role="tabpanel" aria-labelledby="explore-view-tab" hidden>
+            <div class="explorer-toolbar">
+              <div>
+                <h2 id="view-heading">Data view</h2>
+                <p id="selection-summary" class="small muted"></p>
+              </div>
+              <div id="visualization-controls" class="explorer-view-controls" hidden>
+                <div>
+                  <label for="chart-type">Display</label>
+                  <select id="chart-type" aria-describedby="chart-help">
+                    <option value="grouped_bar">Compare fields</option>
+                    <option value="bar">Separate charts</option>
+                    <option value="line">Line charts</option>
+                    <option value="table">Table</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+            <p id="chart-help" class="explorer-tip small muted" hidden></p>
+            <div id="explorer-empty" class="empty-state">
+              <h3>No fields selected</h3>
+              <button id="choose-fields" type="button" class="secondary">Choose fields</button>
+            </div>
+            <div id="preview" aria-label="Selected data"></div>
+            <div id="dataset-source" class="explorer-source" hidden></div>
+          </section>
+        </div>
+      </form>
     </main>
   </body>
 </html>

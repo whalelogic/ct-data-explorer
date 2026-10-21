@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Dataset overview · CT Civic Data Explorer</title>
+    <title>Dataset · CT Civic Data Explorer</title>
     <link rel="stylesheet" href="/css/app.css" />
     <script type="module" src="/js/dataset.js"></script>
   </head>
@@ -11,92 +11,79 @@
     <a class="skip-link" href="#main">Skip to content</a>
     <header class="site"><a class="brand" href="/">CT Civic Data Explorer</a></header>
     <main id="main" class="container">
-      <p><a id="back-link" href="/">← Back to datasets</a></p>
-      <h1 id="dataset-heading">Dataset overview</h1>
+      <p><a id="back-link" href="/">← Datasets</a></p>
+      <div class="page-toolbar">
+        <h1 id="dataset-heading">Dataset</h1>
+        <div id="dataset-actions" class="workspace-actions" hidden>
+          <span id="publish-state" class="badge"></span>
+          <a id="explore-dataset" class="button" hidden>Explore</a>
+          <a id="make-report" class="button secondary" hidden>New report</a>
+          <button id="toggle-active" type="button" class="secondary" hidden></button>
+        </div>
+      </div>
       <p id="page-status" class="status" role="alert" hidden></p>
       <button id="retry" type="button" class="secondary" hidden>Retry</button>
-      <div id="dataset-content" hidden>
-        <section class="panel" aria-labelledby="overview-heading">
-          <h2 id="overview-heading">Overview</h2>
+      <p id="dataset-status" class="status" role="status" hidden></p>
+      <div id="dataset-content" data-tabs="dataset" hidden>
+        <div class="workspace-tabs" role="tablist" aria-label="Dataset">
+          <button id="dataset-overview-tab" type="button" role="tab" aria-controls="dataset-overview" aria-selected="true" tabindex="0">Overview</button>
+          <button id="dataset-fields-tab" type="button" role="tab" aria-controls="dataset-fields" aria-selected="false" tabindex="-1">Fields</button>
+          <button id="dataset-data-tab" type="button" role="tab" aria-controls="dataset-data" aria-selected="false" tabindex="-1">Data</button>
+          <button id="dataset-appearance-tab" type="button" role="tab" aria-controls="dataset-appearance" aria-selected="false" tabindex="-1">Appearance</button>
+        </div>
+        <section id="dataset-overview" class="tab-panel" role="tabpanel" aria-labelledby="dataset-overview-tab">
           <dl id="dataset-metadata" class="saved-report-meta"></dl>
-          <div class="button-row">
-            <a id="explore-dataset" class="button" hidden>Explore dataset</a>
-            <a id="make-report" class="button secondary" hidden>Open report builder</a>
-            <button id="toggle-active" type="button" class="secondary" hidden></button>
-          </div>
-          <p id="dataset-status" class="status" role="status" hidden></p>
+          <details id="dataset-notes" hidden>
+            <summary>Import notes</summary>
+            <ul id="dataset-note-list"></ul>
+          </details>
         </section>
-        <section class="panel" aria-labelledby="presentation-heading">
-          <h2 id="presentation-heading">Customize names and display</h2>
-          <p class="muted">Set shared defaults for this dataset version. Source values, field keys and units stay unchanged. Individual reports can override these choices.</p>
-          <div id="dataset-presentation"></div>
-        </section>
-        <section id="curation-panel" class="panel" aria-labelledby="curation-heading" hidden>
-          <h2 id="curation-heading">Approve fields for exploration</h2>
-          <p class="muted">
-            Select the information users may explore. Review units, source notes and the reporting
-            period before publishing. Location names stay available as context.
-          </p>
-          <p id="curation-summary" class="curation-summary" role="status"></p>
-          <label for="curation-search">Find a field</label>
-          <input
-            id="curation-search"
-            type="search"
-            placeholder="Search field names or units"
-            autocomplete="off"
-          />
-          <div class="button-row">
-            <button id="approve-visible" type="button" class="secondary">
-              Select visible fields
-            </button>
-            <button id="clear-visible" type="button" class="secondary">Clear visible fields</button>
+        <section id="dataset-fields" class="tab-panel" role="tabpanel" aria-labelledby="dataset-fields-tab" hidden>
+          <div id="curation-panel" hidden>
+            <div class="page-toolbar">
+              <p id="curation-summary" class="curation-summary" role="status"></p>
+              <button id="save-curation" type="button">Save approval</button>
+            </div>
+            <label for="curation-search">Search fields</label>
+            <input id="curation-search" type="search" placeholder="Name or unit" autocomplete="off" />
+            <div class="button-row">
+              <button id="approve-visible" type="button" class="secondary">Select visible</button>
+              <button id="clear-visible" type="button" class="secondary">Clear visible</button>
+            </div>
+            <div id="curation-fields" class="curation-fields field-list-scroll"></div>
+            <p id="curation-status" class="status" role="status" hidden></p>
           </div>
-          <div id="curation-fields" class="curation-fields"></div>
-          <div class="button-row">
-            <button id="save-curation" type="button">Save field approval</button>
-          </div>
-          <p id="curation-status" class="status" role="status" hidden></p>
-        </section>
-        <section class="panel" aria-labelledby="indicators-heading">
-          <h2 id="indicators-heading">Dataset indicators</h2>
-          <p class="muted small">
-            Columns and values belong to this dataset version. Text, repeated town rows and missing
-            values are preserved.
-          </p>
-          <div class="table-wrap">
+          <div id="field-metadata" class="table-wrap field-list-scroll">
             <table class="data">
-              <caption class="sr-only">Indicators available in this dataset</caption>
+              <caption class="sr-only">Available fields</caption>
               <thead>
                 <tr>
-                  <th scope="col">Column key</th>
-                  <th scope="col">Label</th>
+                  <th scope="col">Field</th>
+                  <th scope="col">Type</th>
                   <th scope="col">Unit</th>
                   <th scope="col">Decimals</th>
-                  <th scope="col">Value</th>
                 </tr>
               </thead>
               <tbody id="indicators-body"></tbody>
             </table>
           </div>
           <details id="indicator-setup" hidden>
-            <summary>Add an indicator definition</summary>
+            <summary>Add indicator</summary>
             <div id="dataset-indicator-editor"></div>
           </details>
         </section>
-        <section class="panel" aria-labelledby="preview-heading">
-          <h2 id="preview-heading">Data preview</h2>
-          <p id="preview-summary" class="muted small" role="status"></p>
-          <div
-            id="data-preview"
-            class="table-wrap"
-            tabindex="0"
-            role="region"
-            aria-label="Dataset values, scroll horizontally for more columns"
-          ></div>
-          <div class="button-row">
-            <button id="previous" type="button" class="secondary">Previous rows</button>
-            <button id="next" type="button" class="secondary">Next rows</button>
+        <section id="dataset-data" class="tab-panel" role="tabpanel" aria-labelledby="dataset-data-tab" hidden>
+          <div class="page-toolbar">
+            <p id="preview-summary" class="muted small" role="status"></p>
+            <div class="button-row">
+              <button id="previous" type="button" class="secondary">Previous</button>
+              <button id="next" type="button" class="secondary">Next</button>
+            </div>
           </div>
+          <div id="data-preview" class="table-wrap preview-scroll" tabindex="0" role="region" aria-label="Dataset rows"></div>
+        </section>
+        <section id="dataset-appearance" class="tab-panel" role="tabpanel" aria-labelledby="dataset-appearance-tab" hidden>
+          <div id="dataset-presentation"></div>
         </section>
       </div>
     </main>

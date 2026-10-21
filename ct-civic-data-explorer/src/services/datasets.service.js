@@ -216,29 +216,61 @@ export async function getReportOptions(datasetId, user) {
     throw new HttpError(404, 'Dataset not found');
   }
 
+  if (dataset.data_format === 'records') {
+    return buildRecordReportOptions(dataset, await records.list(datasetId));
+  }
+
   const fields = await availableFields(dataset);
+  const places = await observations.previewPlaces(datasetId, { offset: 0, limit: 10000 });
+  const valuesByPlace = await observations.valuesByTown(datasetId, places.map((place) => place.id));
+  return buildIndicatorReportOptions(dataset, fields, places, valuesByPlace);
+}
+
+export function buildIndicatorReportOptions(dataset, fields, places, valuesByPlace) {
+  const sharedOptions = sharedReportOptions(dataset, fields);
+  const sourceRows = places.map((place) => ({
+    cell_values: Object.fromEntries(sharedOptions.columns.map((field) => [field.key, computeValue({
+      ...field,
+      numerator_key: field.numeratorKey,
+      denominator_key: field.denominatorKey,
+    }, valuesByPlace.get(place.id))])),
+  }));
+  return {
+    ...sharedOptions,
+    filters: buildFieldFilters(sharedOptions.columns, sourceRows),
+    repeatedRows: false,
+    ...geographyCapabilities(places),
+    places: places.map(presentPlace),
+  };
+}
+
+function sharedReportOptions(dataset, fields) {
   const approvedFields = applyFieldPresentation(approvedDefinitions(fields, dataset.approved_fields), dataset.presentation);
-  const sharedOptions = {
+  return {
     dataFormat: dataset.data_format ?? 'indicators',
     defaultChartType: dataset.presentation?.defaultChartType || 'grouped_bar',
     curationReviewed: Boolean(dataset.curation_reviewed_at),
     columns: addDisplayLabels(approvedFields),
   };
+}
 
-  if (dataset.data_format !== 'records') {
-    const places = await observations.previewPlaces(datasetId, { offset: 0, limit: 10000 });
-    return {
-      ...sharedOptions,
-      filters: [],
-      repeatedRows: false,
-      hasState: places.some((place) => place.geo_type === 'state'),
-      places: places.map(presentPlace),
-    };
-  }
+function geographyCapabilities(places) {
+  return {
+    hasGeography: places.length > 0,
+    hasLocations: places.length > 0,
+    hasState: places.some((place) => place.geo_type === 'state'),
+  };
+}
 
-  const sourceRows = await records.list(datasetId);
+/** Derive record choices from approved, presented fields and actual source rows. */
+export function buildRecordReportOptions(dataset, sourceRows) {
+  const fields = (dataset.column_definitions ?? []).filter((field) => field.role !== 'town');
+  const sharedOptions = sharedReportOptions(dataset, fields);
   const placesById = new Map();
+  let locatedRows = 0;
   for (const row of sourceRows) {
+    if (row.town_id == null) continue;
+    locatedRows++;
     placesById.set(row.town_id, {
       id: row.town_id,
       name: row.name,
@@ -246,23 +278,23 @@ export async function getReportOptions(datasetId, user) {
     });
   }
 
-  const repeatedRows = placesById.size < sourceRows.length;
+  const repeatedRows = placesById.size < locatedRows;
   const places = [...placesById.values()];
   places.sort((firstPlace, secondPlace) => firstPlace.name.localeCompare(secondPlace.name));
 
   return {
     ...sharedOptions,
-    hasState: sourceRows.some((row) => row.geo_type === 'state'),
+    ...geographyCapabilities(places),
     repeatedRows,
     places: places.map(presentPlace),
-    filters: repeatedRows ? buildCategoryFilters(approvedFields, sourceRows) : [],
+    filters: buildFieldFilters(sharedOptions.columns, sourceRows),
   };
 }
 
-function buildCategoryFilters(fields, sourceRows) {
+function buildFieldFilters(fields, sourceRows) {
   const filters = [];
   for (const field of fields) {
-    if (field.type !== 'text') {
+    if (field.type !== 'text' && field.type !== 'number') {
       continue;
     }
 
@@ -270,16 +302,22 @@ function buildCategoryFilters(fields, sourceRows) {
     for (const row of sourceRows) {
       const value = row.cell_values[field.key];
       if (value != null) {
-        distinctValues.add(value);
+        distinctValues.add(String(value));
       }
     }
-    if (distinctValues.size <= 250) {
-      filters.push({
-        key: field.key,
-        label: field.label,
-        values: [...distinctValues].sort(),
-      });
-    }
+    const freeText = distinctValues.size > 250;
+    filters.push({
+      key: field.key,
+      label: field.label,
+      displayLabel: field.displayLabel ?? field.label,
+      type: field.type,
+      unit: field.unit,
+      values: freeText ? [] : [...distinctValues].sort(field.type === 'number'
+        ? (first, second) => Number(first) - Number(second)
+        : (first, second) => first.localeCompare(second)),
+      freeText,
+      distinctValueCount: distinctValues.size,
+    });
   }
   return filters;
 }

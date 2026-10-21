@@ -75,7 +75,11 @@ export function renderWithPdfkit(report) {
 
 function drawBody(document, report) {
   const width = contentWidth(document);
-  const hasDataTable = report.blocks.some((block) => block.type === 'table' || block.type === 'records');
+  const tableLabels = new Set(report.blocks.flatMap((block) => {
+    if (block.type === 'records') return block.records.flatMap((record) => record.values);
+    if (block.type === 'table') return report.places.map((place) => place.label);
+    return [];
+  }));
 
   if (report.showTitle) {
     document.font('Poppins-ExtraBold');
@@ -105,7 +109,8 @@ function drawBody(document, report) {
     if (block.type === 'text') {
       drawText(document, block.nodes);
     } else if (block.type === 'chart') {
-      drawChart(document, block.chart, !hasDataTable);
+      const labelsMatchTable = block.chart.labels.every((label) => tableLabels.has(label));
+      drawChart(document, block.chart, !labelsMatchTable);
     } else if (block.type === 'table') {
       drawTable(document, report.places, block.indicators);
     } else if (block.type === 'records') {
@@ -290,7 +295,7 @@ function drawChart(document, chart, includeLabelKey) {
       benchmarkIndex: chart.benchmarkIndex - start,
       series: chart.series.map((series) => ({ ...series, values: series.values.slice(start, end) })),
     };
-    const range = chart.labels.length > CHART_PLACES_PER_PART ? `Locations ${start + 1}-${end} of ${chart.labels.length}` : '';
+    const range = chart.labels.length > CHART_PLACES_PER_PART ? `${chart.categoryLabel || 'Locations'} ${start + 1}-${end} of ${chart.labels.length}` : '';
     const shortenedLabels = drawChartPart(document, part, scale, range);
     for (const labelIndex of shortenedLabels) {
       labelReferences.push({ number: start + labelIndex + 1, label: part.labels[labelIndex] });
@@ -299,7 +304,7 @@ function drawChart(document, chart, includeLabelKey) {
   }
 
   if (includeLabelKey && labelReferences.length > 0) {
-    drawChartLabelKey(document, labelReferences);
+    drawChartLabelKey(document, labelReferences, chart.categoryLabel);
   }
 }
 
@@ -337,7 +342,10 @@ function drawChartPart(document, chart, scale, range) {
   }
   const headingHeight = titleHeight + (range ? 18 : 0) + legend.height + 20;
   const plotHeight = CHART_HEIGHT - 30;
-  ensureSpace(document, headingHeight + plotHeight + labelHeight + 12);
+  document.font('Poppins-Regular');
+  document.fontSize(document.reportStyle.textSize === 'large' ? 10.5 : 9);
+  const axisTitleHeight = chart.axisLabel ? document.heightOfString(chart.axisLabel, { width: width - axisWidth }) + 6 : 0;
+  ensureSpace(document, headingHeight + plotHeight + labelHeight + axisTitleHeight + 12);
   const top = document.y;
   document.font('Poppins-Bold');
   document.fontSize(12);
@@ -397,7 +405,7 @@ function drawChartPart(document, chart, scale, range) {
     drawChartBars(document, chart, plot, groupWidth, scale);
   }
 
-  // Draw the baseline and place labels after the chart data.
+  // Draw the baseline and category labels after the chart data.
   document.moveTo(plot.x, plot.y + plot.height);
   document.lineTo(plot.x + plot.width, plot.y + plot.height);
   document.lineWidth(1);
@@ -417,16 +425,24 @@ function drawChartPart(document, chart, scale, range) {
 
   document.x = MARGIN;
   document.y = plot.y + plot.height + labelHeight;
+  if (chart.axisLabel) {
+    document.font('Poppins-Regular');
+    document.fontSize(document.reportStyle.textSize === 'large' ? 10.5 : 9);
+    document.fillColor(MUTED);
+    document.text(chart.axisLabel, plot.x, document.y, { width: plot.width, align: 'center' });
+    document.y = plot.y + plot.height + labelHeight + axisTitleHeight;
+  }
   return shortenedLabels;
 }
 
 /** Keep full category names available when a chart has no accompanying table. */
-function drawChartLabelKey(document, labelReferences) {
+function drawChartLabelKey(document, labelReferences, categoryLabel = 'Locations') {
   ensureSpace(document, 60);
   document.font('Poppins-SemiBold');
   document.fontSize(10);
   document.fillColor(INK);
-  document.text('Full location labels', MARGIN, document.y, { width: contentWidth(document) });
+  const noun = { Locations: 'location', Rows: 'row', Categories: 'category' }[categoryLabel] || 'category';
+  document.text(`Full ${noun} labels`, MARGIN, document.y, { width: contentWidth(document) });
   for (const reference of labelReferences) {
     document.moveDown(0.4);
     ensureSpace(document, 30);
@@ -613,7 +629,7 @@ function drawTableRow(document, cells, layout, { bold = false, fill = null } = {
   document.y = y + height;
 }
 
-/** Split wide source data into smaller tables, repeating Town in each part. */
+/** Split wide source data into smaller tables, repeating identifying fields. */
 function drawRecordTables(document, block) {
   const repeatedColumns = block.repeatColumns ?? [0];
   const otherColumns = [];
@@ -623,9 +639,15 @@ function drawRecordTables(document, block) {
     }
   }
 
-  const columnsPerPart = 4 - repeatedColumns.length;
+  const columnsPerPart = Math.max(1, 4 - repeatedColumns.length);
+  const columnGroups = [];
   for (let start = 0; start < otherColumns.length; start += columnsPerPart) {
-    const columnIndices = [...repeatedColumns, ...otherColumns.slice(start, start + columnsPerPart)];
+    columnGroups.push([...repeatedColumns, ...otherColumns.slice(start, start + columnsPerPart)]);
+  }
+  if (otherColumns.length === 0) {
+    columnGroups.push(repeatedColumns);
+  }
+  for (const columnIndices of columnGroups) {
     const cellWidth = contentWidth(document) / columnIndices.length;
     const header = columnIndices.map((columnIndex) => block.columns[columnIndex].label);
 
@@ -637,8 +659,9 @@ function drawRecordTables(document, block) {
 
     for (const record of block.records) {
       let remainingValues = columnIndices.map((columnIndex) => record.values[columnIndex]);
+      let hasRemainingRow = true;
 
-      while (remainingValues.some((value) => value.length > 0)) {
+      while (hasRemainingRow) {
         document.font('Poppins-Regular');
         document.fontSize(document.reportStyle.textSize === 'large' ? 10.5 : 9);
         let availableHeight = document.page.height - document.page.margins.bottom - document.y - 10;
@@ -667,6 +690,7 @@ function drawRecordTables(document, block) {
         remainingValues = remainingValues.map((text, columnIndex) => {
           return text.slice(visibleValues[columnIndex].length);
         });
+        hasRemainingRow = remainingValues.some((value) => value.length > 0);
       }
     }
 

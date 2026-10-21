@@ -17,10 +17,6 @@ const RECORD_PAGE_SIZE = 50;
 export function renderReport(container, report) {
   clearReport(container);
   const pendingCharts = [];
-  const indicatorsByKey = new Map();
-  for (const indicator of report.indicators) {
-    indicatorsByKey.set(indicator.key, indicator);
-  }
 
   const style = resolveReportStyle(report.style);
   const article = createElement('article', { class: 'report', 'data-text-size': style.textSize, 'data-spacing': style.spacing });
@@ -36,7 +32,7 @@ export function renderReport(container, report) {
   }
 
   for (const block of report.blocks) {
-    const blockElement = renderBlock(block, report.places, indicatorsByKey, pendingCharts, style);
+    const blockElement = renderBlock(block, report.places, pendingCharts, style);
     if (blockElement) {
       article.append(blockElement);
     }
@@ -59,7 +55,7 @@ export function clearReport(container) {
   container.replaceChildren();
 }
 
-function renderBlock(block, places, indicatorsByKey, pendingCharts, style) {
+function renderBlock(block, places, pendingCharts, style) {
   switch (block.type) {
     case 'text': {
       const section = createElement('section', { class: 'report-text' });
@@ -72,7 +68,7 @@ function renderBlock(block, places, indicatorsByKey, pendingCharts, style) {
       return section;
     }
     case 'chart': {
-      return renderChart({ ...block.chart, style }, places, indicatorsByKey, pendingCharts);
+      return renderChart({ ...block.chart, style }, places, pendingCharts);
     }
     case 'table':
       return renderPagedIndicatorTable(places, block.indicators);
@@ -83,7 +79,7 @@ function renderBlock(block, places, indicatorsByKey, pendingCharts, style) {
   }
 }
 
-function renderChart(chart, places, indicatorsByKey, pendingCharts) {
+function renderChart(chart, places, pendingCharts) {
   const title = chart.title || chart.series.map((series) => series.label).join(', ');
   const canvas = createElement('canvas', { role: 'img' });
   const chartBox = createElement('div', { class: 'chart-box' }, canvas);
@@ -94,7 +90,7 @@ function renderChart(chart, places, indicatorsByKey, pendingCharts) {
     'aria-label': `${title}: chart`,
   }, chartBox);
   const tableContainer = createElement('div');
-  const summary = createElement('summary', {}, 'Show this chart page as a table');
+  const summary = createElement('summary', {}, 'Chart data');
   const details = createElement('details', { class: 'chart-data' }, summary, tableContainer);
   const heading = createElement('figcaption', { class: 'chart-title' }, title);
   const chartView = {
@@ -102,16 +98,15 @@ function renderChart(chart, places, indicatorsByKey, pendingCharts) {
     chartBox,
     tableContainer,
     chart,
-    places,
-    indicators: chart.series.map((series) => indicatorsByKey.get(series.key)).filter(Boolean),
+    places: chart.places ?? places,
     instance: null,
   };
   const pager = createPager(
     chart.labels.length,
     CHART_PAGE_SIZE,
-    'Locations',
+    chart.categoryLabel || 'Locations',
     updateChartPage.bind(null, chartView),
-    `${title}: location pages`,
+    `${title}: ${(chart.categoryLabel || 'Locations').toLowerCase()} pages`,
   );
   pendingCharts.push(chartView);
   return createElement('figure', { class: 'report-chart' }, heading, pager, chartScroll, details);
@@ -133,8 +128,34 @@ function updateChartPage(chartView, pageIndex) {
   chartView.canvas.setAttribute('aria-label', describeChart(chart));
   chartView.chartBox.style.minWidth = `${Math.max(440, chart.labels.length * 70)}px`;
   chartView.instance = drawChart(chartView.canvas, chart, chartView.chart);
-  const table = renderIndicatorTable(chartView.places, chartView.indicators, start, end);
+  const table = renderChartTable(chart, chartView.places.slice(start, end));
   chartView.tableContainer.replaceChildren(table);
+}
+
+/** Use the plotted values, including explicit aggregations and split series. */
+function renderChartTable(chart, places) {
+  const headingRow = createElement('tr', {}, createElement('th', { scope: 'col' }, 'Measure'));
+  for (const [index, label] of chart.labels.entries()) {
+    headingRow.append(createElement('th', { scope: 'col', class: 'num' }, places[index]?.label ?? label));
+  }
+  const tableBody = createElement('tbody');
+  for (const series of chart.series) {
+    const row = createElement('tr', {}, createElement('th', { scope: 'row' }, series.label));
+    for (const value of series.values) {
+      row.append(createElement('td', { class: 'num' }, formatValue(value, {
+        unit: series.unit ?? chart.unit,
+        decimals: series.decimals ?? chart.decimals,
+      })));
+    }
+    tableBody.append(row);
+  }
+  const table = createElement('table', { class: 'data' }, createElement('thead', {}, headingRow), tableBody);
+  return createElement('div', {
+    class: 'table-wrap',
+    tabindex: '0',
+    role: 'region',
+    'aria-label': 'Chart values',
+  }, table);
 }
 
 /** Page only the displayed values. The full selection remains available. */
@@ -374,6 +395,7 @@ function drawChart(canvas, chart, fullChart = chart) {
       scales: {
         x: {
           grid: { display: false },
+          title: { display: Boolean(chart.axisLabel), text: chart.axisLabel },
           ticks: {
             color: MUTED,
             autoSkip: false,
@@ -400,9 +422,10 @@ function drawChart(canvas, chart, fullChart = chart) {
         tooltip: {
           callbacks: {
             label: (context) => {
+              const series = chart.series[context.datasetIndex];
               const value = formatValue(context.parsed.y, {
-                unit: chart.unit,
-                decimals: chart.decimals,
+                unit: series.unit ?? chart.unit,
+                decimals: series.decimals ?? chart.decimals,
               });
               return `${context.dataset.label}: ${value}`;
             },
@@ -426,6 +449,7 @@ function describeChart(chart) {
   const chartTypes = { bar: 'Bar', grouped_bar: 'Grouped bar', line: 'Line' };
   const chartType = chartTypes[chart.type];
   const seriesLabels = chart.series.map((series) => series.label).join(', ');
-  const placeLabels = chart.labels.join(', ');
-  return `${chartType} chart of ${seriesLabels} for ${placeLabels}`;
+  const categoryLabels = chart.labels.join(', ');
+  const axis = chart.axisLabel ? `${chart.axisLabel}: ` : '';
+  return `${chartType} chart of ${seriesLabels} for ${axis}${categoryLabels}`;
 }

@@ -65,12 +65,9 @@ function renderDatasets() {
   document.getElementById('dataset-count').textContent = searchText
     ? `${matchingDatasetCount} of ${publishedDatasets.length}`
     : String(publishedDatasets.length);
-  let emptyMessage = 'No datasets match your search. Try a different name, source, or period.';
+  let emptyMessage = 'No matching datasets.';
   if (!searchText) {
-    const nextStep = currentUser.role === 'admin'
-      ? 'Use Manage datasets to upload and approve data.'
-      : 'Your data administrator can publish a dataset here.';
-    emptyMessage = `No published datasets yet. ${nextStep}`;
+    emptyMessage = 'No published datasets.';
   }
   showStatus(datasetStatus, matchingDatasetCount ? '' : emptyMessage);
 }
@@ -84,19 +81,13 @@ function createDatasetTile(dataset) {
     class: 'stretched-link',
   }, dataset.displayName || dataset.name);
   const title = createElement('h3', { class: 'saved-report-title' }, titleLink);
-  const metadata = `${dataset.vintage} · Version ${dataset.version} · ${dataset.rowCount.toLocaleString()} rows`;
-  let reviewStatus = 'Awaiting field approval';
-  if (hasApprovedFields) {
-    reviewStatus = dataset.curationReviewed ? 'Fields reviewed' : 'Field review pending';
-  }
+  const metadata = `${dataset.vintage} · ${dataset.rowCount.toLocaleString()} rows`;
   const body = createElement('div', { class: 'saved-report-body' });
   body.append(
-    createElement('p', { class: 'dashboard-dataset-period' }, dataset.vintage),
     title,
     createElement('p', { class: 'muted small' }, metadata),
     createElement('p', { class: 'dashboard-dataset-source' }, dataset.source),
-    ...(dataset.description ? [createElement('p', { class: 'small muted' }, dataset.description)] : []),
-    createElement('p', { class: 'dashboard-review', 'data-reviewed': dataset.curationReviewed }, reviewStatus),
+    ...(!hasApprovedFields ? [createElement('p', { class: 'dashboard-review' }, 'Fields awaiting approval')] : []),
   );
   const actions = createElement('div', { class: 'saved-report-actions' });
   if (hasApprovedFields) {
@@ -154,17 +145,13 @@ function renderReports() {
   document.getElementById('report-count').textContent = String(visibleReports.length);
   document.getElementById('reports-limit').hidden = matchingReports.length < 200;
   document.getElementById('reports-empty').hidden = visibleReports.length > 0;
-  let title = 'Your first report starts with a dataset';
-  let description = 'Choose the places and measures you need, then save your report here.';
+  let title = 'No saved reports';
   if (searchInput.value.trim()) {
-    title = 'No reports match your search';
-    description = 'Try another dataset or report name, or clear the search to see more reports.';
+    title = 'No matching reports';
   } else if (onlyMine.checked) {
-    title = 'You haven’t saved a report yet';
-    description = 'Create a report, or turn off Only my reports to browse your team’s work.';
+    title = 'No reports saved by you';
   }
   document.getElementById('reports-empty-title').textContent = title;
-  document.getElementById('reports-empty-description').textContent = description;
 }
 
 function compareReports(first, second) {
@@ -185,7 +172,7 @@ function createReportTile(report) {
   const townSummary = report.towns.length > 3
     ? `${report.towns.slice(0, 3).join(', ')} + ${report.towns.length - 3} more`
     : report.towns.join(', ');
-  const towns = createElement('p', { class: 'saved-report-towns' }, townSummary || 'No towns selected');
+  const towns = createElement('p', { class: 'saved-report-towns' }, townSummary || 'All source rows');
   const updatedTime = createElement('time', { datetime: report.updatedAt }, formatDate(report.updatedAt));
   const metadata = createElement('dl', { class: 'saved-report-meta' });
   metadata.append(
@@ -198,7 +185,7 @@ function createReportTile(report) {
   );
   const body = createElement('div', { class: 'saved-report-body' }, title, towns, metadata);
   const actions = createElement('div', { class: 'saved-report-actions' });
-  actions.append(createElement('a', { href: `/builder?report=${report.id}` }, 'Open report'));
+  actions.append(createElement('a', { href: `/builder?report=${report.id}` }, 'Open'));
   actions.append(...reportActionButtons(report, {
     user: currentUser,
     status: document.getElementById('report-action-status'),

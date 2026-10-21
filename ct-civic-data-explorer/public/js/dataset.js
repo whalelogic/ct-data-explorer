@@ -3,6 +3,7 @@ import { h as createElement } from './dom.js';
 import { mountDatasetPresentation } from './dataset-presentation.js';
 import { mountIndicatorEditor } from './indicator-editor.js';
 import { boot, formatDate, renderHeader, showStatus } from './layout.js';
+import { unitLabel } from '/shared/format.js';
 
 const PAGE_SIZE = 25;
 
@@ -12,6 +13,7 @@ let currentOverview;
 let previewOffset = 0;
 let fieldCuration;
 let approvedFieldKeys = new Set();
+let indicatorEditorMounted = false;
 
 function getElement(id) {
   return document.getElementById(id);
@@ -41,13 +43,11 @@ async function initializeDatasetPage() {
   await loadFieldCuration();
   await mountDatasetPresentation(getElement('dataset-presentation'), datasetId, async () => {
     await loadDataset();
-    await loadFieldCuration();
+    await loadFieldCuration({ preserveDraft: true });
   });
 }
 
 function initializeAdminControls() {
-  getElement('indicator-setup').hidden = false;
-  mountIndicatorEditor(getElement('dataset-indicator-editor'), 'dataset-indicator', reloadDataset);
   getElement('curation-search').addEventListener('input', renderCurationFields);
   getElement('approve-visible').addEventListener('click', approveVisibleFields);
   getElement('clear-visible').addEventListener('click', clearVisibleFields);
@@ -55,20 +55,19 @@ function initializeAdminControls() {
 }
 
 function updateCurationSummary() {
-  const approvalCount = `${approvedFieldKeys.size} of ${fieldCuration.fields.length} fields selected.`;
-  const reviewMessage = fieldCuration.curationReviewed
-    ? 'The saved approval controls user access.'
-    : 'Review pending. Save to confirm the approved fields.';
-  getElement('curation-summary').textContent = `${approvalCount} ${reviewMessage}`;
-
   const savedFieldKeys = fieldCuration.approvedFields;
   const hasUnsavedChanges = approvedFieldKeys.size !== savedFieldKeys.length
     || savedFieldKeys.some((fieldKey) => !approvedFieldKeys.has(fieldKey));
+  const state = hasUnsavedChanges ? 'Unsaved' : fieldCuration.curationReviewed ? 'Approved' : 'Review pending';
+  getElement('curation-summary').textContent = `${approvedFieldKeys.size} / ${fieldCuration.fields.length} selected · ${state}`;
+  getElement('save-curation').disabled = fieldCuration.curationReviewed && !hasUnsavedChanges;
 
   if (currentOverview && !currentOverview.dataset.isActive) {
     getElement('toggle-active').disabled = hasUnsavedChanges
       || !fieldCuration.curationReviewed
       || approvedFieldKeys.size === 0;
+    getElement('toggle-active').title = hasUnsavedChanges ? 'Save field approval first.'
+      : !fieldCuration.curationReviewed || !approvedFieldKeys.size ? 'Approve fields in the Fields tab first.' : '';
   }
 }
 
@@ -78,7 +77,7 @@ function renderCurationFields() {
   fieldsContainer.replaceChildren();
 
   for (const field of fieldCuration.fields) {
-    const searchableText = `${field.label} ${field.key} ${field.unit}`.toLowerCase();
+    const searchableText = `${field.displayLabel || ''} ${field.label} ${field.key} ${field.unit}`.toLowerCase();
     if (searchableText.includes(searchText)) {
       fieldsContainer.append(createCurationField(field));
     }
@@ -97,7 +96,7 @@ function createCurationField(field) {
     checked: approvedFieldKeys.has(field.key),
     onChange: handleFieldApprovalChange,
   });
-  const fieldType = field.type === 'text' ? 'Text' : field.unit || 'Number';
+  const fieldType = field.type === 'text' ? 'Text' : `Number${field.unit && field.unit !== 'number' ? ` · ${unitLabel(field.unit)}` : ''}`;
   const typeLabel = createElement('small', { class: 'muted' }, ` · ${fieldType}`);
   const fieldLabel = createElement('span', {}, field.displayLabel || field.label, typeLabel);
   return createElement('label', { class: 'check' }, checkbox, fieldLabel);
@@ -115,7 +114,7 @@ function handleFieldApprovalChange(event) {
 }
 
 function showUnsavedApprovalMessage() {
-  showStatus(getElement('curation-status'), 'Unsaved field approval. Save to apply these changes.');
+  showStatus(getElement('curation-status'), 'Unsaved approval.');
 }
 
 function approveVisibleFields() {
@@ -139,13 +138,20 @@ function changeVisibleFieldApproval(isApproved) {
   showUnsavedApprovalMessage();
 }
 
-async function loadFieldCuration() {
+async function loadFieldCuration({ preserveDraft = false } = {}) {
   if (!isAdmin) {
     return;
   }
+  const hasDraft = preserveDraft && fieldCuration
+    && (approvedFieldKeys.size !== fieldCuration.approvedFields.length
+      || fieldCuration.approvedFields.some((key) => !approvedFieldKeys.has(key)));
   fieldCuration = await api(`/datasets/${datasetId}/curation`);
-  approvedFieldKeys = new Set(fieldCuration.approvedFields);
+  const available = new Set(fieldCuration.fields.map((field) => field.key));
+  approvedFieldKeys = hasDraft
+    ? new Set([...approvedFieldKeys].filter((key) => available.has(key)))
+    : new Set(fieldCuration.approvedFields);
   getElement('curation-panel').hidden = false;
+  getElement('field-metadata').hidden = true;
   renderCurationFields();
 }
 
@@ -170,29 +176,33 @@ async function loadDataset(nextOffset = previewOffset) {
 }
 
 function renderDataset({ dataset, indicators, preview }) {
-  document.title = `${dataset.displayName || dataset.name} · Dataset overview`;
+  document.title = `${dataset.displayName || dataset.name} · Dataset`;
   getElement('dataset-heading').textContent = dataset.displayName || dataset.name;
   renderDatasetMetadata(dataset);
   renderDatasetActions(dataset);
   renderIndicators(indicators);
   renderDataPreview(dataset, indicators, preview);
+  const canDefineIndicators = isAdmin && dataset.dataFormat !== 'records';
+  getElement('indicator-setup').hidden = !canDefineIndicators;
+  if (canDefineIndicators && !indicatorEditorMounted) {
+    mountIndicatorEditor(getElement('dataset-indicator-editor'), 'dataset-indicator', reloadDataset);
+    indicatorEditorMounted = true;
+  }
 }
 
 function renderDatasetMetadata(dataset) {
   const metadata = [
     ['Source dataset', dataset.name],
-    ['Description', dataset.description || 'No description added'],
+    ...(dataset.description ? [['Description', dataset.description]] : []),
     ['Source', dataset.source],
-    ['Year or period', dataset.vintage],
+    ['Period', dataset.vintage],
     ['Version', dataset.version],
-    ['Uploaded rows', dataset.rowCount.toLocaleString('en-US')],
+    ['Rows', dataset.rowCount.toLocaleString('en-US')],
     ['Uploaded by', dataset.uploadedBy],
     ['Uploaded', formatDate(dataset.uploadedAt)],
-    ['Status', dataset.isActive ? 'Published' : 'Draft / archived'],
   ];
-  for (const note of dataset.importNotes) {
-    metadata.push(['Import note', note]);
-  }
+  getElement('dataset-notes').hidden = dataset.importNotes.length === 0;
+  getElement('dataset-note-list').replaceChildren(...dataset.importNotes.map((note) => createElement('li', {}, note)));
 
   const metadataContainer = getElement('dataset-metadata');
   metadataContainer.replaceChildren();
@@ -204,6 +214,9 @@ function renderDatasetMetadata(dataset) {
 }
 
 function renderDatasetActions(dataset) {
+  getElement('dataset-actions').hidden = false;
+  getElement('publish-state').textContent = dataset.isActive ? 'Published'
+    : !dataset.curationReviewed || !dataset.approvedFields?.length ? 'Unpublished · Review fields' : 'Unpublished';
   const reportLink = getElement('make-report');
   reportLink.hidden = !dataset.isActive;
   reportLink.href = `/builder?dataset=${dataset.id}`;
@@ -214,9 +227,10 @@ function renderDatasetActions(dataset) {
 
   const publishButton = getElement('toggle-active');
   publishButton.hidden = !isAdmin;
-  publishButton.textContent = dataset.isActive ? 'Unpublish version' : 'Publish for exploration';
+  publishButton.textContent = dataset.isActive ? 'Unpublish' : 'Publish';
   publishButton.disabled = !dataset.isActive
     && (!dataset.curationReviewed || !dataset.approvedFields?.length);
+  publishButton.title = publishButton.disabled ? 'Approve fields in the Fields tab first.' : '';
 }
 
 function renderIndicators(indicators) {
@@ -226,36 +240,25 @@ function renderIndicators(indicators) {
     tableBody.append(createIndicatorRow(indicator));
   }
   if (!indicators.length) {
-    const emptyCell = createElement('td', { colspan: 5 }, 'No stored indicator values.');
+    const emptyCell = createElement('td', { colspan: 4 }, 'No fields.');
     tableBody.append(createElement('tr', {}, emptyCell));
   }
 }
 
 function createIndicatorRow(indicator) {
-  const indicatorKey = createElement('code', {}, indicator.key);
-  const rowHeading = createElement('th', { scope: 'row' }, indicatorKey);
+  const rowHeading = createElement('th', { scope: 'row' }, indicator.displayLabel || indicator.label);
   const isText = indicator.type === 'text';
-  let derivation = 'Uploaded column';
-  if (indicator.derivation === 'ratio') {
-    derivation = `${indicator.numeratorKey} ÷ ${indicator.denominatorKey}`;
-  } else if (isText) {
-    derivation = 'Category / text';
-  }
-
   const row = createElement('tr', {}, rowHeading);
   row.append(
-    createElement('td', {}, indicator.label),
-    createElement('td', {}, isText ? 'Text' : indicator.unit),
+    createElement('td', {}, isText ? 'Text' : 'Number'),
+    createElement('td', {}, isText || !indicator.unit || indicator.unit === 'number' ? '—' : unitLabel(indicator.unit)),
     createElement('td', {}, isText ? '—' : indicator.decimals),
-    createElement('td', {}, derivation),
   );
   return row;
 }
 
 function renderDataPreview(dataset, indicators, preview) {
   const isRecordDataset = dataset.dataFormat === 'records';
-  getElement('indicators-heading').textContent = isRecordDataset ? 'Dataset columns' : 'Dataset indicators';
-
   const table = createElement('table', { class: 'data' });
   const captionText = `${dataset.name}, ${dataset.vintage}, version ${dataset.version}`;
   table.append(createElement('caption', { class: 'sr-only' }, captionText));
@@ -263,12 +266,11 @@ function renderDataPreview(dataset, indicators, preview) {
   table.append(createPreviewBody(isRecordDataset, preview));
   getElement('data-preview').replaceChildren(table);
 
-  let summary = 'This dataset has no stored values to preview.';
+  let summary = 'No rows.';
   if (preview.total) {
     const firstRow = preview.rows.length ? previewOffset + 1 : 0;
     const lastRow = previewOffset + preview.rows.length;
-    const rowType = isRecordDataset ? 'source records' : 'places with stored values';
-    summary = `Rows ${firstRow}–${lastRow} of ${preview.total} ${rowType}. Unavailable values are shown as N/A.`;
+    summary = `Rows ${firstRow}–${lastRow} of ${preview.total}`;
   }
   getElement('preview-summary').textContent = summary;
   getElement('previous').disabled = previewOffset === 0;
@@ -281,12 +283,14 @@ function createPreviewHeader(isRecordDataset, indicators, columns) {
 
   if (isRecordDataset) {
     for (const column of columns) {
-      headingRow.append(createElement('th', { scope: 'col' }, column.label));
+      const label = column.displayLabel || column.label;
+      const unit = column.type === 'number' && column.unit && column.unit !== 'number' ? ` (${unitLabel(column.unit)})` : '';
+      headingRow.append(createElement('th', { scope: 'col' }, `${label}${unit}`));
     }
   } else {
     for (const indicator of indicators) {
-      const suffix = indicator.derivation === 'ratio' ? ' (computed)' : '';
-      headingRow.append(createElement('th', { scope: 'col', class: 'num' }, `${indicator.displayLabel}${suffix}`));
+      const unit = indicator.unit && indicator.unit !== 'number' ? ` (${unitLabel(indicator.unit)})` : '';
+      headingRow.append(createElement('th', { scope: 'col', class: 'num' }, `${indicator.displayLabel || indicator.label}${unit}`));
     }
   }
   return createElement('thead', {}, headingRow);
@@ -329,14 +333,13 @@ async function togglePublishedStatus() {
       json: { isActive: !currentOverview.dataset.isActive },
     });
     await loadDataset();
-    const message = dataset.isActive
-      ? 'This version is now available in Explore data.'
-      : 'This version has been unpublished.';
+    const message = dataset.isActive ? 'Published.' : 'Unpublished.';
     showStatus(getElement('dataset-status'), message, 'ok');
   } catch (error) {
     showStatus(getElement('dataset-status'), error.message, 'error');
   } finally {
-    publishButton.disabled = false;
+    renderDatasetActions(currentOverview.dataset);
+    if (fieldCuration) updateCurationSummary();
   }
 }
 
@@ -352,18 +355,15 @@ async function saveFieldCuration() {
     renderCurationFields();
     await loadDataset();
 
-    let message = 'No fields approved. This dataset is unpublished.';
+    let message = 'No approved fields · Unpublished.';
     if (approvedFieldKeys.size) {
-      const nextStep = currentOverview.dataset.isActive
-        ? 'Exploration now uses this selection.'
-        : 'Publish this version when your review is complete.';
-      message = `Saved ${approvedFieldKeys.size} approved fields. ${nextStep}`;
+      message = `${approvedFieldKeys.size} fields approved.`;
     }
     showStatus(getElement('curation-status'), message, 'ok');
   } catch (error) {
     showStatus(getElement('curation-status'), error.message, 'error');
   } finally {
-    saveButton.disabled = false;
+    updateCurationSummary();
   }
 }
 

@@ -1,6 +1,6 @@
 # CT Data Explorer
 
-#### A capstone project for the SCSU Computer Science program: CTData staff curate datasets and approved fields, then signed-in users choose Connecticut locations and explore charts and tables. Saved reports and PDF exports are optional next steps.
+#### A capstone project for the SCSU Computer Science program: CTData staff curate datasets and approved fields, then signed-in users explore records, categories, and locations through charts and tables. Saved reports and PDF exports are optional next steps.
 
 #### __Contributors:__
 - [@whalelogic](Keith Thomson) - Systems architecture, configurations, docker, and CI/CD

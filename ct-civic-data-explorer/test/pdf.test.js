@@ -160,6 +160,37 @@ test('source rows beyond the old limit remain in every column group', async (con
   }
 });
 
+test('category and source-row charts retain custom axes, units and complete labels across PDF pages', async (context) => {
+  const writtenText = capturePdfText(context);
+  const labels = Array.from({ length: 8 }, (_, index) => `Category ${index + 1}: ${'Detailed source classification. '.repeat(8)}`);
+  const chart = {
+    ...incomeChart,
+    title: 'Total pay by classification', axisField: 'category', axisLabel: 'Classification',
+    categoryLabel: 'Categories', aggregation: 'sum', labels,
+    places: labels.map((label) => ({ label })), benchmarkIndex: -1,
+    series: [{ key: 'pay', label: 'Total pay', values: labels.map((_, index) => index + 100) }],
+  };
+  const unrelatedTable = {
+    type: 'records', columns: [{ label: 'Reference', type: 'text' }], repeatColumns: [0],
+    records: [{ values: ['A separate source reference'] }],
+  };
+  const pdf = await renderReportPdf(makeReport({ blocks: [{ type: 'chart', chart }, unrelatedTable] }));
+  assert.ok(pageCount(pdf) >= 2);
+  for (const expected of [chart.title, 'Classification', 'US dollars', 'Categories 1-6 of 8', 'Categories 7-8 of 8', 'Full category labels']) {
+    assert.ok(writtenText.includes(expected), expected);
+  }
+  for (const label of labels) {
+    assert.ok(writtenText.some((text) => text.endsWith(label)), 'Full custom chart labels must survive an unrelated source table.');
+  }
+  assert.ok(writtenText.includes('A separate source reference'), 'A single selected field must still produce a source table.');
+  assert.ok(!writtenText.includes('Full location labels'));
+
+  writtenText.length = 0;
+  await renderReportPdf(makeReport({ blocks: [{ type: 'chart', chart: { ...chart, categoryLabel: 'Rows', aggregation: 'none' } }] }));
+  assert.ok(writtenText.includes('Rows 7-8 of 8'));
+  assert.ok(writtenText.includes('Full row labels'));
+});
+
 test('charts preserve negative indicator values on their axis', async (context) => {
   const writtenText = capturePdfText(context);
   const chart = {

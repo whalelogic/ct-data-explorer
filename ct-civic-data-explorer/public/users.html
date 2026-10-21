@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Users · CT Civic Data Explorer</title>
+  <title>People · CT Civic Data Explorer</title>
   <link rel="stylesheet" href="/css/app.css">
   <script type="module" src="/js/users.js"></script>
 </head>
@@ -11,34 +11,43 @@
   <a class="skip-link" href="#main">Skip to content</a>
   <header class="site"><a class="brand" href="/">CT Civic Data Explorer</a></header>
   <main id="main" class="container">
-    <h1>Users</h1>
-    <p><a href="/admin">← Back to datasets</a></p>
+    <div class="workspace-heading"><h1>People</h1></div>
     <p id="page-status" class="status" role="alert" hidden></p>
-
-    <section class="panel" aria-labelledby="users-heading">
-      <h2 id="users-heading">Users</h2>
-      <form id="invite-form" class="grid-form" novalidate>
-        <div><label for="user-first">First name</label><input id="user-first" name="firstName" required autocomplete="off"></div>
-        <div><label for="user-last">Last name</label><input id="user-last" name="lastName" required autocomplete="off"></div>
-        <div><label for="user-email">Email</label><input id="user-email" name="email" type="email" required autocomplete="off"></div>
-        <div>
-          <label for="user-role">Role</label>
-          <select id="user-role" name="role"><option value="staff">Staff</option><option value="admin">Admin</option></select>
-        </div>
-        <div class="button-row"><button type="submit">Invite user</button></div>
-      </form>
-      <p class="muted small">No email is sent. Copy the one-time link and send it to the person yourself.</p>
+    <div data-tabs="people">
+      <div class="workspace-tabs" role="tablist" aria-label="People">
+        <button type="button" role="tab" id="people-tab" aria-controls="people-panel" aria-selected="true" tabindex="0">People</button>
+        <button type="button" role="tab" id="invite-tab" aria-controls="invite-panel" aria-selected="false" tabindex="-1">Add person</button>
+      </div>
+    <section class="panel tab-panel" id="people-panel" role="tabpanel" aria-labelledby="people-tab">
       <p id="users-status" class="status" role="status" hidden></p>
       <div id="user-link" class="status" hidden></div>
       <div class="table-wrap">
         <table class="data">
+          <caption class="sr-only">People and access</caption>
           <thead>
             <tr><th scope="col">Name</th><th scope="col">Email</th><th scope="col">Role</th><th scope="col">Status</th><th scope="col"><span class="sr-only">Actions</span></th></tr>
           </thead>
-          <tbody id="users-body"></tbody>
+          <tbody id="users-body"><tr><td colspan="5" class="muted">Loading people…</td></tr></tbody>
         </table>
       </div>
     </section>
+    <section class="panel tab-panel" id="invite-panel" role="tabpanel" aria-labelledby="invite-tab" hidden>
+      <form id="invite-form" novalidate>
+        <div class="grid-form">
+          <div><label for="user-first">First name</label><input id="user-first" name="firstName" maxlength="100" required autocomplete="off"></div>
+          <div><label for="user-last">Last name</label><input id="user-last" name="lastName" maxlength="100" required autocomplete="off"></div>
+          <div><label for="user-email">Email</label><input id="user-email" name="email" type="email" required autocomplete="off"></div>
+          <div>
+            <label for="user-role">Role</label>
+            <select id="user-role" name="role"><option value="staff">Staff</option><option value="admin">Admin</option></select>
+          </div>
+        </div>
+        <div class="workspace-actions"><button type="submit">Create invite</button><span class="muted small">Link only · no email sent</span></div>
+      </form>
+      <p id="invite-status" class="status" role="status" hidden></p>
+      <div id="invite-link" class="status" hidden></div>
+    </section>
+    </div>
   </main>
 </body>
 </html>

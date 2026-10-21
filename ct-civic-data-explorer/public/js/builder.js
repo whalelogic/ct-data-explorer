@@ -2,17 +2,18 @@
  * The report selection is shared by the preview, PDF, summary, and save APIs.
  * Form controls and the layout editor update this same object.
  */
-import { fieldUnitLabel, groupFieldsByUnit } from '/shared/field-groups.js';
+import { fieldUnitLabel, fieldValueLabel, groupFieldsByUnit } from '/shared/field-groups.js';
 import { mountReportStyleEditor } from './report-style-editor.js';
 import { api, loadSession } from './api.js';
 import { clearReport, renderReport } from './report-view.js';
 import { h as createElement } from './dom.js';
 import { boot, debounce, downloadBlob, renderHeader, showStatus } from './layout.js';
+import { initializeTabs, revealTab } from './tabs.js';
 
 const BLOCK_NAMES = { text: 'Text', chart: 'Chart', table: 'Table' };
 const CHART_TYPES = [
-  { value: 'grouped_bar', label: 'Compare selected fields' },
-  { value: 'bar', label: 'Separate charts' },
+  { value: 'grouped_bar', label: 'Grouped bar' },
+  { value: 'bar', label: 'Separate bars' },
   { value: 'line', label: 'Line' },
 ];
 
@@ -29,6 +30,10 @@ let optionsRequestNumber = 0;
 let previewRequestNumber = 0;
 let isLoadingOptions = false;
 let defaultChartType = 'grouped_bar';
+let currentDatasetOptions = { columns: [], places: [], dataFormat: 'records', hasState: false };
+let defaultReportTitle = '';
+let activeBlockIndex = 0;
+let activeOverrideKey = '';
 
 const schedulePreview = debounce(refreshPreview, 300);
 
@@ -45,12 +50,12 @@ async function initializeBuilder() {
   currentUser = session.user;
   renderHeader(currentUser);
 
-  const [datasets, towns] = await Promise.all([api('/datasets'), api('/towns')]);
+  const datasets = await api('/datasets');
   activeDatasets = datasets.filter((dataset) => dataset.isActive);
   await loadInitialSelection();
 
   renderDatasetOptions();
-  fillFormControls(towns);
+  fillFormControls();
   getElement('ai-panel').hidden = !session.features.aiSummary;
   updateHeading();
 
@@ -61,6 +66,7 @@ async function initializeBuilder() {
     prefix: 'report-style', overrides: true,
     onChange: handleStyleChange,
   });
+  initializeTabs(getElement('report-style'));
   updateStyleEditor();
   registerEventHandlers();
   await refreshPreview();
@@ -78,7 +84,7 @@ async function loadInitialSelection() {
   reportSelection = {
     dataset: null,
     towns: [],
-    benchmark: true,
+    benchmark: false,
     indicators: [],
     showTitle: true,
     title: '',
@@ -155,8 +161,7 @@ function renderDatasetOptions() {
   datasetSelect.value = String(selectedIndex);
 }
 
-function fillFormControls(towns) {
-  availableTowns = towns.filter((town) => town.geoType === 'town');
+function fillFormControls() {
   renderTownSelection();
   getElement('benchmark').checked = reportSelection.benchmark;
   getElement('show-title').checked = reportSelection.showTitle;
@@ -177,7 +182,7 @@ function readFormControls() {
   reportSelection.title = getElement('title').value;
   reportSelection.subtitle = getElement('subtitle').value;
   const filterEntries = [];
-  for (const input of getElement('record-filters').querySelectorAll('select')) {
+  for (const input of getElement('record-filters').querySelectorAll('[data-column]')) {
     if (input.value !== '') {
       filterEntries.push([input.dataset.column, input.value]);
     }
@@ -198,6 +203,10 @@ function registerEventHandlers() {
   getElement('clear-towns').addEventListener('click', clearTowns);
   getElement('save').addEventListener('click', saveReport);
   getElement('reset-overrides').addEventListener('click', resetFieldOverrides);
+  getElement('field-search').addEventListener('input', () => renderIndicators());
+  getElement('select-all-fields').addEventListener('click', selectAllFields);
+  getElement('clear-fields').addEventListener('click', clearFields);
+  getElement('block-picker').addEventListener('change', handleBlockSelection);
   getElement('pdf').addEventListener('click', downloadPdf);
   getElement('draft-summary').addEventListener('click', draftSummary);
   getElement('draft-regenerate').addEventListener('click', draftSummary);
@@ -237,7 +246,9 @@ function renderTownSelection() {
     removeButton.append(createElement('span', { 'aria-hidden': 'true' }, ' ×'));
     selectedList.append(removeButton);
   }
-  getElement('builder-town-count').textContent = `${reportSelection.towns.length} towns selected · ${availableTowns.length} available`;
+  getElement('builder-town-count').textContent = reportSelection.towns.length
+    ? `${reportSelection.towns.length} of ${availableTowns.length} towns`
+    : 'All towns';
   getElement('add-town').disabled = availableTowns.length === 0;
   getElement('select-all-towns').disabled = availableTowns.length === 0;
   getElement('clear-towns').disabled = reportSelection.towns.length === 0;
@@ -292,17 +303,19 @@ function updateTowns() {
 }
 
 function handleFormChange(event) {
-  if (event.target.closest('[data-no-preview]')) {
+  if (event.target.id === 'dataset' || event.target.closest('[data-no-preview]')) {
     return;
   }
   invalidatePreview();
   readFormControls();
+  updateTitleDefaults();
   if (event.target.id !== 'dataset') {
     schedulePreview();
   }
 }
 
 async function handleDatasetChange() {
+  invalidatePreview();
   readFormControls();
   reportSelection.recordFilters = {};
   reportSelection.fieldOverrides = {};
@@ -317,9 +330,8 @@ async function handleDatasetChange() {
     reportSelection.towns = reportSelection.towns.filter((town) => availableTownNames.has(town));
     renderTownSelection();
     const removedTownCount = previousTownCount - reportSelection.towns.length;
-    const removedTownLabel = removedTownCount === 1 ? 'town is' : 'towns are';
     const removedMessage = removedTownCount > 0
-      ? `${removedTownCount} previously selected ${removedTownLabel} not available in this dataset. The selection has been updated.`
+      ? `${removedTownCount} unavailable ${removedTownCount === 1 ? 'town removed' : 'towns removed'}.`
       : '';
     showStatus(getElement('builder-town-status'), removedMessage);
     renderIndicators();
@@ -333,6 +345,9 @@ async function handleDatasetChange() {
 async function loadDatasetColumns() {
   const requestNumber = ++optionsRequestNumber;
   isLoadingOptions = true;
+  getElement('save').disabled = true;
+  getElement('pdf').disabled = true;
+  getElement('record-filter-panel').disabled = true;
   const selectedDataset = activeDatasets.find((dataset) => reportSelection.dataset && isSameDataset(dataset, reportSelection.dataset));
   let options = { columns: [], filters: [], places: [], hasState: false };
 
@@ -353,9 +368,12 @@ async function loadDatasetColumns() {
   }
 
   defaultChartType = options.defaultChartType || 'grouped_bar';
+  currentDatasetOptions = options;
   updateStyleEditor();
   availableIndicators = options.columns;
   availableTowns = options.places.filter((place) => place.geoType === 'town');
+  getElement('location-selection').hidden = availableTowns.length === 0;
+  getElement('benchmark-control').hidden = !options.hasState;
   renderTownSelection();
   indicatorsByKey = new Map();
   for (const indicator of availableIndicators) {
@@ -364,7 +382,7 @@ async function loadDatasetColumns() {
   reportSelection.indicators = reportSelection.indicators.filter((key) => indicatorsByKey.has(key));
   removeUnselectedBlockIndicators();
   if (availableIndicators.length === 0) {
-    showStatus(getElement('builder-status'), 'This dataset has no approved fields. Choose another dataset or ask a data administrator to review it.');
+    showStatus(getElement('builder-status'), 'No approved fields. Choose another dataset.');
   }
 
   getElement('benchmark').disabled = !options.hasState;
@@ -374,6 +392,10 @@ async function loadDatasetColumns() {
   }
   renderRecordFilters(options.filters);
   isLoadingOptions = false;
+  getElement('save').disabled = false;
+  getElement('pdf').disabled = false;
+  getElement('record-filter-panel').disabled = false;
+  updateTitleDefaults();
   return true;
 }
 
@@ -383,15 +405,20 @@ function renderRecordFilters(filters) {
   filterContainer.replaceChildren();
 
   for (const filter of filters) {
-    const select = createElement('select', { id: `filter-${filter.key}`, 'data-column': filter.key });
-    select.append(createElement('option', { value: '' }, 'All source rows'));
-    for (const value of filter.values) {
-      select.append(createElement('option', { value }, value));
+    const select = createElement(filter.freeText ? 'input' : 'select', {
+      id: `filter-${filter.key}`, 'data-column': filter.key,
+      placeholder: 'Exact source value',
+    });
+    if (!filter.freeText) {
+      select.append(createElement('option', { value: '' }, 'All values'));
+      for (const value of filter.values) {
+        select.append(createElement('option', { value }, fieldValueLabel(indicatorsByKey.get(filter.key) ?? filter, value)));
+      }
     }
     select.value = reportSelection.recordFilters?.[filter.key] ?? '';
 
     const filterRow = createElement('div');
-    filterRow.append(createElement('label', { for: select.id }, filter.label), select);
+    filterRow.append(createElement('label', { for: select.id }, `${filter.displayLabel || filter.label} · ${fieldMetadata(filter)}`), select);
     filterContainer.append(filterRow);
   }
 }
@@ -402,7 +429,14 @@ function removeUnselectedBlockIndicators() {
   }
   for (const block of reportSelection.layout) {
     if (block.indicators) {
-      block.indicators = block.indicators.filter((key) => reportSelection.indicators.includes(key));
+      block.indicators = block.indicators.filter((key) => reportSelection.indicators.includes(key)
+        && (block.type !== 'chart' || indicatorsByKey.get(key)?.type !== 'text'));
+    }
+    for (const setting of ['axisField', 'seriesField']) {
+      if (block[setting] && !indicatorsByKey.has(block[setting]) && block[setting] !== '@row'
+        && !(block[setting] === '@location' && currentDatasetOptions.places.length > 0)) {
+        block[setting] = '';
+      }
     }
   }
 }
@@ -418,7 +452,9 @@ function renderIndicators(focusId) {
 
   const indicatorList = getElement('indicator-list');
   indicatorList.replaceChildren();
-  const orderedFields = orderedKeys.map((key) => indicatorsByKey.get(key));
+  const search = getElement('field-search').value.trim().toLowerCase();
+  const orderedFields = orderedKeys.map((key) => indicatorsByKey.get(key))
+    .filter((field) => `${fieldDisplayLabel(field)} ${fieldTypeLabel(field)} ${fieldUnitLabel(field)} ${field.unit || ''}`.toLowerCase().includes(search));
   for (const group of groupFieldsByUnit(orderedFields)) {
     const section = createElement('fieldset', { class: 'unit-field-group' });
     section.append(createElement('legend', {}, group.label));
@@ -427,6 +463,10 @@ function renderIndicators(focusId) {
     section.append(choices);
     indicatorList.append(section);
   }
+  if (!orderedFields.length) indicatorList.append(createElement('p', { class: 'muted small' }, search ? 'No matching fields.' : 'No approved fields.'));
+  getElement('field-count').textContent = `${chosenKeys.length} selected`;
+  getElement('clear-fields').disabled = chosenKeys.length === 0;
+  getElement('select-all-fields').disabled = chosenKeys.length === availableIndicators.length;
   renderFieldOverrides();
   restoreFocus(focusId, 'button:not(:disabled), input');
 }
@@ -445,8 +485,8 @@ function createIndicatorChoice(indicator, chosenKeys) {
   });
   const label = createElement('label', { for: inputId });
   label.append(
-    createElement('span', {}, indicator.label),
-    createElement('span', { class: 'field-label-unit' }, fieldUnitLabel(indicator)),
+    createElement('span', {}, fieldDisplayLabel(indicator)),
+    createElement('span', { class: 'field-label-unit' }, fieldMetadata(indicator)),
   );
   row.append(checkbox, label);
 
@@ -493,6 +533,25 @@ function handleIndicatorChange(event) {
   removeUnselectedBlockIndicators();
   renderIndicators(`indicator-${indicatorKey}`);
   renderLayout();
+  updateTitleDefaults();
+  schedulePreview();
+}
+
+function selectAllFields() {
+  updateSelectedFields(availableIndicators.map((field) => field.key));
+}
+
+function clearFields() {
+  updateSelectedFields([]);
+}
+
+function updateSelectedFields(keys) {
+  invalidatePreview();
+  reportSelection.indicators = keys;
+  removeUnselectedBlockIndicators();
+  renderIndicators();
+  renderLayout();
+  updateTitleDefaults();
   schedulePreview();
 }
 
@@ -520,39 +579,65 @@ function handleMoveIndicator(event) {
 function renderLayout(focusId) {
   const layoutList = getElement('layout-list');
   layoutList.replaceChildren();
+  activeBlockIndex = Math.max(0, Math.min(activeBlockIndex, reportSelection.layout.length - 1));
+  const picker = getElement('block-picker');
+  picker.replaceChildren();
   for (const [index, block] of reportSelection.layout.entries()) {
+    picker.append(createElement('option', { value: String(index) }, blockPickerLabel(block, index)));
+  }
+  picker.value = String(activeBlockIndex);
+  picker.disabled = reportSelection.layout.length === 0;
+  if (reportSelection.layout.length) {
+    const index = activeBlockIndex;
+    const block = reportSelection.layout[index];
     const blockId = `block-${index}`;
     const blockName = `${BLOCK_NAMES[block.type]} block ${index + 1}`;
-    const row = createElement('li', { class: 'layout-block', 'aria-labelledby': `${blockId}-name` });
+    const row = createElement('li', { class: 'layout-block', value: index + 1, 'aria-labelledby': `${blockId}-name` });
     const heading = createElement('div', { class: 'layout-block-head' });
-    const nameLabel = createElement('span', { id: `${blockId}-name`, class: 'layout-block-name' }, blockName);
+    const nameLabel = createElement('span', { id: `${blockId}-name`, class: 'layout-block-name' }, `${BLOCK_NAMES[block.type]} ${index + 1} of ${reportSelection.layout.length}`);
     heading.append(nameLabel, createBlockOrderControls(index, blockId, blockName));
     row.append(heading, createBlockEditor(block, index, blockId, blockName));
     layoutList.append(row);
   }
 
   if (reportSelection.layout.length === 0) {
-    layoutList.append(createElement('li', { class: 'muted small' }, 'Add a chart or a table so the report shows its figures.'));
+    layoutList.append(createElement('li', { class: 'muted small' }, 'No blocks.'));
   }
   restoreFocus(focusId, 'button:not(:disabled), textarea, select');
+}
+
+function blockPickerLabel(block, index) {
+  const title = block.type === 'chart' ? (block.title || chartTitleDefault(block))
+    : block.type === 'text' ? block.text.trim().split('\n')[0].replace(/^#+\s*/, '') : '';
+  return `${index + 1}. ${BLOCK_NAMES[block.type]}${title ? ` · ${title.slice(0, 70)}` : ''}`;
+}
+
+function updateBlockPickerLabel(index) {
+  const option = getElement('block-picker').children[index];
+  if (option) option.textContent = blockPickerLabel(reportSelection.layout[index], index);
+}
+
+function handleBlockSelection(event) {
+  activeBlockIndex = Number(event.currentTarget.value);
+  renderLayout();
 }
 
 function createBlockOrderControls(index, blockId, blockName) {
   const orderControls = createElement('span', { class: 'order' });
   const upButton = createElement('button', {
     type: 'button', class: 'icon', id: `${blockId}-up`,
-    'aria-label': `Move ${blockName} up`, disabled: index === 0,
+    'aria-label': `Move ${blockName} up`, title: 'Move up', disabled: index === 0,
     'data-block-index': index, 'data-direction': -1, onClick: handleMoveBlock,
   }, '↑');
   const downButton = createElement('button', {
     type: 'button', class: 'icon', id: `${blockId}-down`,
-    'aria-label': `Move ${blockName} down`, disabled: index === reportSelection.layout.length - 1,
+    'aria-label': `Move ${blockName} down`, title: 'Move down', disabled: index === reportSelection.layout.length - 1,
     'data-block-index': index, 'data-direction': 1, onClick: handleMoveBlock,
   }, '↓');
   const removeButton = createElement('button', {
-    type: 'button', class: 'icon', 'aria-label': `Remove ${blockName}`,
+    type: 'button', class: 'link', 'aria-label': `Remove ${blockName}`,
     'data-block-index': index, onClick: handleRemoveBlock,
-  }, '✕');
+  }, 'Remove');
   orderControls.append(upButton, downButton, removeButton);
   return orderControls;
 }
@@ -562,15 +647,13 @@ function createBlockEditor(block, index, blockId, blockName) {
     return createElement('textarea', {
       id: `${blockId}-text`, rows: 5, maxlength: 4000,
       'aria-label': blockName, value: block.text,
-      placeholder: '## Heading\n\nA paragraph of text.\n\n- A list item',
+      placeholder: '## Heading\n\nWrite your text…\n\n- List item',
       'data-block-index': index, onInput: handleBlockTextChange,
     });
   }
 
   const editor = createElement('div');
-  if (block.type === 'table') {
-    editor.append(createElement('p', { class: 'muted small' }, 'Indicators in this table. Leave all unchecked to show every indicator.'));
-  } else {
+  if (block.type === 'chart') {
     const chartTypeSelect = createElement('select', {
       id: `${blockId}-type`, 'data-block-index': index, onChange: handleChartTypeChange,
     });
@@ -580,26 +663,61 @@ function createBlockEditor(block, index, blockId, blockName) {
       }, chartType.label));
     }
     const titleInput = createElement('input', {
-      id: `${blockId}-title`, maxlength: 120, value: block.title || '', placeholder: 'Use field names',
+      id: `${blockId}-title`, maxlength: 120, value: block.title || '', placeholder: chartTitleDefault(block),
       'data-block-index': index, onInput: handleChartTitleChange,
     });
     editor.append(createElement('label', { for: titleInput.id }, 'Chart title'), titleInput);
-    editor.append(createElement('label', { for: chartTypeSelect.id }, 'Chart type'), chartTypeSelect);
-    editor.append(createElement('p', { class: 'muted small' }, 'Leave all fields unchecked to chart every selected numeric field. Fields with different units appear in separate charts.'));
+    const controls = createElement('div', { class: 'builder-chart-controls' });
+    controls.append(createElement('div', {}, createElement('label', { for: chartTypeSelect.id }, 'Chart type'), chartTypeSelect));
+    const hasNumericFields = reportSelection.indicators.some((key) => indicatorsByKey.get(key)?.type !== 'text');
+    chartTypeSelect.disabled = !hasNumericFields;
+    controls.append(createChartFieldSelect(block, index, blockId, 'axisField', 'Category / axis'));
+    controls.append(createChartFieldSelect(block, index, blockId, 'seriesField', 'Series'));
+    const aggregationSelect = createElement('select', {
+      id: `${blockId}-aggregation`, 'data-block-index': index, 'data-setting': 'aggregation', onChange: handleChartSettingChange,
+    });
+    for (const [value, label] of [['none', 'None · individual rows'], ['sum', 'Sum'], ['average', 'Average'], ['min', 'Minimum'], ['max', 'Maximum']]) {
+      aggregationSelect.append(createElement('option', { value }, label));
+    }
+    aggregationSelect.value = block.aggregation || 'none';
+    aggregationSelect.disabled = !hasNumericFields;
+    controls.append(createElement('div', {}, createElement('label', { for: aggregationSelect.id }, 'Aggregation'), aggregationSelect));
+    editor.append(controls);
   }
   editor.append(createBlockIndicatorOptions(block, index));
   return editor;
 }
 
 function createBlockIndicatorOptions(block, index) {
-  const choices = createElement('div', { class: 'unit-field-groups' });
+  const container = createElement('div');
   const fields = reportSelection.indicators.map((key) => indicatorsByKey.get(key))
     .filter((field) => field && (block.type !== 'chart' || field.type !== 'text'));
+  const label = block.type === 'chart' ? 'Measures' : 'Table fields';
+  if (fields.length === 0) {
+    container.append(createElement('button', { type: 'button', class: 'secondary', onClick: focusFields }, block.type === 'chart' ? 'Choose numeric fields' : 'Choose fields'));
+    return container;
+  }
+  const mode = createElement('select', {
+    id: `block-${index}-fields-mode`, 'data-block-index': index, onChange: handleBlockFieldsModeChange,
+  });
+  mode.append(
+    createElement('option', { value: 'all' }, `All selected ${block.type === 'chart' ? 'measures' : 'fields'} (${fields.length})`),
+    createElement('option', { value: 'custom' }, block.type === 'chart' ? 'Choose measures' : 'Choose fields'),
+  );
+  mode.value = block.indicators.length ? 'custom' : 'all';
+  container.append(createElement('label', { for: mode.id }, label), mode);
+  const chartFields = block.indicators.length ? fields.filter((field) => block.indicators.includes(field.key)) : fields;
+  if (block.type === 'chart') container.append(createElement('p', {
+    id: `block-${index}-units-note`, class: 'muted small', hidden: groupFieldsByUnit(chartFields).length < 2,
+  }, 'Different units use separate charts.'));
+  if (!block.indicators.length) return container;
+  const choices = createElement('div', { class: 'unit-field-groups' });
   for (const group of groupFieldsByUnit(fields)) {
     const section = createElement('fieldset', { class: 'unit-field-group' });
     section.append(createElement('legend', {}, group.label));
     for (const indicator of group.fields) {
       const checkbox = createElement('input', {
+        id: `block-${index}-field-${indicator.key}`,
         type: 'checkbox', checked: block.indicators.includes(indicator.key),
         'data-block-index': index, 'data-indicator': indicator.key, onChange: handleBlockIndicatorChange,
       });
@@ -611,18 +729,91 @@ function createBlockIndicatorOptions(block, index) {
     }
     choices.append(section);
   }
-  if (choices.childElementCount === 0) return createElement('p', { class: 'muted small' }, 'Select indicators first.');
-  return choices;
+  container.append(choices);
+  return container;
+}
+
+function focusFields() {
+  revealTab(getElement('builder-fields-panel'));
+  getElement('field-search').focus();
+}
+
+function handleBlockFieldsModeChange(event) {
+  const input = event.currentTarget;
+  const index = Number(input.dataset.blockIndex);
+  const block = reportSelection.layout[index];
+  block.indicators = input.value === 'all' ? [] : reportSelection.indicators
+    .filter((key) => block.type !== 'chart' || indicatorsByKey.get(key)?.type !== 'text');
+  renderLayout(input.id);
+}
+
+function fieldTypeLabel(field) {
+  return field.type === 'text' ? 'Text' : 'Number';
+}
+
+function fieldMetadata(field) {
+  return field.type === 'text' || !field.unit || field.unit === 'number'
+    ? fieldTypeLabel(field) : `${fieldTypeLabel(field)} · ${fieldUnitLabel(field)}`;
+}
+
+function fieldDisplayLabel(field) {
+  return reportSelection.fieldOverrides?.[field.key]?.label || field.displayLabel || field.label;
+}
+
+function createChartFieldSelect(block, index, blockId, setting, label) {
+  const container = createElement('div');
+  const select = createElement('select', {
+    id: `${blockId}-${setting}`, 'data-block-index': index, 'data-setting': setting, onChange: handleChartSettingChange,
+  });
+  select.append(createElement('option', { value: '' }, setting === 'axisField' ? 'Automatic' : 'By measure'));
+  if (setting === 'axisField') {
+    select.append(createElement('option', { value: '@row' }, 'Source row number'));
+  }
+  if (currentDatasetOptions.places.length > 0) {
+    select.append(createElement('option', { value: '@location' }, 'Location'));
+  }
+  for (const field of availableIndicators) {
+    select.append(createElement('option', { value: field.key }, `${fieldDisplayLabel(field)} · ${fieldMetadata(field)}`));
+  }
+  select.value = block[setting] || '';
+  container.append(createElement('label', { for: select.id }, label), select);
+  return container;
+}
+
+function handleChartSettingChange(event) {
+  const input = event.currentTarget;
+  const block = reportSelection.layout[Number(input.dataset.blockIndex)];
+  block[input.dataset.setting] = input.value;
+  getElement(`block-${input.dataset.blockIndex}-title`).placeholder = chartTitleDefault(block);
+  updateBlockPickerLabel(Number(input.dataset.blockIndex));
+}
+
+function chartTitleDefault(block) {
+  const chosen = block.indicators.length ? block.indicators : reportSelection.indicators;
+  const labels = chosen.map((key) => indicatorsByKey.get(key)).filter((field) => field && field.type !== 'text').map(fieldDisplayLabel);
+  const axis = indicatorsByKey.get(block.axisField);
+  const title = labels.slice(0, 3).join(', ') || 'Selected numeric fields';
+  return `${title}${axis ? ` by ${fieldDisplayLabel(axis)}` : ''}`;
+}
+
+function updateTitleDefaults() {
+  const dataset = activeDatasets.find((item) => reportSelection.dataset && isSameDataset(item, reportSelection.dataset));
+  const labels = reportSelection.indicators.map((key) => indicatorsByKey.get(key)).filter(Boolean).map(fieldDisplayLabel);
+  defaultReportTitle = `${dataset?.displayName || dataset?.name || 'Report'}${labels.length ? ` — ${labels.slice(0, 3).join(', ')}` : ''}`.slice(0, 200);
+  getElement('title').placeholder = defaultReportTitle;
+  getElement('report-name').placeholder = defaultReportTitle;
 }
 
 function handleBlockTextChange(event) {
   const input = event.currentTarget;
   reportSelection.layout[Number(input.dataset.blockIndex)].text = input.value;
+  updateBlockPickerLabel(Number(input.dataset.blockIndex));
 }
 
 function handleChartTitleChange(event) {
   const input = event.currentTarget;
   reportSelection.layout[Number(input.dataset.blockIndex)].title = input.value;
+  updateBlockPickerLabel(Number(input.dataset.blockIndex));
 }
 
 function handleChartTypeChange(event) {
@@ -637,8 +828,17 @@ function handleBlockIndicatorChange(event) {
   if (checkbox.checked) {
     block.indicators.push(indicatorKey);
   } else {
+    if (block.indicators.length === 1) {
+      checkbox.checked = true;
+      showStatus(getElement('builder-status'), 'Choose at least one field.', 'error');
+      return;
+    }
     block.indicators = block.indicators.filter((key) => key !== indicatorKey);
   }
+  if (block.type === 'chart') getElement(`block-${checkbox.dataset.blockIndex}-title`).placeholder = chartTitleDefault(block);
+  const unitNotice = getElement(`block-${checkbox.dataset.blockIndex}-units-note`);
+  if (unitNotice) unitNotice.hidden = groupFieldsByUnit(block.indicators.map((key) => indicatorsByKey.get(key)).filter(Boolean)).length < 2;
+  updateBlockPickerLabel(Number(checkbox.dataset.blockIndex));
 }
 
 function createBlock(type) {
@@ -646,7 +846,7 @@ function createBlock(type) {
     return { type, text: '' };
   }
   if (type === 'chart') {
-    return { type, chartType: defaultChartType, indicators: [] };
+    return { type, chartType: defaultChartType, indicators: [], axisField: '', seriesField: '', aggregation: 'none' };
   }
   return { type, indicators: [] };
 }
@@ -659,12 +859,14 @@ function addBlock(type, fields = {}) {
   invalidatePreview();
   reportSelection.layout.push({ ...createBlock(type), ...fields });
   const index = reportSelection.layout.length - 1;
+  activeBlockIndex = index;
   let focusId = `block-${index}-up`;
   if (type === 'text') {
     focusId = `block-${index}-text`;
   } else if (type === 'chart') {
     focusId = `block-${index}-type`;
   }
+  revealTab(getElement('builder-content-panel'));
   renderLayout(focusId);
   schedulePreview();
 }
@@ -682,6 +884,7 @@ function handleMoveBlock(event) {
   const movedBlock = reportSelection.layout[currentIndex];
   reportSelection.layout[currentIndex] = reportSelection.layout[nextIndex];
   reportSelection.layout[nextIndex] = movedBlock;
+  activeBlockIndex = nextIndex;
   const focusDirection = direction < 0 ? 'up' : 'down';
   renderLayout(`block-${nextIndex}-${focusDirection}`);
   schedulePreview();
@@ -692,6 +895,7 @@ function handleRemoveBlock(event) {
   invalidatePreview();
   reportSelection.layout.splice(index, 1);
   const nextIndex = Math.min(index, reportSelection.layout.length - 1);
+  activeBlockIndex = Math.max(0, nextIndex);
   if (nextIndex >= 0) {
     renderLayout(`block-${nextIndex}-up`);
   } else {
@@ -709,13 +913,10 @@ function invalidatePreview() {
 
 function getPreviewProblem() {
   if (!reportSelection.dataset) {
-    return 'No active dataset is available. An administrator needs to upload and activate one.';
-  }
-  if (reportSelection.towns.length === 0) {
-    return 'Choose a town to start the report.';
+    return 'No active datasets.';
   }
   if (reportSelection.indicators.length === 0) {
-    return 'Select at least one indicator for the report.';
+    return 'Choose report fields.';
   }
   return null;
 }
@@ -740,6 +941,9 @@ async function refreshPreview() {
     }
     showStatus(getElement('preview-status'), '');
     renderReport(getElement('preview'), report);
+    defaultReportTitle = report.title;
+    getElement('title').placeholder = report.title;
+    getElement('report-name').placeholder = report.title;
   } catch (error) {
     if (requestNumber === previewRequestNumber) {
       clearReport(getElement('preview'));
@@ -751,23 +955,29 @@ async function refreshPreview() {
 function updateHeading() {
   getElement('builder-heading').textContent = 'Report builder';
   getElement('save').textContent = 'Save report';
-  if (savedReport) {
-    getElement('builder-heading').textContent = `Report: ${savedReport.title}`;
-    if (savedReport.ownerId !== currentUser.id) {
-      getElement('save').textContent = 'Save as my copy';
-    }
-  }
+  if (savedReport && savedReport.ownerId !== currentUser.id) getElement('save').textContent = 'Save a copy';
+}
+
+function validateReport() {
+  const problem = isLoadingOptions ? 'Loading fields…' : getPreviewProblem();
+  if (!problem) return true;
+  showStatus(getElement('builder-status'), problem, 'error');
+  const target = !reportSelection.dataset || availableIndicators.length === 0 ? getElement('dataset') : getElement('field-search');
+  revealTab(target);
+  target.focus();
+  return false;
 }
 
 async function saveReport() {
   readFormControls();
-  const title = getElement('report-name').value.trim();
-  if (!title) {
-    showStatus(getElement('builder-status'), 'Give the report a name before saving.', 'error');
-    getElement('report-name').focus();
-    return;
-  }
+  updateTitleDefaults();
+  if (!validateReport()) return;
+  const title = getElement('report-name').value.trim() || reportSelection.title.trim() || defaultReportTitle || reportSelection.dataset.name;
+  getElement('report-name').value = title;
 
+  const button = getElement('save');
+  button.disabled = true;
+  button.textContent = 'Saving…';
   try {
     const requestBody = { title, selection: reportSelection };
     let report;
@@ -779,23 +989,27 @@ async function saveReport() {
     savedReport = { id: report.id, ownerId: report.createdBy.id, title: report.title };
     history.replaceState(null, '', `/builder?report=${report.id}`);
     updateHeading();
-    showStatus(getElement('builder-status'), `Saved "${report.title}".`, 'ok');
+    showStatus(getElement('builder-status'), 'Saved.', 'ok');
   } catch (error) {
     showStatus(getElement('builder-status'), error.message, 'error');
+  } finally {
+    button.disabled = isLoadingOptions;
+    updateHeading();
   }
 }
 
 async function downloadPdf(event) {
   readFormControls();
+  if (!validateReport()) return;
   const button = event.currentTarget;
   button.disabled = true;
   showStatus(getElement('builder-status'), 'Generating PDF…');
   try {
     const { blob, filename } = await api('/reports/pdf', { method: 'POST', json: reportSelection, expect: 'blob' });
     downloadBlob(blob, filename);
-    showStatus(getElement('builder-status'), `Downloaded ${filename}.`, 'ok');
+    showStatus(getElement('builder-status'), 'PDF downloaded.', 'ok');
   } catch (error) {
-    showStatus(getElement('builder-status'), `No PDF was created: ${error.message}`, 'error');
+    showStatus(getElement('builder-status'), error.message, 'error');
   } finally {
     button.disabled = false;
   }
@@ -807,7 +1021,11 @@ async function draftSummary() {
   for (const button of buttons) {
     button.disabled = true;
   }
-  showStatus(getElement('builder-status'), 'Drafting a summary…');
+  if (!validateReport()) {
+    for (const button of buttons) button.disabled = false;
+    return;
+  }
+  showStatus(getElement('builder-status'), 'Drafting…');
 
   try {
     const { text, mismatches } = await api('/reports/summary', { method: 'POST', json: reportSelection });
@@ -819,9 +1037,9 @@ async function draftSummary() {
     }
     getElement('draft').hidden = false;
     if (mismatches.length > 0) {
-      showStatus(getElement('builder-status'), 'Draft ready. Some figures could not be verified against the report; check them first.', 'error');
+      showStatus(getElement('builder-status'), 'Review unverified figures before adding.', 'error');
     } else {
-      showStatus(getElement('builder-status'), 'Draft ready for review.', 'ok');
+      showStatus(getElement('builder-status'), 'Review draft.', 'ok');
     }
     getElement('draft-text').focus();
   } catch (error) {
@@ -851,32 +1069,44 @@ boot(initializeBuilder);
 function renderFieldOverrides() {
   const container = getElement('field-overrides');
   container.replaceChildren();
-  for (const [index, key] of reportSelection.indicators.entries()) {
-    const field = indicatorsByKey.get(key);
-    if (!field) continue;
-    const overrides = reportSelection.fieldOverrides?.[key] ?? {};
-    const row = createElement('div', { class: 'report-field-override' });
-    row.append(createElement('strong', {}, field.label));
-    for (const [setting, label] of [['label', 'Display name'], ['description', 'Description']]) {
-      const input = createElement('input', {
-        id: `override-${index}-${setting}`, maxlength: setting === 'label' ? 120 : 500,
-        value: overrides[setting] ?? '', placeholder: field[setting] || 'Use shared default',
-        'data-field-key': key, 'data-setting': setting, onInput: handleFieldOverride,
-      });
-      row.append(createElement('label', { for: input.id }, `${label} for ${field.label}`), input);
-    }
-    if (field.type !== 'text') {
-      const decimals = createElement('select', {
-        id: `override-${index}-decimals`, 'data-field-key': key, 'data-setting': 'decimals', onChange: handleFieldOverride,
-      });
-      decimals.append(createElement('option', { value: '' }, `Shared default (${field.decimals})`));
-      for (let digits = 0; digits <= 4; digits++) decimals.append(createElement('option', { value: String(digits) }, String(digits)));
-      decimals.value = overrides.decimals === undefined ? '' : String(overrides.decimals);
-      row.append(createElement('label', { for: decimals.id }, `Decimals for ${field.label}`), decimals);
-    }
-    container.append(row);
+  const fields = reportSelection.indicators.map((key) => indicatorsByKey.get(key)).filter(Boolean);
+  if (!fields.length) {
+    container.append(createElement('p', { class: 'muted small' }, 'Choose report fields.'));
+    return;
   }
-  if (!container.children.length) container.append(createElement('p', { class: 'muted small' }, 'Select a field to customize its display.'));
+  if (!fields.some((field) => field.key === activeOverrideKey)) activeOverrideKey = fields[0].key;
+  const picker = createElement('select', {
+    id: 'override-field-choice', 'data-no-preview': '', onChange: (event) => {
+      activeOverrideKey = event.currentTarget.value;
+      renderFieldOverrides();
+      getElement('override-field-choice').focus();
+    },
+  });
+  for (const field of fields) picker.append(createElement('option', { value: field.key }, fieldDisplayLabel(field)));
+  picker.value = activeOverrideKey;
+  container.append(createElement('label', { for: picker.id }, 'Field'), picker);
+  const field = indicatorsByKey.get(activeOverrideKey);
+  const index = reportSelection.indicators.indexOf(activeOverrideKey);
+  const overrides = reportSelection.fieldOverrides?.[activeOverrideKey] ?? {};
+  const row = createElement('div', { class: 'report-field-override' });
+  for (const [setting, label] of [['label', 'Display name'], ['description', 'Description']]) {
+    const input = createElement('input', {
+      id: `override-${index}-${setting}`, maxlength: setting === 'label' ? 120 : 500,
+      value: overrides[setting] ?? '', placeholder: field[setting] || 'Dataset default',
+      'data-field-key': activeOverrideKey, 'data-setting': setting, onInput: handleFieldOverride,
+    });
+    row.append(createElement('label', { for: input.id }, label), input);
+  }
+  if (field.type !== 'text') {
+    const decimals = createElement('select', {
+      id: `override-${index}-decimals`, 'data-field-key': activeOverrideKey, 'data-setting': 'decimals', onChange: handleFieldOverride,
+    });
+    decimals.append(createElement('option', { value: '' }, `Dataset default (${field.decimals})`));
+    for (let digits = 0; digits <= 4; digits++) decimals.append(createElement('option', { value: String(digits) }, String(digits)));
+    decimals.value = overrides.decimals === undefined ? '' : String(overrides.decimals);
+    row.append(createElement('label', { for: decimals.id }, 'Decimals'), decimals);
+  }
+  container.append(row);
 }
 
 function handleFieldOverride(event) {
@@ -887,11 +1117,14 @@ function handleFieldOverride(event) {
   else overrides[input.dataset.setting] = input.dataset.setting === 'decimals' ? Number(input.value) : input.value;
   if (Object.keys(overrides).length) reportSelection.fieldOverrides[input.dataset.fieldKey] = overrides;
   else delete reportSelection.fieldOverrides[input.dataset.fieldKey];
+  if (input.dataset.setting === 'label') renderLayout();
 }
 
 function resetFieldOverrides() {
   reportSelection.fieldOverrides = {};
-  renderFieldOverrides();
+  renderIndicators();
+  renderLayout();
+  updateTitleDefaults();
   invalidatePreview();
   schedulePreview();
 }
@@ -901,6 +1134,8 @@ function updateStyleEditor() {
   if (!styleEditor) return;
   const dataset = activeDatasets.find((item) => reportSelection.dataset && isSameDataset(item, reportSelection.dataset));
   styleEditor.set(reportSelection.styleOverrides, dataset?.reportStyle);
+  const benchmarkSetting = getElement('report-style-benchmarkColor')?.closest('.style-setting');
+  if (benchmarkSetting) benchmarkSetting.hidden = !currentDatasetOptions.hasState;
 }
 
 function handleStyleChange(overrides) {

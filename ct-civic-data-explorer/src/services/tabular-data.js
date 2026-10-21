@@ -13,14 +13,24 @@ export function prepareTabularDataset(records, known) {
   if (!data.length) { problems.push('The file has no data rows.'); return fail(); }
   const width = Math.max(header.length, ...data.map((row) => row.record.length));
   if (width > 100 || data.length > 10000) { problems.push('Use at most 100 columns and 10,000 data rows.'); return fail(); }
-  const townIndexes = header.flatMap((label, i) => label.trim().toLowerCase() === 'town' ? [i] : []);
-  if (townIndexes.length !== 1) { problems.push('Include exactly one column named Town.'); return fail(); }
-  const townIndex = townIndexes[0];
-  const knownColumns = new Map(known.indicators.map((indicator) => [indicator.key, indicator]));
+  const townIndex = header.findIndex((label) => label.trim().toLowerCase() === 'town');
+  const towns = new Map(known.towns.map((town) => [town.name.toLowerCase(), town]));
+  const matchedTowns = data.map(({ record }) => {
+    if (townIndex === -1) return null;
+    const name = (record[townIndex] ?? '').trim();
+    const baseName = name.replace(/\s+\([^)]*\)$/, '');
+    return towns.get(name.toLowerCase()) ?? towns.get(baseName.toLowerCase()) ?? null;
+  });
+  // A mixed or unrecognized Town column is an ordinary selectable dimension.
+  // Treat the entire column consistently so hidden dimension values cannot leak
+  // through place names and arbitrary records cannot become state benchmarks.
+  const townColumnIsGeography = townIndex !== -1 && matchedTowns.some(Boolean)
+    && data.every(({ record }, index) => !(record[townIndex] ?? '').trim() || matchedTowns[index]);
+  const knownColumns = new Map(known.indicators.map((indicator) => [indicator.key.toLowerCase(), indicator]));
   const columns = [];
   const labels = new Set();
   for (let i = 0; i < width; i++) {
-    const populated = data.map((row) => row.record[i] ?? '').filter((cell) => cell !== '');
+    const populated = data.map((row) => (row.record[i] ?? '').trim()).filter((cell) => cell !== '');
     let label = (header[i] ?? '').trim();
     if (!label && !populated.length) continue; // Ignore entirely empty spreadsheet padding.
     if (!label) {
@@ -34,22 +44,19 @@ export function prepareTabularDataset(records, known) {
     const isNumber = i !== townIndex && (definition || (populated.length > 0 && populated.every(numeric)));
     const fraction = /(?:percentage|percent).*decimal/i.test(label);
     columns.push({ key: `c${i}`, index: i, label, type: isNumber ? 'number' : 'text',
-      role: i === townIndex ? 'town' : isNumber ? 'measure' : 'dimension',
+      role: i === townIndex && townColumnIsGeography ? 'town' : isNumber ? 'measure' : 'dimension',
       unit: definition?.unit ?? (fraction ? 'percent' : 'number'),
       scale: fraction ? 100 : 1, decimals: definition?.decimals ?? (fraction ? 1 : 9) });
   }
-  const towns = new Map(known.towns.map((town) => [town.name.toLowerCase(), town]));
   const counts = new Map();
   const matchedLabels = new Set();
-  const rows = data.map(({ record, info }) => {
+  const rows = data.map(({ record, info }, index) => {
     const name = (record[townIndex] ?? '').trim();
-    const baseName = name.replace(/\s+\([^)]*\)$/, '');
-    const town = towns.get(name.toLowerCase()) ?? towns.get(baseName.toLowerCase());
+    const town = townColumnIsGeography ? matchedTowns[index] : null;
     if (town && name.toLowerCase() !== town.name.toLowerCase() && !matchedLabels.has(name)) {
       matchedLabels.add(name);
       notes.push(`Town label "${name}" matched to ${town.name}; the original label is retained.`);
     }
-    if (!town) problems.push(`Row ${info.lines}: "${name}" does not match a Connecticut town.`);
     if (town) counts.set(town.id, (counts.get(town.id) ?? 0) + 1);
     const cells = {};
     for (const column of columns) {
@@ -58,7 +65,7 @@ export function prepareTabularDataset(records, known) {
       if (column.type === 'number' && value !== '' && !numeric(value)) problems.push(`Row ${info.lines}: ${column.label} value "${value}" is not a number.`);
       cells[column.key] = value === '' ? null : column.type === 'number' && numeric(value) ? Number(value.replaceAll(',', '')) : value;
     }
-    return { townId: town?.id, sourceRow: info.lines, cells };
+    return { townId: town?.id ?? null, sourceRow: info.lines, cells };
   });
   if (problems.length) return fail();
   const repeated = [...counts.values()].filter((count) => count > 1).length;
