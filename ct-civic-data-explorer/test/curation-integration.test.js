@@ -139,6 +139,13 @@ test('HTTP and database curation protects every report path and preserves source
 
     const draftPreview = await admin.agent.get(recordDatasetPath).expect(200);
     assert.deepEqual(draftPreview.body.preview.columns.map((field) => field.key), ['c0', 'c1', 'c2', 'c3']);
+    assert.equal(draftPreview.body.preview.total, 2);
+    await pool.query('UPDATE datasets SET row_count = ? WHERE id = ?', [999, recordDatasetId]);
+    const liveCountPreview = await admin.agent.get(`${recordDatasetPath}?offset=1&limit=1`).expect(200);
+    assert.equal(liveCountPreview.body.preview.total, 2, 'Preview counts stored rows rather than cached upload metadata');
+    assert.equal(liveCountPreview.body.preview.rows.length, 1);
+    assert.equal(liveCountPreview.body.preview.rows[0].sourceRow, draftPreview.body.preview.rows[1].sourceRow);
+    await pool.query('UPDATE datasets SET row_count = ? WHERE id = ?', [2, recordDatasetId]);
     assert.equal(draftPreview.body.preview.rows[0].cells[1].value, 'SECRET');
     assert.equal(draftPreview.body.preview.rows[0].cells[3].value, 987654);
     await staff.agent.get(recordDatasetPath).expect(404);

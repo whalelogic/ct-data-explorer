@@ -178,6 +178,7 @@ async function loadDataset(nextOffset = previewOffset) {
 function renderDataset({ dataset, indicators, preview }) {
   document.title = `${dataset.displayName || dataset.name} · Dataset`;
   getElement('dataset-heading').textContent = dataset.displayName || dataset.name;
+  renderDatasetSummary(dataset, indicators, preview);
   renderDatasetMetadata(dataset);
   renderDatasetActions(dataset);
   renderIndicators(indicators);
@@ -190,14 +191,25 @@ function renderDataset({ dataset, indicators, preview }) {
   }
 }
 
+function renderDatasetSummary(dataset, indicators, preview) {
+  const fieldCount = dataset.dataFormat === 'records' ? preview.columns.length : indicators.length + 1;
+  const summary = [
+    ['Source', dataset.source],
+    ['Period', dataset.vintage],
+    ['Rows', `${preview.total.toLocaleString('en-US')} ${preview.total === 1 ? 'row' : 'rows'}`],
+    ['Fields', `${fieldCount.toLocaleString('en-US')} ${fieldCount === 1 ? 'field' : 'fields'}`],
+  ];
+  const container = getElement('dataset-summary');
+  container.replaceChildren(...summary.map(([label, value]) => createElement('div', {},
+    createElement('dt', { class: ['Rows', 'Fields'].includes(label) ? 'sr-only' : null }, label), createElement('dd', {}, value))));
+  container.hidden = false;
+}
+
 function renderDatasetMetadata(dataset) {
   const metadata = [
     ['Source dataset', dataset.name],
     ...(dataset.description ? [['Description', dataset.description]] : []),
-    ['Source', dataset.source],
-    ['Period', dataset.vintage],
     ['Version', dataset.version],
-    ['Rows', dataset.rowCount.toLocaleString('en-US')],
     ['Uploaded by', dataset.uploadedBy],
     ['Uploaded', formatDate(dataset.uploadedAt)],
   ];
@@ -211,6 +223,7 @@ function renderDatasetMetadata(dataset) {
     const description = createElement('dd', {}, value);
     metadataContainer.append(term, description);
   }
+  getElement('dataset-details').hidden = false;
 }
 
 function renderDatasetActions(dataset) {

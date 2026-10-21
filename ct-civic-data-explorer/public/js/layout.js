@@ -10,8 +10,7 @@ export function renderHeader(user) {
     ['/builder', 'Reports'],
   ];
   if (user.role === 'admin') {
-    navigationLinks.push(['/admin', 'Data']);
-    navigationLinks.push(['/users', 'People']);
+    navigationLinks.push(['/admin', 'Admin']);
   }
 
   const navigation = createElement('nav', { 'aria-label': 'Main' });
@@ -38,6 +37,16 @@ export function renderHeader(user) {
   );
   brandLink.href = '/';
   header.append(navigation, account);
+  if (user.role === 'admin' && ['/admin', '/users', '/dataset'].includes(location.pathname)) {
+    const adminNavigation = createElement('nav', { class: 'admin-navigation', 'aria-label': 'Administration' });
+    for (const [url, label] of [['/admin', 'Data management'], ['/users', 'Manage users']]) {
+      const selected = url === '/users' ? location.pathname === '/users' : location.pathname !== '/users';
+      adminNavigation.append(createElement('a', {
+        href: url, 'aria-current': selected ? 'page' : null,
+      }, label));
+    }
+    document.querySelector('main')?.prepend(adminNavigation);
+  }
 }
 
 /** An empty message hides the status element. */
@@ -99,7 +108,7 @@ function isCurrentPage(url) {
   if (url === '/') {
     return location.pathname === '/';
   }
-  if (url === '/admin' && location.pathname === '/dataset') return true;
+  if (url === '/admin' && ['/dataset', '/users'].includes(location.pathname)) return true;
   if (url === '/explore' && location.pathname === '/town') return true;
   return location.pathname === url;
 }

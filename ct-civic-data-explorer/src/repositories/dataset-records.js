@@ -15,3 +15,8 @@ export async function list(datasetId, { offset = 0, limit = 10000, townIds } = {
     ORDER BY r.source_row LIMIT ? OFFSET ?`, [datasetId, ...(townIds ? [townIds] : []), limit, offset]);
   return rows;
 }
+
+export async function count(datasetId, db = pool) {
+  const { rows } = await db.query('SELECT COUNT(*) AS total FROM dataset_records WHERE dataset_id = ?', [datasetId]);
+  return Number(rows[0].total);
+}

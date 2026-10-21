@@ -9,8 +9,8 @@ The interactive workflow advances the dynamic reporting direction in `SRS.docx` 
 | Page | Tabs and actions |
 | --- | --- |
 | Dashboard | **Datasets** and **Saved reports**; search and open either. |
-| Data management | **Datasets** lists versions. **Upload dataset** creates a draft for review. |
-| Dataset | **Overview**, **Fields**, **Data**, **Appearance**. Approve fields with **Save approval**, then **Publish**. |
+| Data management | Search, filter, and sort dataset versions. **Add dataset** opens the upload form. **Administration** links to **Data management** and **Manage users**. |
+| Dataset | **Data preview** opens by default, with live row and visible-field counts beneath the title. **Fields** and **Settings** hold field review and display settings. **Create a report with this data** carries the selected dataset into the builder. |
 | Explore | **Fields**, **Filters** when applicable, and **View**. **New report**, **Copy link**, and **Export PDF** keep the selection. |
 | Report builder | **Data**, **Fields**, **Content**, **Titles**, **Appearance**, **Preview**. **Content** edits one block at a time; **Save report** and **Export PDF** stay available across tabs. |
 | People | **People** lists access. **Add person → Create invite** creates a link to copy; no email is sent. |
@@ -21,15 +21,15 @@ Migration `005_dataset_curation.sql` preserves existing published fields until s
 
 ## Staff customization
 
-Dataset **Appearance** contains **Names**, **Field labels**, and **Style** tabs. Set the dataset name, description, default chart, field labels, decimals, and order, then choose **Save defaults**. Administrators can also prepare unpublished versions. These settings apply only to that version and preserve source data, units, approval, and publication. Conflicting saves require a reload.
+Dataset **Settings** contains **Names**, **Field labels**, and **Style** tabs. Set the dataset name, description, default chart, field labels, decimals, and order, then choose **Save defaults**. Administrators can also prepare unpublished versions. These settings apply only to that version and preserve source data, units, approval, and publication. Conflicting saves require a reload.
 
-Builder **Fields → Field labels & decimals** overrides labels, descriptions, or precision for the report. Blank settings inherit dataset defaults; **Reset to dataset defaults** clears overrides. Edit report and chart titles in **Content**; blank titles use dataset and field defaults. Field explanations appear in previews and PDFs. New charts inherit the dataset's chart default; saved layouts keep their choices.
+Builder **Fields → Field labels & decimals** overrides labels, descriptions, or precision for the report. Blank settings inherit dataset defaults; **Reset to dataset defaults** clears overrides. Edit report titles in **Titles** and chart titles in **Content**; blank titles use dataset and field defaults. Field explanations appear in previews and PDFs. New charts inherit the dataset's chart default; saved layouts keep their choices.
 
 Approved-field pickers in the builder, chart/table blocks and Explore group choices by unit and show each field's unit. Counts, dollars, percentages and text categories are distinct groups; the report's chosen field order is preserved.
 
 ### Chart colors and report appearance
 
-Dataset **Appearance → Style** has **Colors**, **Text & spacing**, and **Preview** tabs. Set series, statewide, heading, and table-header colors, text size, and spacing. **Reset style** restores CTData styling; **Save defaults** applies changes to Explore and inheriting reports.
+Dataset **Settings → Style** has **Colors**, **Text & spacing**, and **Preview** tabs. Set series, statewide, heading, and table-header colors, text size, and spacing. **Reset style** restores CTData styling; **Save defaults** applies changes to Explore and inheriting reports.
 
 Builder **Appearance** uses the same tabs with an **Override** toggle per setting. Unchecked settings follow dataset defaults; overrides survive saving and duplication. **Reset overrides** clears them. Browser previews and PDFs share server-resolved styling and contrast checks. Source attribution stays visible.
 
@@ -57,7 +57,7 @@ npm run dev                        # http://localhost:3000
 
 `create-admin` prints a one-time link. Open it to set your password.
 
-To run the app and database together in containers, use `docker compose up --build`. Migrations run on startup. Create the admin with `docker compose exec app node scripts/create-admin.js --email … --first … --last …`, then open **Data management → Upload dataset**. Selecting a CSV or `.xlsx` reveals its name, source, and period fields. Uploads and existing dataset rows open the dataset's **Overview**; **Data** shows source rows.
+To run the app and database together in containers, use `docker compose up --build`. Migrations run on startup. Create the admin with `docker compose exec app node scripts/create-admin.js --email … --first … --last …`, then open **Data management → Add dataset**. Selecting a CSV or `.xlsx` reveals its name, source, and period fields. Uploads and existing dataset rows open **Data preview**. The summary counts visible data fields and source rows, including repeated rows; secondary metadata is under **Details**.
 
 Excel uploads import the first worksheet by default; enter a worksheet name to import another sheet. Include a header row with text or numeric fields; a `Town` header (case-insensitive) is optional. Recognized Connecticut town names enable geographic comparisons, while other location names and categories remain ordinary source values. Towns and other records can repeat: each nonblank source row is retained separately. Blank rows are skipped and numeric cells use their underlying values rather than display formatting. Formula cells use values saved by Excel; the server does not recalculate formulas. Save the workbook in Excel before uploading. Files are limited to 10 MB, 10,000 rows and 100 columns. Legacy `.xls` files should be saved as `.xlsx` first.
 

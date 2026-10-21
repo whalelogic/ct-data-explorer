@@ -13,31 +13,34 @@
     <main id="main" class="container">
       <p><a id="back-link" href="/">← Datasets</a></p>
       <div class="page-toolbar">
-        <h1 id="dataset-heading">Dataset</h1>
+        <div class="dataset-title">
+          <h1 id="dataset-heading">Dataset</h1>
+          <dl id="dataset-summary" class="dataset-summary" hidden></dl>
+        </div>
         <div id="dataset-actions" class="workspace-actions" hidden>
           <span id="publish-state" class="badge"></span>
           <a id="explore-dataset" class="button" hidden>Explore</a>
-          <a id="make-report" class="button secondary" hidden>New report</a>
+          <a id="make-report" class="button secondary" hidden>Create a report with this data</a>
           <button id="toggle-active" type="button" class="secondary" hidden></button>
         </div>
       </div>
       <p id="page-status" class="status" role="alert" hidden></p>
       <button id="retry" type="button" class="secondary" hidden>Retry</button>
       <p id="dataset-status" class="status" role="status" hidden></p>
+      <details id="dataset-details" class="dataset-details" hidden>
+        <summary>Details</summary>
+        <dl id="dataset-metadata" class="saved-report-meta"></dl>
+        <details id="dataset-notes" hidden>
+          <summary>Import notes</summary>
+          <ul id="dataset-note-list"></ul>
+        </details>
+      </details>
       <div id="dataset-content" data-tabs="dataset" hidden>
         <div class="workspace-tabs" role="tablist" aria-label="Dataset">
-          <button id="dataset-overview-tab" type="button" role="tab" aria-controls="dataset-overview" aria-selected="true" tabindex="0">Overview</button>
+          <button id="dataset-data-tab" type="button" role="tab" aria-controls="dataset-data" aria-selected="true" tabindex="0">Data preview</button>
           <button id="dataset-fields-tab" type="button" role="tab" aria-controls="dataset-fields" aria-selected="false" tabindex="-1">Fields</button>
-          <button id="dataset-data-tab" type="button" role="tab" aria-controls="dataset-data" aria-selected="false" tabindex="-1">Data</button>
-          <button id="dataset-appearance-tab" type="button" role="tab" aria-controls="dataset-appearance" aria-selected="false" tabindex="-1">Appearance</button>
+          <button id="dataset-appearance-tab" type="button" role="tab" aria-controls="dataset-appearance" aria-selected="false" tabindex="-1">Settings</button>
         </div>
-        <section id="dataset-overview" class="tab-panel" role="tabpanel" aria-labelledby="dataset-overview-tab">
-          <dl id="dataset-metadata" class="saved-report-meta"></dl>
-          <details id="dataset-notes" hidden>
-            <summary>Import notes</summary>
-            <ul id="dataset-note-list"></ul>
-          </details>
-        </section>
         <section id="dataset-fields" class="tab-panel" role="tabpanel" aria-labelledby="dataset-fields-tab" hidden>
           <div id="curation-panel" hidden>
             <div class="page-toolbar">
@@ -72,7 +75,7 @@
             <div id="dataset-indicator-editor"></div>
           </details>
         </section>
-        <section id="dataset-data" class="tab-panel" role="tabpanel" aria-labelledby="dataset-data-tab" hidden>
+        <section id="dataset-data" class="tab-panel" role="tabpanel" aria-labelledby="dataset-data-tab">
           <div class="page-toolbar">
             <p id="preview-summary" class="muted small" role="status"></p>
             <div class="button-row">

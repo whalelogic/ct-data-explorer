@@ -43,7 +43,10 @@ export async function getDatasetOverview(datasetId, { offset = 0, limit = 25 }, 
 
 async function buildRecordOverview(dataset, approvedFields, { offset, limit }) {
   const columns = applyFieldPresentation(approvedDefinitions(dataset.column_definitions ?? [], approvedFields, { includeTown: true }), dataset.presentation);
-  const sourceRows = await records.list(dataset.id, { offset, limit });
+  const [sourceRows, totalRows] = await Promise.all([
+    records.list(dataset.id, { offset, limit }),
+    records.count(dataset.id),
+  ]);
   const previewRows = [];
 
   for (const row of sourceRows) {
@@ -61,7 +64,7 @@ async function buildRecordOverview(dataset, approvedFields, { offset, limit }) {
     preview: {
       offset,
       limit,
-      total: dataset.row_count,
+      total: totalRows,
       columns,
       rows: previewRows,
     },
