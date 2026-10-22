@@ -7,6 +7,7 @@ import session from 'express-session';
 import request from 'supertest';
 import { createApp } from '../src/app.js';
 import { pool } from '../src/db/pool.js';
+import { canGenerateReports, setAssistantClientForTests } from '../src/services/ai/assistant.js';
 
 const REPORT_PATHS = ['/api/reports/preview', '/api/reports/pdf', '/api/reports/summary'];
 
@@ -37,14 +38,17 @@ function sendWriteRequest(client, method, path, body) {
     .send(body);
 }
 
-function uploadDataset(client, sourceName, datasetName, csv) {
-  return client.agent.post('/api/datasets')
+function uploadDataset(client, sourceName, datasetName, csv, extraFields = {}) {
+  const upload = client.agent.post('/api/datasets')
     .set('X-CSRF-Token', client.csrfToken)
     .field('name', datasetName)
     .field('source', sourceName)
     .field('vintage', '2026')
-    .field('activate', 'false')
-    .attach('file', Buffer.from(csv), 'curation.csv');
+    .field('activate', 'false');
+  for (const [name, value] of Object.entries(extraFields)) {
+    upload.field(name, value);
+  }
+  return upload.attach('file', Buffer.from(csv), 'curation.csv');
 }
 
 async function verifyAllTownCharts(client, selection, townNames) {
@@ -76,7 +80,7 @@ async function verifyAllTownCharts(client, selection, townNames) {
     selection: allTownSelection,
   }).expect(201);
   const reloadedResponse = await client.agent.get(`/api/reports/${savedResponse.body.id}`).expect(200);
-  assert.deepEqual(reloadedResponse.body.selection.towns, townNames);
+  assert.deepEqual(reloadedResponse.body.selection.rows, townNames);
   await sendWriteRequest(client, 'post', '/api/reports/preview', reloadedResponse.body.selection).expect(200);
 
   for (const towns of [[...townNames, townNames[0]], ['Unknown town'], ['Connecticut']]) {
@@ -399,6 +403,16 @@ test('staff customize shared presentation and report overrides without bypassing
     await sendWriteRequest(staff, 'put', `${numericPath}/presentation`, { revision: 0, fields: { pop: { label: 'Residents', decimals: 2 } } }).expect(200);
     const numericSelection = { dataset: { name: `${testTag}-numeric`, vintage: '2026' }, towns: ['Andover'], benchmark: false, indicators: ['pop'] };
     const numericPreview = await sendWriteRequest(staff, 'post', '/api/reports/preview', numericSelection).expect(200);
+    const averaged = await sendWriteRequest(staff, 'post', '/api/reports/preview', {
+      ...numericSelection,
+      indicators: ['pop', 'ratio_1'],
+      customIndicators: [{ key: 'ratio_1', label: 'Average residents per town', numerator: 'pop', calculation: 'average', decimals: 0 }],
+      layout: [{ type: 'chart', indicators: ['pop', 'ratio_1'] }, { type: 'table' }],
+    }).expect(200);
+    assert.deepEqual(averaged.body.summaries.map((summary) => [summary.label, summary.value, summary.explanation]), [
+      ['Average residents per town', 1234, '1,234 total Residents ÷ 1 town'],
+    ]);
+    assert.ok(averaged.body.indicators.every((row) => row.key !== 'ratio_1'));
     assert.equal(numericPreview.body.indicators[0].label, 'Residents');
     const styledNumeric = await sendWriteRequest(staff, 'post', '/api/reports/preview', { ...numericSelection, styleOverrides: { headingColor: '#663399', spacing: 'compact' } }).expect(200);
     assert.equal(styledNumeric.body.style.headingColor, '#663399');
@@ -409,6 +423,224 @@ test('staff customize shared presentation and report overrides without bypassing
     assert.equal(numericOverride.body.indicators[0].label, 'People');
     assert.equal(numericOverride.body.indicators[0].cells[0].display, '1,234');
   } finally {
+    await removeTestData(userIds, testTag);
+  }
+});
+
+test('datasets without a town column upload, publish, report and export by their label column', {
+  skip: process.env.CT_CURATION_INTEGRATION !== '1',
+}, async () => {
+  const testTag = `row-label-test-${crypto.randomUUID()}`;
+  const userIds = [];
+  const app = createApp({ sessionStore: new session.MemoryStore(), logRequests: false });
+  const csv = 'Program,Region,Clients,Staff\nFood pantry,North,1200,8\nHousing help,South,300,0\nFood pantry,South,900,6\n,North,40,2\n';
+  try {
+    const { admin, staff } = await createTestClients(app, testTag, userIds);
+
+    // Inspection suggests a label column; without one the upload is rejected and nothing is saved.
+    const inspection = await admin.agent.post('/api/datasets/inspect')
+      .set('X-CSRF-Token', admin.csrfToken)
+      .attach('file', Buffer.from(csv), 'programs.csv')
+      .expect(200);
+    assert.deepEqual(inspection.body.suggested, { label: 'Program', isTown: false });
+    await uploadDataset(admin, testTag, testTag, csv).expect(422);
+    await uploadDataset(admin, testTag, testTag, csv, { labelColumn: 'Program', labelIsTown: 'true' }).expect(422);
+
+    const uploaded = await uploadDataset(admin, testTag, testTag, csv, { labelColumn: 'Program', labelIsTown: 'false' }).expect(201);
+    assert.equal(uploaded.body.dataFormat, 'records');
+    const path = `/api/datasets/${uploaded.body.id}`;
+    const { rows: [stored] } = await pool.query('SELECT row_label_key FROM datasets WHERE id = ?', [uploaded.body.id]);
+    assert.equal(stored.row_label_key, 'c0');
+    const { rows: storedRows } = await pool.query(
+      'SELECT town_id, source_row FROM dataset_records WHERE dataset_id = ? ORDER BY source_row', [uploaded.body.id],
+    );
+    assert.deepEqual(storedRows.map((row) => row.town_id), [null, null, null, null]);
+
+    // The label column is the row's identity, not a field to approve.
+    await sendWriteRequest(admin, 'put', `${path}/curation`, { approvedFields: ['c0'] }).expect(400);
+    await sendWriteRequest(admin, 'put', `${path}/curation`, { approvedFields: ['c1', 'c2', 'c3'] }).expect(200);
+    await sendWriteRequest(admin, 'patch', path, { isActive: true }).expect(200);
+
+    const options = await staff.agent.get(`${path}/report-options`).expect(200);
+    assert.equal(options.body.rowKind, 'label');
+    assert.equal(options.body.rowNoun, 'Program');
+    assert.equal(options.body.hasState, false);
+    assert.deepEqual(options.body.places.map((place) => place.name), ['Food pantry', 'Housing help', 'Row 5']);
+    assert.equal(options.body.defaultCompare, 'c0');
+    assert.deepEqual(options.body.compareOptions.map((option) => [option.id, option.label, option.values]), [
+      ['c0', 'Program', ['Food pantry', 'Housing help', 'Row 5']],
+      ['c1', 'Region', ['North', 'South']],
+    ]);
+
+    // Repeated labels stay separate rows; nothing is summed.
+    const selection = { dataset: { name: testTag, vintage: '2026' }, rows: ['Food pantry'], benchmark: false, indicators: ['c2'] };
+    const preview = await sendWriteRequest(staff, 'post', '/api/reports/preview', selection).expect(200);
+    assert.deepEqual(preview.body.indicators[0].cells.map((cell) => cell.value), [1200, 900]);
+    const everyRow = await sendWriteRequest(staff, 'post', '/api/reports/preview', { ...selection, rows: [], allRows: true }).expect(200);
+    assert.equal(everyRow.body.indicators[0].cells.length, 4);
+    await sendWriteRequest(staff, 'post', '/api/reports/preview', { ...selection, rows: ['Andover'] }).expect(400);
+
+    // A report can compare by another approved text column without changing the dataset default.
+    const byRegionReport = await sendWriteRequest(staff, 'post', '/api/reports/preview', { ...selection, compareBy: 'c1', rows: ['North'] }).expect(200);
+    assert.equal(byRegionReport.body.rowNoun, 'Region');
+    assert.deepEqual(byRegionReport.body.indicators[0].cells.map((cell) => cell.value), [1200, 40]);
+    await sendWriteRequest(staff, 'post', '/api/reports/preview', { ...selection, compareBy: 'c2', rows: ['1200'] }).expect(400);
+
+    const saved = await sendWriteRequest(staff, 'post', '/api/reports', { title: testTag, selection }).expect(201);
+    const reloaded = await staff.agent.get(`/api/reports/${saved.body.id}`).expect(200);
+    assert.deepEqual(reloaded.body.selection.rows, ['Food pantry']);
+    await staff.agent.get(`/api/reports/${saved.body.id}/pdf`).expect(200).expect('Content-Type', /pdf/);
+
+    // Staff may relabel rows by another approved text field, never by a number or an unknown column.
+    await sendWriteRequest(staff, 'put', `${path}/row-label`, { rowLabelKey: 'c2' }).expect(400);
+    await sendWriteRequest(staff, 'put', `${path}/row-label`, { rowLabelKey: 'c9' }).expect(400);
+    const relabeled = await sendWriteRequest(staff, 'put', `${path}/row-label`, { rowLabelKey: 'c1' }).expect(200);
+    assert.equal(relabeled.body.rowLabelKey, 'c1');
+    assert.equal(relabeled.body.townKeyed, false);
+    const regionOptions = await staff.agent.get(`${path}/report-options`).expect(200);
+    assert.equal(regionOptions.body.rowNoun, 'Region');
+    assert.deepEqual(regionOptions.body.places.map((place) => place.name), ['North', 'South']);
+    // The saved report named Program values, which no longer label rows.
+    await staff.agent.get(`/api/reports/${saved.body.id}/pdf`).expect(400);
+    const byRegion = await sendWriteRequest(staff, 'post', '/api/reports/preview', { ...selection, rows: ['South'] }).expect(200);
+    assert.deepEqual(byRegion.body.indicators[0].cells.map((cell) => cell.value), [300, 900]);
+  } finally {
+    await removeTestData(userIds, testTag);
+  }
+});
+
+test('town files with county and planning region rows upload and report those rows separately', {
+  skip: process.env.CT_CURATION_INTEGRATION !== '1',
+}, async () => {
+  const testTag = `county-test-${crypto.randomUUID()}`;
+  const userIds = [];
+  const app = createApp({ sessionStore: new session.MemoryStore(), logRequests: false });
+  // Repeated towns make this a source-row dataset; the county rows were rejected before 011.
+  const csv = 'Town,Sector,Jobs\nAndover,Retail,5\nAndover,Services,7\nFairfield County,Retail,900\n'
+    + 'Hartford County,Retail,800\nCapitol Planning Region,Retail,700\nConnecticut,Retail,5000\n';
+  try {
+    const { admin, staff } = await createTestClients(app, testTag, userIds);
+    const uploaded = await uploadDataset(admin, testTag, testTag, csv).expect(201);
+    assert.equal(uploaded.body.dataFormat, 'records');
+    assert.ok(uploaded.body.importNotes.some((note) => note.includes('3 county or planning region labels')));
+    const path = `/api/datasets/${uploaded.body.id}`;
+    await sendWriteRequest(admin, 'put', `${path}/curation`, { approvedFields: ['c1', 'c2'] }).expect(200);
+    await sendWriteRequest(admin, 'patch', path, { isActive: true }).expect(200);
+
+    const options = await staff.agent.get(`${path}/report-options`).expect(200);
+    assert.equal(options.body.rowKind, 'town');
+    assert.equal(options.body.hasState, true);
+    const geoTypes = Object.fromEntries(options.body.places.map((place) => [place.name, place.geoType]));
+    assert.equal(geoTypes['Fairfield County'], 'county');
+    assert.equal(geoTypes['Capitol Planning Region'], 'region');
+    assert.deepEqual(options.body.compareOptions.map((option) => [option.id, option.values.length]), [['town', 1], ['county', 2], ['region', 1], ['c1', 2]]);
+    const counties = await sendWriteRequest(staff, 'post', '/api/reports/preview', {
+      dataset: { name: testTag, vintage: '2026' }, compareBy: 'county', rows: ['Fairfield County', 'Hartford County'], benchmark: false, indicators: ['c2'],
+    }).expect(200);
+    assert.equal(counties.body.title, 'Fairfield County and Hartford County');
+
+    const selection = {
+      dataset: { name: testTag, vintage: '2026' }, rows: ['Andover', 'Fairfield County'], benchmark: true, indicators: ['c2'],
+    };
+    const preview = await sendWriteRequest(staff, 'post', '/api/reports/preview', selection).expect(200);
+    assert.deepEqual(preview.body.indicators[0].cells.map((cell) => cell.value), [5, 7, 900, 5000]);
+    assert.equal(preview.body.title, 'Andover and Fairfield County');
+    const everyRow = await sendWriteRequest(staff, 'post', '/api/reports/preview', { ...selection, rows: [], allRows: true, benchmark: false }).expect(200);
+    assert.equal(everyRow.body.indicators[0].cells.length, 5);
+    assert.equal(everyRow.body.title, 'All Connecticut places');
+    const saved = await sendWriteRequest(staff, 'post', '/api/reports', { title: testTag, selection }).expect(201);
+    await staff.agent.get(`/api/reports/${saved.body.id}/pdf`).expect(200).expect('Content-Type', /pdf/);
+
+    await uploadDataset(admin, testTag, `${testTag}-bad`, 'Town,Jobs\nGotham County,1\n').expect(422);
+  } finally {
+    await removeTestData(userIds, testTag);
+  }
+});
+
+/** A stand-in for the Claude client that plays back tool calls and records what it was sent. */
+function scriptedClaude(steps) {
+  const requests = [];
+  let id = 0;
+  return {
+    requests,
+    beta: {
+      messages: {
+        async create(params) {
+          requests.push(structuredClone(params));
+          const step = steps.shift();
+          if (!step) throw new Error('scripted Claude ran out of steps');
+          if (step.text) {
+            return { stop_reason: 'end_turn', content: [{ type: 'text', text: step.text }] };
+          }
+          return { stop_reason: 'tool_use', content: [{ type: 'tool_use', id: `tool_${++id}`, name: step.tool, input: step.input }] };
+        },
+      },
+    },
+  };
+}
+
+function lastToolResult(claude) {
+  return claude.requests.at(-1).messages.at(-1).content[0];
+}
+
+test('the data assistant reads published figures, keeps record values private and proposes reports', {
+  skip: process.env.CT_CURATION_INTEGRATION !== '1',
+}, async () => {
+  const testTag = `assistant-test-${crypto.randomUUID()}`;
+  const userIds = [];
+  const app = createApp({ sessionStore: new session.MemoryStore(), logRequests: false });
+  try {
+    const { admin, staff } = await createTestClients(app, testTag, userIds);
+    const numeric = await uploadDataset(admin, testTag, `${testTag}-towns`, 'Town,pop,households\nAndover,1234,500\nBridgewater,2000,800\n').expect(201);
+    await sendWriteRequest(admin, 'put', `/api/datasets/${numeric.body.id}/curation`, { approvedFields: ['pop', 'households'] }).expect(200);
+    await sendWriteRequest(admin, 'patch', `/api/datasets/${numeric.body.id}`, { isActive: true }).expect(200);
+    const records = await uploadDataset(admin, testTag, `${testTag}-programs`, 'Program,Clients\nFood pantry,1200\nHousing help,300\n', { labelColumn: 'Program', labelIsTown: 'false' }).expect(201);
+    await sendWriteRequest(admin, 'put', `/api/datasets/${records.body.id}/curation`, { approvedFields: ['c1'] }).expect(200);
+    await sendWriteRequest(admin, 'patch', `/api/datasets/${records.body.id}`, { isActive: true }).expect(200);
+
+    const figures = scriptedClaude([
+      { tool: 'get_figures', input: { dataset_id: numeric.body.id, compare_by: 'town', places: ['Andover', 'Bridgewater'], fields: ['pop'], include_statewide: false, summaries: [{ field: 'pop', calculation: 'average' }] } },
+      { tool: 'get_figures', input: { dataset_id: records.body.id, compare_by: 'town', places: [], fields: ['c1'], include_statewide: false, summaries: [] } },
+      { text: 'The average is **1,617.00** people per town.' },
+    ]);
+    setAssistantClientForTests(figures);
+    const session = await staff.agent.get('/api/auth/me').expect(200);
+    assert.deepEqual(session.body.features, { aiSummary: session.body.features.aiSummary, assistant: true, assistantReports: true });
+    const answer = await sendWriteRequest(staff, 'post', '/api/assistant', {
+      messages: [{ role: 'user', content: 'What is the average population?' }],
+      context: { page: 'dataset', datasetId: numeric.body.id },
+    }).expect(200);
+    assert.equal(answer.body.reply, 'The average is **1,617.00** people per town.');
+    assert.equal(answer.body.proposal, null);
+    // The app context rides along with the question, and the figures come from the report engine.
+    assert.match(figures.requests[0].messages[0].content[0].text, new RegExp(`Open dataset: id ${numeric.body.id}`));
+    const first = JSON.parse(figures.requests[1].messages.at(-1).content[0].content);
+    assert.deepEqual(first.values, { Population: { Andover: '1,234', Bridgewater: '2,000' } });
+    assert.equal(first.summaries[0].value, '1,617.00');
+    const privateResult = lastToolResult(figures);
+    assert.equal(privateResult.is_error, true);
+    assert.match(privateResult.content, /private/);
+    assert.ok(!JSON.stringify(figures.requests).includes('Food pantry'), 'record values never reach the model');
+
+    const proposing = scriptedClaude([
+      { tool: 'propose_report', input: { dataset_id: numeric.body.id, compare_by: 'town', rows: ['Andover'], fields: ['pop', 'households'], summaries: [{ field: 'pop', calculation: 'median', name: 'Median population' }], include_statewide: false, title: '' } },
+      { text: 'I set up a report on Andover.' },
+    ]);
+    setAssistantClientForTests(proposing);
+    const proposal = await sendWriteRequest(staff, 'post', '/api/assistant', {
+      messages: [{ role: 'user', content: 'Build a report on Andover' }],
+    }).expect(200);
+    assert.equal(proposal.body.proposal.datasetId, numeric.body.id);
+    assert.deepEqual(proposal.body.proposal.selection.rows, ['Andover']);
+    assert.deepEqual(proposal.body.proposal.selection.indicators, ['pop', 'households', 'ratio_1']);
+    assert.equal(proposal.body.proposal.selection.customIndicators[0].calculation, 'median');
+    await sendWriteRequest(staff, 'post', '/api/reports/preview', proposal.body.proposal.selection).expect(200);
+
+    await sendWriteRequest(staff, 'post', '/api/assistant', { messages: [{ role: 'assistant', content: 'Hi' }] }).expect(400);
+    await staff.agent.post('/api/assistant').send({ messages: [{ role: 'user', content: 'Hi' }] }).expect(403);
+    assert.equal(canGenerateReports({ role: 'viewer' }), false);
+  } finally {
+    setAssistantClientForTests(undefined);
     await removeTestData(userIds, testTag);
   }
 });

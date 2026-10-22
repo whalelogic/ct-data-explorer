@@ -1,6 +1,7 @@
 /** Fetch wrapper for the JSON API: sends the CSRF token, turns error responses into ApiError. */
 
 let csrfToken = '';
+let lastSession = null;
 
 export class ApiError extends Error {
   constructor(message, status, details) {
@@ -51,11 +52,17 @@ export async function loadSession() {
   try {
     const session = await api('/auth/me');
     setCsrfToken(session.csrfToken);
+    lastSession = session;
     return session;
   } catch (err) {
     if (err.status === 401) redirectToSignIn();
     throw err;
   }
+}
+
+/** The session loaded by this page, for shared widgets such as the assistant. */
+export function currentSession() {
+  return lastSession;
 }
 
 function redirectToSignIn() {

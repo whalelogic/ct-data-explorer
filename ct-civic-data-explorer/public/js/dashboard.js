@@ -1,5 +1,5 @@
 import { api, loadSession } from './api.js';
-import { reportActionButtons, fetchReports } from './report-library.js';
+import { reportActionButtons, fetchReports, summarizeRows } from './report-library.js';
 import { h as createElement } from './dom.js';
 import { boot, debounce, formatDate, renderHeader, showStatus } from './layout.js';
 
@@ -22,6 +22,7 @@ async function initializeDashboard() {
   const session = await loadSession();
   currentUser = session.user;
   renderHeader(currentUser);
+  document.getElementById('dash-greeting').textContent = greeting(currentUser.firstName);
   document.getElementById('manage-datasets').hidden = currentUser.role !== 'admin';
   searchInput.addEventListener('input', handleSearchInput);
   document.getElementById('dashboard-search').addEventListener('submit', handleSearchSubmit);
@@ -31,6 +32,12 @@ async function initializeDashboard() {
   onlyMine.addEventListener('change', renderReports);
   reportSort.addEventListener('change', renderReports);
   await Promise.all([loadDatasets(), loadReports()]);
+}
+
+function greeting(firstName) {
+  const hour = new Date().getHours();
+  const part = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+  return firstName ? `${part}, ${firstName}` : part;
 }
 
 async function loadDatasets() {
@@ -75,33 +82,28 @@ function renderDatasets() {
   showStatus(datasetStatus, matchingDatasetCount ? '' : emptyMessage);
 }
 
+/** Title, one line about where the data comes from, an optional description, and two actions. */
 function createDatasetTile(dataset) {
-  const exploreUrl = `/explore?dataset=${dataset.id}`;
+  const reportUrl = `/builder?dataset=${dataset.id}`;
   const detailsUrl = `/dataset?id=${dataset.id}`;
   const hasApprovedFields = dataset.approvedFields === null || dataset.approvedFields?.length > 0;
-  const titleLink = createElement('a', {
-    href: hasApprovedFields ? exploreUrl : detailsUrl,
-    class: 'stretched-link',
-  }, dataset.displayName || dataset.name);
-  const title = createElement('h3', { class: 'saved-report-title' }, titleLink);
-  const metadata = `${dataset.vintage} · Version ${dataset.version} · ${dataset.rowCount.toLocaleString()} rows`;
-  let reviewStatus = 'Awaiting field approval';
-  if (hasApprovedFields) {
-    reviewStatus = dataset.curationReviewed ? 'Fields reviewed' : 'Field review pending';
-  }
-  const body = createElement('div', { class: 'saved-report-body' });
-  body.append(
-    createElement('p', { class: 'dashboard-dataset-period' }, dataset.vintage),
+  const title = createElement('h3', { class: 'saved-report-title' },
+    createElement('a', { href: detailsUrl, class: 'stretched-link' }, dataset.displayName || dataset.name));
+  // Period and size first: the source can be long and is the part that gets cut off.
+  const facts = [dataset.vintage, `${dataset.rowCount.toLocaleString('en-US')} rows`, dataset.source].filter(Boolean).join(' · ');
+  const body = createElement('div', { class: 'saved-report-body' },
     title,
-    createElement('p', { class: 'muted small' }, metadata),
-    createElement('p', { class: 'dashboard-dataset-source' }, dataset.source),
-    ...(dataset.description ? [createElement('p', { class: 'small muted' }, dataset.description)] : []),
-    createElement('p', { class: 'dashboard-review', 'data-reviewed': dataset.curationReviewed }, reviewStatus),
-  );
+    createElement('p', { class: 'dash-card-meta', title: facts }, facts));
+  if (dataset.description) {
+    body.append(createElement('p', { class: 'dash-card-description' }, dataset.description));
+  }
+  // Review status is an administrator's task, so only they see it, and only when it needs doing.
+  if (currentUser.role === 'admin' && !dataset.curationReviewed) {
+    body.append(createElement('span', { class: 'tag warn' }, 'Fields need review'));
+  }
   const actions = createElement('div', { class: 'saved-report-actions' });
   if (hasApprovedFields) {
-    actions.append(createElement('a', { href: exploreUrl }, 'Explore'));
-    actions.append(createElement('a', { href: `/builder?dataset=${dataset.id}` }, 'New report'));
+    actions.append(createElement('a', { href: reportUrl, class: 'button secondary dash-card-primary' }, 'Create a report'));
   }
   actions.append(createElement('a', { href: detailsUrl }, 'Details'));
   return createElement('li', { class: 'saved-report dashboard-dataset' }, body, actions);
@@ -175,30 +177,19 @@ function compareReports(first, second) {
   return reportSort.value === 'oldest' ? -difference : difference;
 }
 
+/** Title, what it compares, one line of facts, then the actions in one consistent style. */
 function createReportTile(report) {
-  const titleLink = createElement('a', {
-    href: `/builder?report=${report.id}`,
-    class: 'stretched-link',
-  }, report.title);
-  const title = createElement('h3', { class: 'saved-report-title' }, titleLink);
-  // Keep large selections readable without hiding the full selection in the builder.
-  const townSummary = report.towns.length > 3
-    ? `${report.towns.slice(0, 3).join(', ')} + ${report.towns.length - 3} more`
-    : report.towns.join(', ');
-  const towns = createElement('p', { class: 'saved-report-towns' }, townSummary || 'No towns selected');
-  const updatedTime = createElement('time', { datetime: report.updatedAt }, formatDate(report.updatedAt));
-  const metadata = createElement('dl', { class: 'saved-report-meta' });
-  metadata.append(
-    createElement('dt', {}, 'Dataset'),
-    createElement('dd', {}, `${report.dataset.displayName || report.dataset.name}, ${report.dataset.vintage}`),
-    createElement('dt', {}, 'Created by'),
-    createElement('dd', {}, report.createdBy.id === currentUser.id ? 'You' : report.createdBy.name),
-    createElement('dt', {}, 'Updated'),
-    createElement('dd', {}, updatedTime),
-  );
-  const body = createElement('div', { class: 'saved-report-body' }, title, towns, metadata);
+  const title = createElement('h3', { class: 'saved-report-title' },
+    createElement('a', { href: report.viewUrl ?? `/builder?report=${report.id}`, class: 'stretched-link' }, report.title));
+  const rows = createElement('p', { class: 'saved-report-towns' }, summarizeRows(report));
+  const author = report.createdBy.id === currentUser.id ? 'you' : report.createdBy.name;
+  const dataset = `${report.dataset.displayName || report.dataset.name}, ${report.dataset.vintage}`;
+  const meta = createElement('p', { class: 'dash-card-meta', title: dataset }, dataset);
+  const updated = createElement('p', { class: 'dash-card-meta' }, 'Updated ',
+    createElement('time', { datetime: report.updatedAt }, formatDate(report.updatedAt)), ` by ${author}`);
+  const body = createElement('div', { class: 'saved-report-body' }, title, rows, meta, updated);
   const actions = createElement('div', { class: 'saved-report-actions' });
-  actions.append(createElement('a', { href: `/builder?report=${report.id}` }, 'Open report'));
+  actions.append(createElement('a', { href: `/builder?report=${report.id}`, class: 'button secondary dash-card-primary' }, 'Edit'));
   actions.append(...reportActionButtons(report, {
     user: currentUser,
     status: document.getElementById('report-action-status'),
@@ -217,6 +208,7 @@ function handleSearchInput() {
 }
 
 function handleSearchSubmit(event) {
+  // Results already update as you type; Enter just runs the search immediately.
   event.preventDefault();
   renderDatasets();
   loadReports();

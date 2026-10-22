@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Add a dataset · CT Civic Data Explorer</title>
+    <link rel="stylesheet" href="/css/app.css" />
+    <script type="module" src="/js/upload.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site"><a class="brand" href="/">CT Civic Data Explorer</a></header>
+    <main id="main" class="container narrow-container">
+      <nav id="admin-nav" class="sub-nav" aria-label="Administration"></nav>
+      <h1>Add a dataset</h1>
+      <p class="page-intro">
+        Upload a spreadsheet. Nothing is shown to anyone until you choose its fields and publish it on the next screen.
+      </p>
+      <p id="page-status" class="status" role="alert" hidden></p>
+
+      <form id="upload-form" novalidate>
+        <ol class="setup-steps">
+          <li class="panel setup-step">
+            <div class="setup-step-head"><h2>Choose the file</h2></div>
+            <label for="ds-file">CSV or Excel (.xlsx) file</label>
+            <input
+              id="ds-file"
+              name="file"
+              type="file"
+              accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              required
+              aria-describedby="file-help"
+            />
+            <p id="file-help" class="muted small">The first row must hold the column names. Rows may repeat, for example one row per town and industry.</p>
+            <div id="worksheet-field" hidden>
+              <label for="ds-worksheet">Worksheet (optional)</label>
+              <input id="ds-worksheet" name="worksheet" maxlength="100" placeholder="Leave blank to use the first sheet" disabled />
+              <p class="muted small">Formula cells use their saved values, so save the workbook in Excel first.</p>
+            </div>
+            <p id="inspect-status" class="status small" role="status" hidden></p>
+          </li>
+
+          <li class="panel setup-step" id="details-step" hidden>
+            <div class="setup-step-head"><h2>Describe it</h2></div>
+            <div class="grid-form">
+              <div>
+                <label for="ds-name">Dataset name</label>
+                <input id="ds-name" name="name" maxlength="200" required />
+              </div>
+              <div>
+                <label for="ds-source">Source</label>
+                <input id="ds-source" name="source" maxlength="300" required placeholder="e.g. U.S. Census Bureau" />
+              </div>
+              <div>
+                <label for="ds-vintage">Reporting period</label>
+                <input id="ds-vintage" name="vintage" maxlength="50" required placeholder="e.g. 2024 or 2019–2023" />
+              </div>
+            </div>
+            <p class="muted small">Uploading again with the same name and reporting period creates a new version.</p>
+          </li>
+
+          <!-- Filled from the file: which column names each row. -->
+          <li class="panel setup-step" id="row-label-field" hidden>
+            <div class="setup-step-head"><h2>What does each row describe?</h2></div>
+            <label for="ds-label-column">Each row is a</label>
+            <select id="ds-label-column" name="labelColumn"></select>
+            <p id="label-samples" class="muted small"></p>
+            <p class="muted small">The first rows of your file. The highlighted column names each row; every other column becomes something you can show for it.</p>
+            <div id="upload-preview" class="table-wrap" tabindex="0" role="region" aria-label="First rows of the file"></div>
+            <label class="check">
+              <input type="checkbox" id="ds-label-is-town" />
+              <span>
+                These are Connecticut places (towns, counties or planning regions)
+                <span class="field-label-unit">Names are matched to the official list, which allows a statewide comparison. Leave unticked for industries, programs, people or other records.</span>
+              </span>
+            </label>
+          </li>
+        </ol>
+
+        <input type="hidden" name="activate" value="false" />
+        <div id="upload-actions" class="button-row" hidden>
+          <button type="submit">Upload and choose fields</button>
+          <a class="button secondary" href="/admin">Cancel</a>
+        </div>
+        <p id="upload-status" class="status" role="status" hidden></p>
+        <ul id="upload-errors" class="errors" hidden></ul>
+      </form>
+
+      <details id="column-setup" class="panel advanced-panel" hidden>
+        <summary>Advanced: indicator definitions</summary>
+        <p class="muted small">
+          Not needed for most files. New columns are detected automatically. Use a definition only
+          for a known indicator key that needs a particular unit or a computed ratio.
+        </p>
+        <div id="upload-indicator-editor"></div>
+      </details>
+    </main>
+  </body>
+</html>

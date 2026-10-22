@@ -23,6 +23,7 @@ import { datasetsRouter } from './routes/datasets.routes.js';
 import { indicatorsRouter } from './routes/indicators.routes.js';
 import { townsRouter } from './routes/towns.routes.js';
 import { usersRouter } from './routes/users.routes.js';
+import { assistantRouter } from './routes/assistant.routes.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
@@ -49,6 +50,15 @@ export function createApp({ sessionStore, logRequests = config.env !== 'test' } 
     });
     app.get(pageUrl, (_req, res) => res.sendFile(`${page}.html`, { root: publicDirectory }));
   }
+
+  // Adding a dataset has its own page; the admin page is for finding and managing datasets.
+  app.get('/admin/datasets/new', (_req, res) => res.sendFile('upload.html', { root: publicDirectory }));
+
+  // Saved reports have readable addresses. The page loads the report through the API,
+  // which requires sign-in, so the address alone reveals nothing.
+  app.get(/^\/explore\/([a-z0-9]+(?:-[a-z0-9]+)*)\.html$/, (_req, res) => {
+    res.sendFile('report.html', { root: publicDirectory });
+  });
 
   // Static assets. Pages are plain HTML; the API is the security boundary.
   app.use(express.static(path.join(here, '..', 'public')));
@@ -90,6 +100,7 @@ export function createApp({ sessionStore, logRequests = config.env !== 'test' } 
   app.use('/api/datasets', datasetsRouter);
   app.use('/api/reports', reportsRouter);
   app.use('/api/users', usersRouter);
+  app.use('/api/assistant', assistantRouter);
   app.use('/api', apiNotFound);
 
   app.use(errorHandler);

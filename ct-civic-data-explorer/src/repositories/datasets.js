@@ -5,6 +5,7 @@ const DATASET_SELECT_SQL = `
   SELECT d.id, d.name, d.source_id, s.name AS source, d.vintage, d.version, d.row_count, d.uploaded_at,
          d.is_active, d.uploaded_by, d.data_format, d.column_definitions, d.import_notes,
          d.approved_fields, d.curation_reviewed_at, d.curation_reviewed_by, d.presentation, d.presentation_revision,
+         d.row_label_key,
          CONCAT(u.first_name, ' ', u.last_name) AS uploaded_by_name
   FROM datasets d
   JOIN sources s ON s.id = d.source_id
@@ -55,13 +56,14 @@ export async function insert(dataset, database = pool) {
     dataFormat = 'indicators',
     columns = [],
     notes = [],
+    rowLabelKey = null,
   } = dataset;
   const { insertId } = await database.query(
     `INSERT INTO datasets (
        name, source_id, vintage, version, row_count, uploaded_by,
-       data_format, column_definitions, import_notes, approved_fields
+       data_format, column_definitions, import_notes, approved_fields, row_label_key
      )
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, JSON_ARRAY())`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, JSON_ARRAY(), ?)`,
     [
       name,
       sourceId,
@@ -72,6 +74,7 @@ export async function insert(dataset, database = pool) {
       dataFormat,
       JSON.stringify(columns),
       JSON.stringify(notes),
+      rowLabelKey,
     ],
   );
   return { id: insertId };
@@ -112,4 +115,9 @@ export async function setPresentation(id, presentation, database) {
     'UPDATE datasets SET presentation = ?, presentation_revision = presentation_revision + 1 WHERE id = ?',
     [JSON.stringify(presentation), id],
   );
+}
+
+/** Change which column labels a dataset's rows. Source values are not modified. */
+export async function setRowLabelKey(id, rowLabelKey, database = pool) {
+  await database.query('UPDATE datasets SET row_label_key = ? WHERE id = ?', [rowLabelKey, id]);
 }

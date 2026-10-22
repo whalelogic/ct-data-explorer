@@ -1,6 +1,6 @@
 import { api, loadSession } from './api.js';
 import { h } from './dom.js';
-import { boot, renderHeader, showStatus } from './layout.js';
+import { boot, renderAdminNav, renderHeader, showStatus } from './layout.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -11,6 +11,7 @@ boot(async () => {
     return;
   }
   renderHeader(user);
+  renderAdminNav(document.getElementById('admin-nav'));
 
   /** Run an action, reporting failure in the given status element. */
   async function run(statusEl, fn) {

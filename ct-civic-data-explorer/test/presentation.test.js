@@ -41,7 +41,9 @@ test('custom chart titles keep split charts identifiable and retain numeric valu
     { key: 'pay', label: 'Pay', unit: 'currency', decimals: 0, cells: [{ value: 45000 }] },
   ];
   const blocks = buildChartBlocks({ chartType: 'grouped_bar', indicators: [], title: 'Local economy' }, rows, [{ label: 'Andover' }]);
-  assert.deepEqual(blocks.map((block) => block.chart.title), ['Local economy — Employment', 'Local economy — Pay']);
+  // The custom title stays as written; each split chart names its fields in a subtitle.
+  assert.deepEqual(blocks.map((block) => block.chart.title), ['Local economy', 'Local economy']);
+  assert.deepEqual(blocks.map((block) => block.chart.subtitle), ['Employment', 'Pay']);
   assert.equal(blocks[0].chart.series[0].values[0], 23.45);
 });
 
