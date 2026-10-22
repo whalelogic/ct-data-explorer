@@ -42,7 +42,16 @@ export function formatAxisValue(value, { unit }) {
 /** Axis title for a unit. */
 export function unitLabel(unit) {
   return (
-    { count: 'Count', currency: 'US dollars', percent: 'Percent', density: 'People per square mile', area: 'Square miles' }[
+    {
+      count: 'Count',
+      currency: 'US dollars',
+      percent: 'Percent',
+      density: 'People per square mile',
+      area: 'Square miles',
+      ratio: 'Ratio',
+      per_1000: 'Per 1,000',
+      number: 'Number',
+    }[
       unit
     ] ?? unit
   );

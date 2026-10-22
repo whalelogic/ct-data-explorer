@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Dataset overview · CT Civic Data Explorer</title>
+    <title>Dataset · CT Civic Data Explorer</title>
     <link rel="stylesheet" href="/css/app.css" />
     <script type="module" src="/js/dataset.js"></script>
   </head>
@@ -12,79 +12,34 @@
     <header class="site"><a class="brand" href="/">CT Civic Data Explorer</a></header>
     <main id="main" class="container">
       <p><a id="back-link" href="/">← Back to datasets</a></p>
-      <h1 id="dataset-heading">Dataset overview</h1>
+
+      <!-- One compact summary instead of a metadata table. -->
+      <div class="dataset-header">
+        <div class="dataset-header-copy">
+          <h1 id="dataset-heading">Dataset</h1>
+          <p id="dataset-summary" class="dataset-summary"></p>
+          <p id="dataset-description" class="muted" hidden></p>
+        </div>
+        <div class="dataset-header-actions">
+          <a id="make-report" class="button" hidden>Create a report with this data</a>
+          <a id="finish-setup" class="button" href="#settings" hidden>Finish setting up</a>
+        </div>
+      </div>
       <p id="page-status" class="status" role="alert" hidden></p>
       <button id="retry" type="button" class="secondary" hidden>Retry</button>
+
       <div id="dataset-content" hidden>
-        <section class="panel" aria-labelledby="overview-heading">
-          <h2 id="overview-heading">Overview</h2>
-          <dl id="dataset-metadata" class="saved-report-meta"></dl>
-          <div class="button-row">
-            <a id="explore-dataset" class="button" hidden>Explore dataset</a>
-            <a id="make-report" class="button secondary" hidden>Open report builder</a>
-            <button id="toggle-active" type="button" class="secondary" hidden></button>
-          </div>
-          <p id="dataset-status" class="status" role="status" hidden></p>
-        </section>
-        <section class="panel" aria-labelledby="presentation-heading">
-          <h2 id="presentation-heading">Customize names and display</h2>
-          <p class="muted">Set shared defaults for this dataset version. Source values, field keys and units stay unchanged. Individual reports can override these choices.</p>
-          <div id="dataset-presentation"></div>
-        </section>
-        <section id="curation-panel" class="panel" aria-labelledby="curation-heading" hidden>
-          <h2 id="curation-heading">Approve fields for exploration</h2>
-          <p class="muted">
-            Select the information users may explore. Review units, source notes and the reporting
-            period before publishing. Location names stay available as context.
-          </p>
-          <p id="curation-summary" class="curation-summary" role="status"></p>
-          <label for="curation-search">Find a field</label>
-          <input
-            id="curation-search"
-            type="search"
-            placeholder="Search field names or units"
-            autocomplete="off"
-          />
-          <div class="button-row">
-            <button id="approve-visible" type="button" class="secondary">
-              Select visible fields
-            </button>
-            <button id="clear-visible" type="button" class="secondary">Clear visible fields</button>
-          </div>
-          <div id="curation-fields" class="curation-fields"></div>
-          <div class="button-row">
-            <button id="save-curation" type="button">Save field approval</button>
-          </div>
-          <p id="curation-status" class="status" role="status" hidden></p>
-        </section>
-        <section class="panel" aria-labelledby="indicators-heading">
-          <h2 id="indicators-heading">Dataset indicators</h2>
-          <p class="muted small">
-            Columns and values belong to this dataset version. Text, repeated town rows and missing
-            values are preserved.
-          </p>
-          <div class="table-wrap">
-            <table class="data">
-              <caption class="sr-only">Indicators available in this dataset</caption>
-              <thead>
-                <tr>
-                  <th scope="col">Column key</th>
-                  <th scope="col">Label</th>
-                  <th scope="col">Unit</th>
-                  <th scope="col">Decimals</th>
-                  <th scope="col">Value</th>
-                </tr>
-              </thead>
-              <tbody id="indicators-body"></tbody>
-            </table>
-          </div>
-          <details id="indicator-setup" hidden>
-            <summary>Add an indicator definition</summary>
-            <div id="dataset-indicator-editor"></div>
-          </details>
-        </section>
-        <section class="panel" aria-labelledby="preview-heading">
-          <h2 id="preview-heading">Data preview</h2>
+        <div class="page-tabs" role="tablist" aria-label="Dataset">
+          <button type="button" role="tab" id="tab-data" data-tab="data" aria-controls="panel-data">Data</button>
+          <button type="button" role="tab" id="tab-fields" data-tab="fields" aria-controls="panel-fields">Fields</button>
+          <button type="button" role="tab" id="tab-settings" data-tab="settings" aria-controls="panel-settings" hidden>
+            Settings <span id="settings-badge" class="tab-badge" hidden></span>
+          </button>
+        </div>
+
+        <!-- Data: what the rows look like. Neutral about what a row is. -->
+        <section id="panel-data" class="panel tab-panel" role="tabpanel" aria-labelledby="tab-data" tabindex="0">
+          <div id="data-shape" class="shape-panel"></div>
           <p id="preview-summary" class="muted small" role="status"></p>
           <div
             id="data-preview"
@@ -97,6 +52,94 @@
             <button id="previous" type="button" class="secondary">Previous rows</button>
             <button id="next" type="button" class="secondary">Next rows</button>
           </div>
+          <details id="import-notes" class="import-notes" hidden>
+            <summary>Notes from the upload</summary>
+            <ul id="import-notes-list"></ul>
+          </details>
+        </section>
+
+        <!-- Fields: what a report can use. -->
+        <section id="panel-fields" class="panel tab-panel" role="tabpanel" aria-labelledby="tab-fields" tabindex="0" hidden>
+          <p class="muted small">These are the pieces of information people can put in a report.</p>
+          <p id="fields-empty" class="muted" hidden></p>
+          <div id="field-cards" class="field-cards"></div>
+          <p id="unapproved-note" class="muted small" hidden></p>
+        </section>
+
+        <!-- Settings: the setup steps in the order they must happen. -->
+        <section id="panel-settings" class="tab-panel" role="tabpanel" aria-labelledby="tab-settings" tabindex="0" hidden>
+          <ol class="setup-steps">
+            <li id="step-approve" class="panel setup-step" hidden>
+              <div class="setup-step-head">
+                <h2 id="curation-heading">Choose the fields people can use</h2>
+                <span class="setup-done" hidden>Done</span>
+              </div>
+              <p class="muted">Tick each column that reports may show. Unticked columns stay hidden from everyone except administrators.</p>
+              <div class="choice-toolbar">
+                <button id="approve-visible" type="button" class="link">Select all</button>
+                <button id="clear-visible" type="button" class="link">Clear</button>
+                <span id="curation-summary" role="status" aria-live="polite"></span>
+              </div>
+              <label for="curation-search" class="sr-only">Find a field</label>
+              <input id="curation-search" type="search" placeholder="Find a field" autocomplete="off" hidden />
+              <div id="curation-fields" class="curation-fields"></div>
+              <div class="button-row">
+                <button id="save-curation" type="button">Save field choices</button>
+              </div>
+              <p id="curation-status" class="status" role="status" hidden></p>
+            </li>
+
+            <li id="row-label-panel" class="panel setup-step" hidden>
+              <div class="setup-step-head">
+                <h2 id="row-label-heading">Default comparison</h2>
+              </div>
+              <p id="row-label-current"></p>
+              <p id="row-label-only" class="muted small" hidden>
+                To let people compare by another text column (for example Industry), tick it under
+                <a href="#settings" id="row-label-approve-link">Choose the fields people can use</a>.
+              </p>
+              <div id="row-label-change" hidden>
+                <label for="row-label-select">New reports compare</label>
+                <select id="row-label-select" aria-describedby="row-label-help"></select>
+                <p id="row-label-help" class="muted small">
+                  People can still switch to another approved column in the report builder.
+                  Saved reports keep what they compare.
+                </p>
+                <div class="button-row">
+                  <button id="save-row-label" type="button" disabled>Use this column</button>
+                </div>
+              </div>
+              <p id="row-label-status" class="status" role="status" hidden></p>
+            </li>
+
+            <li id="step-display" class="panel setup-step">
+              <details>
+                <summary class="setup-step-head">
+                  <h2 id="presentation-heading">Names and display <span class="setup-optional">Optional</span></h2>
+                </summary>
+                <p class="muted">Give the dataset and its fields friendlier names. Source values never change, and each report can still override these.</p>
+                <div id="dataset-presentation"></div>
+              </details>
+            </li>
+
+            <li id="step-publish" class="panel setup-step" hidden>
+              <div class="setup-step-head">
+                <h2>Publish</h2>
+                <span class="setup-done" hidden>Published</span>
+              </div>
+              <p id="publish-explainer"></p>
+              <div class="button-row">
+                <button id="toggle-active" type="button"></button>
+              </div>
+              <p id="dataset-status" class="status" role="status" hidden></p>
+            </li>
+          </ol>
+
+          <details id="indicator-setup" class="panel advanced-panel" hidden>
+            <summary>Advanced: indicator definitions</summary>
+            <p class="muted small">Only needed for known indicator keys that require a particular unit or a computed ratio.</p>
+            <div id="dataset-indicator-editor"></div>
+          </details>
         </section>
       </div>
     </main>

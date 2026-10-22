@@ -2,7 +2,7 @@
 import { pool } from '../db/pool.js';
 
 const SELECT = `
-  SELECT r.id, r.title, r.selection, r.created_by, r.dataset_id, r.created_at, r.updated_at,
+  SELECT r.id, r.title, r.slug, r.selection, r.created_by, r.dataset_id, r.created_at, r.updated_at,
          CONCAT(u.first_name, ' ', u.last_name) AS creator_name,
          d.name AS dataset_name, d.vintage AS dataset_vintage, d.version AS dataset_version, d.presentation AS dataset_presentation
   FROM reports r
@@ -33,18 +33,31 @@ export async function findById(id, db = pool) {
   return rows[0] ?? null;
 }
 
-export async function insert({ title, selection, createdBy, datasetId }, db = pool) {
+export async function findBySlug(slug, db = pool) {
+  const { rows } = await db.query(`${SELECT} WHERE r.slug = ?`, [slug]);
+  return rows[0] ?? null;
+}
+
+export async function slugTaken(slug, excludeId = null, db = pool) {
+  const { rows } = await db.query(
+    'SELECT 1 FROM reports WHERE slug = ? AND (? IS NULL OR id <> ?) LIMIT 1',
+    [slug, excludeId, excludeId],
+  );
+  return rows.length > 0;
+}
+
+export async function insert({ title, slug, selection, createdBy, datasetId }, db = pool) {
   const { insertId } = await db.query(
-    'INSERT INTO reports (title, selection, created_by, dataset_id) VALUES (?, ?, ?, ?)',
-    [title, JSON.stringify(selection), createdBy, datasetId],
+    'INSERT INTO reports (title, slug, selection, created_by, dataset_id) VALUES (?, ?, ?, ?, ?)',
+    [title, slug, JSON.stringify(selection), createdBy, datasetId],
   );
   return insertId;
 }
 
-export async function update(id, { title, selection, datasetId }, db = pool) {
+export async function update(id, { title, slug, selection, datasetId }, db = pool) {
   await db.query(
-    'UPDATE reports SET title = ?, selection = ?, dataset_id = ?, updated_at = NOW(3) WHERE id = ?',
-    [title, JSON.stringify(selection), datasetId, id],
+    'UPDATE reports SET title = ?, slug = ?, selection = ?, dataset_id = ?, updated_at = NOW(3) WHERE id = ?',
+    [title, slug, JSON.stringify(selection), datasetId, id],
   );
 }
 

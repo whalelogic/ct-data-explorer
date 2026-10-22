@@ -53,3 +53,15 @@ async function downloadPdf(report, status) {
     showStatus(status, `No PDF was created: ${err.message}`, 'error');
   }
 }
+
+/** "Hartford, New Haven + 3 more", or "All rows" for reports that include every row. */
+export function summarizeRows(report) {
+  if (report.allRows) {
+    return 'All rows';
+  }
+  const rows = report.rows ?? [];
+  if (rows.length > 3) {
+    return `${rows.slice(0, 3).join(', ')} + ${rows.length - 3} more`;
+  }
+  return rows.join(', ') || 'No rows selected';
+}

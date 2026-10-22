@@ -13,6 +13,15 @@ export const BLOCK_TYPES = Object.freeze(['text', 'chart', 'table']);
 export const CHART_TYPES = Object.freeze(['bar', 'grouped_bar', 'line']);
 export const MAX_LAYOUT_BLOCKS = 30;
 export const MAX_TEXT_LENGTH = 4000;
+/** Listing more rows than this by name is what "all rows" is for; it keeps requests small. */
+export const MAX_NAMED_ROWS = 2000;
+export const MAX_CUSTOM_INDICATORS = 10;
+/** A custom ratio's multiplier decides its unit, so a percentage is never charted beside a ratio. */
+export const RATIO_FORMATS = Object.freeze({
+  ratio: { multiplier: 1, unit: 'ratio' },
+  percent: { multiplier: 100, unit: 'percent' },
+  per_1000: { multiplier: 1000, unit: 'per_1000' },
+});
 
 const requiredText = (label, max) => z.string().trim().min(1, `${label} is required`).max(max);
 
@@ -20,11 +29,13 @@ const textBlock = z.object({
   type: z.literal('text'),
   text: z.string().trim().max(MAX_TEXT_LENGTH, `A text block can hold at most ${MAX_TEXT_LENGTH} characters`).default(''),
 });
+const colorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Choose a six-digit hex color, such as #39738C');
 const chartBlock = z.object({
   type: z.literal('chart'),
   title: z.string().trim().max(120).optional(),
   chartType: z.enum(CHART_TYPES).default('grouped_bar'),
   indicators: z.array(z.string()).max(25).default([]), // empty: chart every selected numeric indicator
+  colors: z.record(z.string().min(1).max(100), colorSchema).optional(), // field key: series color
 });
 const tableBlock = z.object({
   type: z.literal('table'),
@@ -35,24 +46,52 @@ export const blockSchema = z.discriminatedUnion('type', [textBlock, chartBlock, 
   error: `Each block must be one of: ${BLOCK_TYPES.join(', ')}`,
 });
 
+/**
+ * What a calculated field works out.
+ *   ratio           numerator ÷ denominator for each row (clients per staff member)
+ *   average         total ÷ number of rows: one value for the report (average population per town)
+ *   average_filled  total ÷ rows with a value in the denominator column
+ *   median, highest, lowest, total   of the numerator across the report's rows
+ * Everything but ratio is a summary: one value for the whole report, never charted per row.
+ */
+export const CALCULATIONS = Object.freeze(['ratio', 'average', 'average_filled', 'median', 'highest', 'lowest', 'total']);
+/** Calculations that need a second field. */
+const NEEDS_DENOMINATOR = new Set(['ratio', 'average_filled']);
+
+/** A new indicator computed on the server: numerator ÷ denominator × the format's multiplier. */
+export const customIndicatorSchema = z.object({
+  key: z.string().regex(/^ratio_\d{1,3}$/, 'Custom indicator keys look like ratio_1'),
+  label: requiredText('Custom indicator name', 120),
+  numerator: requiredText('Numerator field', 100),
+  calculation: z.enum(CALCULATIONS).default('ratio'),
+  // Summaries also show the same figure for every row of the dataset (all Connecticut towns).
+  benchmark: z.boolean().default(true),
+  denominator: z.string().trim().max(100).optional(),
+  format: z.enum(Object.keys(RATIO_FORMATS)).default('ratio'),
+  decimals: z.number().int().min(0).max(4).default(2),
+}).strict();
+
 export const DEFAULT_LAYOUT = Object.freeze([
   { type: 'chart', chartType: 'grouped_bar', indicators: [] },
   { type: 'table', indicators: [] },
 ]);
 
 export const selectionSchema = z.preprocess(
-  upgradeLegacySelection,
+  upgradeSelection,
   z
     .object({
       dataset: z.object(
         { name: requiredText('Dataset name', 200), vintage: requiredText('Dataset vintage', 50) },
         { error: 'Choose a dataset' },
       ),
-      towns: z
-        .array(requiredText('Town', 100))
-        .min(1, 'Choose a town'),
+      // Row names: towns in town-keyed datasets, otherwise values of the row label column.
+      rows: z.array(requiredText('Row', 500)).max(MAX_NAMED_ROWS, `Name at most ${MAX_NAMED_ROWS} rows, or include all rows`).default([]),
+      allRows: z.boolean().default(false),
+      // What the report compares: a place type (town, county, region) or a text column key.
+      compareBy: z.string().regex(/^(?:town|county|region|c\d{1,3})$/, 'Choose what to compare').optional(),
       benchmark: z.boolean().default(true),
       indicators: z.array(requiredText('Indicator', 100)).min(1, 'Select at least one indicator for the report').max(25),
+      customIndicators: z.array(customIndicatorSchema).max(MAX_CUSTOM_INDICATORS, `A report can define at most ${MAX_CUSTOM_INDICATORS} custom indicators`).default([]),
       styleOverrides: reportStyleSchema.optional(),
       fieldOverrides: z.record(z.string().min(1).max(100), fieldPresentationSchema).optional(),
       showTitle: z.boolean().default(true),
@@ -65,8 +104,25 @@ export const selectionSchema = z.preprocess(
         .default(() => DEFAULT_LAYOUT.map((block) => ({ ...block, indicators: [] }))),
     })
     .superRefine((s, ctx) => {
-      const duplicateTown = findDuplicate(s.towns.map((t) => t.toLowerCase()));
-      if (duplicateTown) ctx.addIssue({ code: 'custom', path: ['towns'], message: `"${duplicateTown}" is selected more than once` });
+      if (!s.allRows && s.rows.length === 0) {
+        ctx.addIssue({ code: 'custom', path: ['rows'], message: 'Choose at least one row, or include all rows' });
+      }
+      const duplicateRow = findDuplicate(s.rows.map((row) => row.toLowerCase()));
+      if (duplicateRow) ctx.addIssue({ code: 'custom', path: ['rows'], message: `"${duplicateRow}" is selected more than once` });
+
+      const customKeys = s.customIndicators.map((custom) => custom.key);
+      const duplicateCustom = findDuplicate(customKeys);
+      if (duplicateCustom) {
+        ctx.addIssue({ code: 'custom', path: ['customIndicators'], message: `"${duplicateCustom}" is defined more than once` });
+      }
+      s.customIndicators.forEach((custom, i) => {
+        if (NEEDS_DENOMINATOR.has(custom.calculation) && !custom.denominator) {
+          ctx.addIssue({ code: 'custom', path: ['customIndicators', i, 'denominator'], message: `${custom.label}: choose what to divide by` });
+        }
+        if (custom.calculation === 'ratio' && custom.numerator === custom.denominator) {
+          ctx.addIssue({ code: 'custom', path: ['customIndicators', i, 'denominator'], message: `${custom.label}: choose two different fields` });
+        }
+      });
 
       const duplicateIndicator = findDuplicate(s.indicators);
       if (duplicateIndicator) {
@@ -93,6 +149,20 @@ export const selectionSchema = z.preprocess(
       }
     }),
 );
+
+/** Apply every stored-shape upgrade, oldest first. */
+export function upgradeSelection(input) {
+  return renameTownsToRows(upgradeLegacySelection(input));
+}
+
+/** Reports saved before datasets could be keyed by any column stored `towns`. */
+export function renameTownsToRows(input) {
+  if (input === null || typeof input !== 'object' || Array.isArray(input) || !('towns' in input) || 'rows' in input) {
+    return input;
+  }
+  const { towns, ...rest } = input;
+  return { ...rest, rows: towns };
+}
 
 /**
  * Convert the pre-layout selection shape ({ blocks: ['title', 'chart', 'table',

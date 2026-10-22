@@ -39,7 +39,7 @@ export const config = Object.freeze({
   uploads: Object.freeze({ maxBytes: 10 * 1024 * 1024 }),
   ai: Object.freeze({
     provider: process.env.AI_PROVIDER ?? 'none', // 'none' | 'anthropic'
-    model: process.env.AI_MODEL ?? 'claude-opus-5',
+    model: process.env.AI_MODEL ?? 'claude-opus-5-5',
     effort: process.env.AI_EFFORT ?? 'low',
     timeoutMs: 15_000, // SRS §4.3: drafting completes in under 15 seconds
   }),

@@ -9,6 +9,9 @@ import { validate } from '../middleware/validate.js';
 import {
   getDatasetCuration,
   getDatasetPresentation,
+  getDatasetRowLabel,
+  inspectUpload,
+  setDatasetRowLabel,
   updateDatasetPresentation,
   getDatasetOverview,
   getReportOptions,
@@ -31,6 +34,17 @@ const uploadFields = z.object({
   vintage: z.string().trim().min(1, 'Vintage is required').max(50),
   worksheet: z.string().trim().max(100).optional(),
   activate: z.enum(['true', 'false']).optional().transform((value) => value === 'true'),
+  // The column that identifies each row; without it a single "Town" column is required.
+  labelColumn: z.string().trim().max(200).optional().transform((value) => value || undefined),
+  labelIsTown: z.enum(['true', 'false']).optional().transform((value) => (value === undefined ? undefined : value === 'true')),
+});
+
+const inspectFields = z.object({
+  worksheet: z.string().trim().max(100).optional(),
+});
+
+const rowLabelFields = z.object({
+  rowLabelKey: z.string().regex(/^c\d{1,3}$/, 'Choose a column from this dataset'),
 });
 
 const previewQuery = z.object({
@@ -98,6 +112,24 @@ datasetsRouter.put(
 );
 
 datasetsRouter.post(
+  '/inspect',
+  requireRole('admin'),
+  upload.single('file'),
+  validate(inspectFields),
+  async (request, response) => {
+    if (!request.file) {
+      throw new HttpError(400, 'Choose a CSV or Excel (.xlsx) file to upload');
+    }
+    const inspection = await inspectUpload({
+      file: request.file.buffer,
+      filename: request.file.originalname,
+      worksheet: request.valid.body.worksheet,
+    });
+    response.json(inspection);
+  },
+);
+
+datasetsRouter.post(
   '/',
   requireRole('admin'),
   upload.single('file'),
@@ -135,4 +167,13 @@ datasetsRouter.get('/:id/presentation', validate(idParams, 'params'), async (req
 
 datasetsRouter.put('/:id/presentation', validate(idParams, 'params'), validate(datasetPresentationSchema), async (request, response) => {
   response.json(await updateDatasetPresentation(request.valid.params.id, request.valid.body, request.user));
+});
+
+/** Staff and administrators choose which column labels a source-row dataset's rows. */
+datasetsRouter.get('/:id/row-label', validate(idParams, 'params'), async (request, response) => {
+  response.json(await getDatasetRowLabel(request.valid.params.id, request.user));
+});
+
+datasetsRouter.put('/:id/row-label', validate(idParams, 'params'), validate(rowLabelFields), async (request, response) => {
+  response.json(await setDatasetRowLabel(request.valid.params.id, request.valid.body.rowLabelKey, request.user));
 });

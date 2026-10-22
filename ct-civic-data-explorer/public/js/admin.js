@@ -1,7 +1,16 @@
+/**
+ * Admin dataset list: find a dataset by search, filters and sortable columns, then open it.
+ * Adding a dataset has its own page (/admin/datasets/new, see upload.js).
+ */
 import { api, loadSession } from './api.js';
 import { h as createElement } from './dom.js';
-import { mountIndicatorEditor } from './indicator-editor.js';
-import { boot, formatDate, renderHeader, showStatus } from './layout.js';
+import { boot, formatDate, renderAdminNav, renderHeader } from './layout.js';
+
+const FILTER_IDS = ['filter-period', 'filter-status', 'filter-review'];
+
+let allDatasets = [];
+let sortKey = 'uploadedAt';
+let sortDirection = -1; // newest first
 
 function getElement(id) {
   return document.getElementById(id);
@@ -14,38 +23,127 @@ async function initializeAdminPage() {
     return;
   }
   renderHeader(user);
-  mountIndicatorEditor(getElement('upload-indicator-editor'), 'upload-indicator');
+  renderAdminNav(getElement('admin-nav'));
 
-  const datasets = await api('/datasets');
-  renderDatasets(datasets);
-  getElement('ds-file').addEventListener('change', handleFileSelection);
-  getElement('upload-form').addEventListener('submit', uploadDataset);
+  allDatasets = await api('/datasets');
+  renderPeriodFilter();
+  for (const id of ['dataset-search', ...FILTER_IDS]) {
+    getElement(id).addEventListener('input', renderDatasets);
+  }
+  getElement('clear-filters').addEventListener('click', clearFilters);
+  for (const button of document.querySelectorAll('.sort-button')) {
+    button.addEventListener('click', handleSort);
+  }
+  renderDatasets();
 }
 
-function renderDatasets(datasets) {
+function renderPeriodFilter() {
+  const periods = [...new Set(allDatasets.map((dataset) => dataset.vintage))]
+    .sort((first, second) => second.localeCompare(first, 'en', { numeric: true }));
+  const select = getElement('filter-period');
+  for (const period of periods) {
+    select.append(createElement('option', { value: period }, period));
+  }
+}
+
+/** Fields are chosen once an administrator has saved at least one. */
+function hasChosenFields(dataset) {
+  return dataset.curationReviewed && (dataset.approvedFields?.length ?? 0) > 0;
+}
+
+function matchesFilters(dataset) {
+  const query = getElement('dataset-search').value.trim().toLowerCase();
+  const period = getElement('filter-period').value;
+  const status = getElement('filter-status').value;
+  const review = getElement('filter-review').value;
+  const searchable = `${dataset.displayName} ${dataset.name} ${dataset.source}`.toLowerCase();
+  if (query && !searchable.includes(query)) return false;
+  if (period && dataset.vintage !== period) return false;
+  if (status === 'published' && !dataset.isActive) return false;
+  if (status === 'draft' && dataset.isActive) return false;
+  if (review === 'approved' && !hasChosenFields(dataset)) return false;
+  if (review === 'needs-review' && hasChosenFields(dataset)) return false;
+  return true;
+}
+
+function sortValue(dataset) {
+  if (sortKey === 'name') return dataset.displayName || dataset.name;
+  if (sortKey === 'uploadedAt') return new Date(dataset.uploadedAt).getTime();
+  return dataset[sortKey];
+}
+
+function compareDatasets(first, second) {
+  const a = sortValue(first);
+  const b = sortValue(second);
+  const order = typeof a === 'string' ? a.localeCompare(b, 'en', { numeric: true, sensitivity: 'base' }) : a - b;
+  return order * sortDirection;
+}
+
+function handleSort(event) {
+  const key = event.currentTarget.dataset.sort;
+  if (key === sortKey) {
+    sortDirection = -sortDirection;
+  } else {
+    sortKey = key;
+    sortDirection = key === 'uploadedAt' ? -1 : 1;
+  }
+  for (const button of document.querySelectorAll('.sort-button')) {
+    const isSorted = button.dataset.sort === sortKey;
+    const direction = sortDirection === 1 ? 'ascending' : 'descending';
+    button.closest('th').setAttribute('aria-sort', isSorted ? direction : 'none');
+  }
+  renderDatasets();
+}
+
+function clearFilters() {
+  getElement('dataset-search').value = '';
+  for (const id of FILTER_IDS) {
+    getElement(id).value = '';
+  }
+  renderDatasets();
+  getElement('dataset-search').focus();
+}
+
+function renderDatasets() {
+  const shown = allDatasets.filter(matchesFilters).sort(compareDatasets);
   const tableBody = getElement('datasets-body');
   tableBody.replaceChildren();
-  for (const dataset of datasets) {
+  for (const dataset of shown) {
     tableBody.append(createDatasetRow(dataset));
   }
 
-  if (!datasets.length) {
-    const emptyCell = createElement('td', { colspan: 7, class: 'muted' },
-      'No datasets yet. Upload a CSV or Excel file to get started.');
-    tableBody.append(createElement('tr', {}, emptyCell));
+  if (!allDatasets.length) {
+    tableBody.append(emptyRow('No datasets yet. Select Add dataset to upload a spreadsheet.'));
+  } else if (!shown.length) {
+    tableBody.append(emptyRow('No datasets match. Try clearing the search or filters.'));
   }
+  getElement('dataset-count').textContent = shown.length === allDatasets.length
+    ? `${allDatasets.length} ${allDatasets.length === 1 ? 'dataset' : 'datasets'}`
+    : `${shown.length} of ${allDatasets.length} datasets`;
+  const hasFilters = Boolean(getElement('dataset-search').value.trim()) || FILTER_IDS.some((id) => getElement(id).value);
+  getElement('clear-filters').hidden = !hasFilters;
+}
+
+function emptyRow(message) {
+  return createElement('tr', {}, createElement('td', { colspan: 7, class: 'muted' }, message));
 }
 
 function createDatasetRow(dataset) {
-  const detailsUrl = `/dataset?id=${dataset.id}`;
+  // Drafts open on Settings, where the next step is.
+  const detailsUrl = `/dataset?id=${dataset.id}${dataset.isActive ? '' : '#settings'}`;
   const titleLink = createElement('a', { href: detailsUrl }, dataset.displayName || dataset.name);
   const rowHeading = createElement('th', { scope: 'row' }, titleLink);
-  const statusTag = createElement('span', {
-    class: dataset.isActive ? 'tag active' : 'tag',
-  }, dataset.isActive ? 'Published' : 'Draft / archived');
-  const approvalSummary = dataset.curationReviewed
-    ? `${dataset.approvedFields.length} approved`
-    : 'Needs review';
+  if (dataset.source) {
+    rowHeading.append(createElement('span', { class: 'field-choice-meta' }, dataset.source));
+  }
+  const statusTag = createElement('span', { class: dataset.isActive ? 'tag active' : 'tag' }, dataset.isActive ? 'Published' : 'Draft');
+  let fields = createElement('span', { class: 'tag warn' }, 'Need choosing');
+  if (hasChosenFields(dataset)) {
+    fields = `${dataset.approvedFields.length} chosen`;
+  } else if (dataset.approvedFields == null) {
+    // Uploaded before field approval existed: every column is available until reviewed.
+    fields = createElement('span', { class: 'tag' }, 'All · not reviewed');
+  }
 
   const row = createElement('tr', { class: 'dataset-row', onClick: openDatasetRow }, rowHeading);
   row.append(
@@ -54,66 +152,14 @@ function createDatasetRow(dataset) {
     createElement('td', { class: 'num' }, dataset.rowCount.toLocaleString('en-US')),
     createElement('td', {}, formatDate(dataset.uploadedAt)),
     createElement('td', {}, statusTag),
-    createElement('td', {}, approvalSummary),
+    createElement('td', {}, fields),
   );
   return row;
 }
 
 function openDatasetRow(event) {
   if (!event.target.closest('a')) {
-    const titleLink = event.currentTarget.querySelector('a');
-    location.assign(titleLink.href);
-  }
-}
-
-function handleFileSelection() {
-  const selectedFile = getElement('ds-file').files[0];
-  getElement('upload-details').hidden = !selectedFile;
-  getElement('column-setup').hidden = !selectedFile;
-
-  const isExcelFile = selectedFile && /\.xlsx$/i.test(selectedFile.name);
-  getElement('worksheet-field').hidden = !isExcelFile;
-  getElement('ds-worksheet').disabled = !isExcelFile;
-  getElement('ds-worksheet').value = '';
-  showStatus(getElement('upload-status'), '');
-  getElement('upload-errors').hidden = true;
-
-  const datasetNameInput = getElement('ds-name');
-  if (selectedFile && !datasetNameInput.value) {
-    datasetNameInput.value = selectedFile.name.replace(/\.(csv|xlsx)$/i, '').replaceAll('_', ' ');
-  }
-}
-
-async function uploadDataset(event) {
-  event.preventDefault();
-  const uploadForm = event.currentTarget;
-  if (!uploadForm.reportValidity()) {
-    return;
-  }
-
-  const submitButton = uploadForm.querySelector('button[type="submit"]');
-  const formData = new FormData(uploadForm);
-  formData.set('activate', 'false');
-  submitButton.disabled = true;
-  getElement('upload-errors').hidden = true;
-  showStatus(getElement('upload-status'), 'Uploading and validating…');
-
-  try {
-    const dataset = await api('/datasets', { method: 'POST', form: formData });
-    location.assign(`/dataset?id=${dataset.id}`);
-  } catch (error) {
-    showStatus(getElement('upload-status'), error.message, 'error');
-    if (Array.isArray(error.details)) {
-      const errorList = getElement('upload-errors');
-      errorList.replaceChildren();
-      for (const detail of error.details) {
-        const message = typeof detail === 'string' ? detail : detail.message;
-        errorList.append(createElement('li', {}, message));
-      }
-      errorList.hidden = false;
-    }
-  } finally {
-    submitButton.disabled = false;
+    location.assign(event.currentTarget.querySelector('a').href);
   }
 }
 

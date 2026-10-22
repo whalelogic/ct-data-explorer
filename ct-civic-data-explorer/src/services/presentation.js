@@ -45,10 +45,12 @@ export function applyFieldPresentation(fields, presentation = {}, overrides = {}
     customized.displayLabel = field.derivation ? indicatorLabel(customized) : label;
     return customized;
   });
-  // Geography stays first. Unordered fields keep their original relative order.
+  // The row label column (geography or another identifier) stays first.
+  // Unordered fields keep their original relative order.
+  const isIdentity = (field) => field.role === 'town' || field.role === 'label';
   result.sort((first, second) => {
-    if (first.role === 'town') return second.role === 'town' ? 0 : -1;
-    if (second.role === 'town') return 1;
+    if (isIdentity(first)) return isIdentity(second) ? 0 : -1;
+    if (isIdentity(second)) return 1;
     return (order.get(first.key) ?? Infinity) - (order.get(second.key) ?? Infinity);
   });
   return result;

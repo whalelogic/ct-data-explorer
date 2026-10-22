@@ -9,6 +9,7 @@ import {
   deleteReport,
   duplicateReport,
   getReport,
+  getReportView,
   listReports,
   parseStoredSelection,
   updateReport,
@@ -16,11 +17,13 @@ import {
 import { reportFilename, renderReportPdf } from '../services/pdf/index.js';
 import { presentReport } from '../services/presenters.js';
 import { selectionSchema } from '../services/selection.js';
+import { SLUG_PATTERN } from '../services/slugs.js';
 
 const reportTitle = z.string().trim().min(1, 'Give the report a name').max(200);
 const createSchema = z.object({ title: reportTitle, selection: selectionSchema });
 const updateSchema = z.object({ title: reportTitle.optional(), selection: selectionSchema.optional() });
 const listQuery = z.object({ q: z.string().trim().max(100).optional() });
+const slugParams = z.object({ slug: z.string().regex(SLUG_PATTERN, 'Report not found').max(80) });
 
 export const reportsRouter = Router();
 
@@ -46,6 +49,12 @@ reportsRouter.get('/', validate(listQuery, 'query'), async (req, res) => {
 
 reportsRouter.post('/', validate(createSchema), async (req, res) => {
   res.status(201).json(presentReport(await createReport(req.valid.body, req.user)));
+});
+
+/** The interactive viewer: the saved report and its current figures. */
+reportsRouter.get('/by-slug/:slug', validate(slugParams, 'params'), async (req, res) => {
+  const { report, data } = await getReportView(req.valid.params.slug);
+  res.json({ report: presentReport(report), data });
 });
 
 reportsRouter.get('/:id', validate(idParams, 'params'), async (req, res) => {

@@ -7,6 +7,7 @@ import { destroySession, regenerateSession, requireAuth } from '../middleware/au
 import { csrfProtection, csrfTokenFor } from '../middleware/csrf.js';
 import { validate } from '../middleware/validate.js';
 import { isSummaryAvailable } from '../services/ai/index.js';
+import { canGenerateReports, isAssistantAvailable } from '../services/ai/assistant.js';
 import * as auth from '../services/auth.service.js';
 import { presentUser } from '../services/presenters.js';
 
@@ -66,6 +67,10 @@ function sessionPayload(req, user) {
   return {
     user: presentUser(user),
     csrfToken: csrfTokenFor(req.session),
-    features: { aiSummary: isSummaryAvailable() },
+    features: {
+      aiSummary: isSummaryAvailable(),
+      assistant: isAssistantAvailable(),
+      assistantReports: isAssistantAvailable() && canGenerateReports(user),
+    },
   };
 }

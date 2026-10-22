@@ -54,9 +54,29 @@ test('a report cannot be built with zero indicators, and the error says so', () 
 
 test('all 169 towns can be selected, but empty and duplicate selections are rejected', () => {
   const townNames = Array.from({ length: 169 }, (_, index) => `Town ${index + 1}`);
-  assert.deepEqual(selectionSchema.parse({ ...base, towns: townNames }).towns, townNames);
-  assert.equal(firstError({ ...base, towns: [] }), 'Choose a town');
+  // Reports saved before generic rows stored "towns"; they are read as rows.
+  assert.deepEqual(selectionSchema.parse({ ...base, towns: townNames }).rows, townNames);
+  assert.equal(firstError({ ...base, towns: [] }), 'Choose at least one row, or include all rows');
   assert.equal(firstError({ ...base, towns: ['Hamden', 'hamden'] }), '"hamden" is selected more than once');
+});
+
+test('rows can be any labels, and "all rows" needs no list', () => {
+  const { towns, ...rest } = base;
+  const parsed = selectionSchema.parse({ ...rest, rows: ['Retail trade', 'Health care'] });
+  assert.deepEqual(parsed.rows, ['Retail trade', 'Health care']);
+  assert.equal(parsed.allRows, false);
+  assert.deepEqual(selectionSchema.parse({ ...rest, allRows: true }).rows, []);
+  assert.equal(towns.length, 2);
+});
+
+test('custom ratio indicators are validated and chart colors must be hex', () => {
+  const customIndicators = [{ key: 'ratio_1', label: 'People per household', numerator: 'pop', denominator: 'households' }];
+  const parsed = selectionSchema.parse({ ...base, indicators: [...base.indicators, 'ratio_1'], customIndicators });
+  assert.equal(parsed.customIndicators[0].format, 'ratio');
+  assert.equal(parsed.customIndicators[0].decimals, 2);
+  const sameField = [{ ...customIndicators[0], denominator: 'pop' }];
+  assert.equal(firstError({ ...base, customIndicators: sameField }), 'People per household: choose two different fields');
+  assert.equal(firstError({ ...base, layout: [{ type: 'chart', colors: { pop: 'red' } }] }), 'Choose a six-digit hex color, such as #39738C');
 });
 
 test('a chart can request all 25 selected fields for automatic grouping', () => {

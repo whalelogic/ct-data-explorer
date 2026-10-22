@@ -23,6 +23,8 @@ Enum token_purpose {
 
 Enum geo_type {
   town
+  county
+  region [note: 'Census planning region (county-equivalent since 2022)']
   state
 }
 
@@ -98,18 +100,26 @@ Table datasets {
   data_format varchar(20) [not null, default: 'indicators', note: 'indicators or records']
   column_definitions json [note: 'source headings, keys, types and display rules']
   import_notes json [note: 'row preservation and town-label matching notes']
+  approved_fields json [note: 'field keys staff may report on; NULL keeps pre-curation datasets readable']
+  curation_reviewed_at datetime(3)
+  curation_reviewed_by int [ref: > users.id]
+  presentation json [note: 'display names, field labels and shared report style']
+  presentation_revision int [not null, default: 0, note: 'optimistic concurrency for presentation edits']
+  row_label_key varchar(20) [note: "column key (c0, c1, ...) that labels each source row; records datasets only. Town-keyed when it points at the role 'town' column"]
 
   indexes {
     (name, vintage, version) [unique]
     (name, vintage, `IF(is_active, 1, NULL)`) [unique, name: 'datasets_one_active_idx', note: 'at most one active version per name and vintage']
     source_id [name: 'datasets_source_id_idx']
   }
+
+  Note: "CHECK datasets_row_label_key_chk: row_label_key is NULL, or data_format = 'records' and it matches ^c[0-9]{1,3}$"
 }
 
 Table towns {
   id int [pk, increment]
   name varchar(100) [not null]
-  geo_type geo_type [not null, note: "169 towns plus one 'state' row (Connecticut)"]
+  geo_type geo_type [not null, note: "169 towns, 8 counties, 9 planning regions and one 'state' row (Connecticut)"]
   square_miles decimal(10,2)
 
   indexes {
@@ -120,9 +130,9 @@ Table towns {
 Table dataset_records {
   id int [pk, increment]
   dataset_id int [not null, ref: > datasets.id]
-  town_id int [not null, ref: > towns.id]
+  town_id int [ref: > towns.id, note: 'matched town in town-keyed datasets; NULL when rows are labeled by another column']
   source_row int [not null]
-  cell_values json [not null, note: 'typed source values; repeated towns remain separate rows']
+  cell_values json [not null, note: 'typed source values; repeated labels remain separate rows']
 
   indexes {
     (dataset_id, source_row) [unique]
@@ -157,7 +167,8 @@ Table observations {
 Table reports {
   id int [pk, increment]
   title varchar(200) [not null]
-  selection json [not null, note: 'towns, benchmark, indicators, title, layout (text, chart and table blocks)']
+  slug varchar(80) [unique, note: 'readable address: /explore/<slug>.html']
+  selection json [not null, note: 'rows (town names or row label values), allRows, benchmark, indicators, customIndicators, title, layout (text, chart and table blocks). Legacy `towns` is read as rows']
   created_by int [not null, ref: > users.id]
   dataset_id int [not null, ref: > datasets.id, note: 'version active when last saved']
   created_at datetime(3) [not null, default: `CURRENT_TIMESTAMP(3)`]

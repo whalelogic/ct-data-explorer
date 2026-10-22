@@ -34,11 +34,21 @@ export function isSummaryAvailable() {
   return getProvider() !== null;
 }
 
+const PLACE_TYPES = { state: 'statewide', town: 'town', county: 'county', region: 'planning region', row: 'row' };
+
 /** Only already-public aggregate figures and labels leave the server; never accounts or uploaded files. */
 export function summaryFacts(report) {
   return {
     dataset: { name: report.dataset.name, source: report.dataset.source, vintage: report.dataset.vintage },
-    places: report.places.map((p) => ({ name: report.rowBased ? p.label : p.name, type: p.geoType === 'state' ? 'statewide' : 'town' })),
+    ...(report.summaries?.length
+      ? { summaries: report.summaries.map((s) => ({
+          label: s.label,
+          value: s.display,
+          howCalculated: s.explanation,
+          ...(s.benchmark ? { comparison: { label: s.benchmark.label, value: s.benchmark.display, howCalculated: s.benchmark.explanation } } : {}),
+        })) }
+      : {}),
+    places: report.places.map((p) => ({ name: report.rowBased ? p.label : p.name, type: PLACE_TYPES[p.geoType] ?? 'town' })),
     indicators: report.indicators.map((row) => ({
       label: row.displayLabel,
       values: Object.fromEntries(row.cells.map((cell, i) => [report.rowBased ? report.places[i].label : report.places[i].name, cell.display])),

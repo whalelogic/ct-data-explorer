@@ -7,9 +7,12 @@ export function buildChartBlocks(layoutBlock, indicatorRows, places) {
   const chartBlocks = [];
 
   for (const rows of rowGroups) {
-    const chart = buildChart(layoutBlock.chartType, rows, places);
+    const chart = buildChart(layoutBlock.chartType, rows, places, layoutBlock.colors ?? {});
+    // A custom title is shown as written; the plotted fields move to a subtitle, so a
+    // block that splits into several charts stays readable without gluing names together.
     if (layoutBlock.title) {
-      chart.title = rowGroups.length > 1 ? `${layoutBlock.title} — ${chart.title}` : layoutBlock.title;
+      chart.subtitle = chart.title;
+      chart.title = layoutBlock.title;
     }
     chartBlocks.push({ type: 'chart', chart });
   }
@@ -51,14 +54,19 @@ function groupChartRows(indicatorRows, chartType) {
   return rowGroups;
 }
 
-function buildChart(chartType, rows, places) {
+/** A series color chosen in the builder wins over the report palette; others use the palette. */
+function buildChart(chartType, rows, places, colors) {
   const series = [];
   for (const row of rows) {
-    series.push({
+    const chartSeries = {
       key: row.key,
       label: row.label,
       values: row.cells.map((cell) => cell.value),
-    });
+    };
+    if (colors[row.key]) {
+      chartSeries.color = colors[row.key];
+    }
+    series.push(chartSeries);
   }
 
   return {

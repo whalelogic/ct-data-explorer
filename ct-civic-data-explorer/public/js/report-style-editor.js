@@ -13,7 +13,7 @@ export function mountReportStyleEditor(container, { prefix, overrides = false, o
   editor.fieldset = h('fieldset', { class: 'report-style-editor' });
   editor.fieldset.append(h('legend', {}, overrides ? 'Report appearance' : 'Shared report appearance'));
   editor.fieldset.append(h('p', { class: 'muted small' }, overrides
-    ? 'Enable an override to change this report. Disabled settings follow the latest shared defaults.'
+    ? 'Change any setting for this report only. Settings that are not marked Customized follow the dataset’s shared defaults, including later changes.'
     : 'These choices apply to Explore, new reports and reports that use shared defaults.'));
   const paletteRow = createSetting(editor, 'palette', 'Chart series colors');
   for (let index = 0; index < 6; index++) {
@@ -48,6 +48,8 @@ export function mountReportStyleEditor(container, { prefix, overrides = false, o
   editor.sample = h('div', { class: 'style-sample' });
   editor.sample.append(editor.sampleTitle, editor.sampleBars, editor.sampleHeader, h('p', {}, 'Sample report text and table heading'));
   const reset = h('button', { type: 'button', class: 'link', onClick: resetStyling.bind(null, editor) }, overrides ? 'Use all shared styling' : 'Use CTData styling');
+  // The report builder already shows a live preview, so it does not need the small sample.
+  editor.sample.hidden = overrides;
   editor.fieldset.append(editor.warning, editor.sample, reset);
   container.replaceChildren(editor.fieldset);
   setStyle(editor);
@@ -60,8 +62,8 @@ function createSetting(editor, key, label) {
   const row = h('div', { class: 'style-setting' }, title, inputs);
   let toggle;
   if (editor.overrides) {
-    toggle = h('input', { type: 'checkbox', 'aria-label': `Override ${label.toLowerCase()}`, onChange: toggleOverride.bind(null, editor, key) });
-    row.append(h('label', { class: 'check style-override-toggle' }, toggle, 'Override'));
+    toggle = h('input', { type: 'checkbox', 'aria-label': `Customize ${label.toLowerCase()} for this report`, onChange: toggleOverride.bind(null, editor, key) });
+    row.append(h('label', { class: 'check style-override-toggle' }, toggle, 'Customized'));
   }
   editor.controls.set(key, { toggle, inputs: [] });
   editor.fieldset.append(row);
@@ -79,6 +81,9 @@ function changeStyle(editor, key, event) {
   editor.choices[key] = key === 'palette'
     ? editor.controls.get(key).inputs.map((input) => input.value)
     : event.currentTarget.value;
+  // Editing a setting customizes it; there is no separate step to unlock the control.
+  const toggle = editor.controls.get(key).toggle;
+  if (toggle) toggle.checked = true;
   updateStyleSample(editor);
   editor.onChange(readStyle(editor));
 }
@@ -96,10 +101,8 @@ function readStyle(editor) {
 function refreshStyle(editor) {
   const effective = resolveReportStyle(editor.shared, editor.choices);
   for (const [key, control] of editor.controls) {
-    const enabled = !editor.overrides || Object.hasOwn(editor.choices, key);
-    if (control.toggle) control.toggle.checked = enabled;
+    if (control.toggle) control.toggle.checked = Object.hasOwn(editor.choices, key);
     for (const [index, input] of control.inputs.entries()) {
-      input.disabled = !enabled;
       input.value = key === 'palette' ? effective.palette[index] : effective[key];
     }
   }

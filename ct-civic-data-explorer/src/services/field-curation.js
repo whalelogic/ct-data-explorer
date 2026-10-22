@@ -10,7 +10,8 @@ export function approvedDefinitions(definitions, approvedFields, { includeTown =
   const approvedKeys = new Set(approvedFields);
   const visibleFields = [];
   for (const field of definitions) {
-    const isIncludedTown = includeTown && field.role === 'town';
+    // The column that labels rows (a town or another identifier) is context, not a field.
+    const isIncludedTown = includeTown && isRowIdentity(field);
     if (isIncludedTown || approvedKeys.has(field.key)) {
       visibleFields.push(field);
     }
@@ -35,10 +36,14 @@ export function datasetIndicators(definitions, storedIndicatorKeys) {
   return availableIndicators;
 }
 
+export function isRowIdentity(field) {
+  return field.role === 'town' || field.role === 'label';
+}
+
 export function validateApprovedFields(fields, approvedFields) {
   const availableKeys = new Set();
   for (const field of fields) {
-    if (field.role !== 'town') {
+    if (!isRowIdentity(field)) {
       availableKeys.add(field.key);
     }
   }
@@ -88,6 +93,6 @@ export function visibleDatasetColumns(dataset) {
 
   const approvedKeys = new Set(dataset.approved_fields);
   return columns.filter((column) => {
-    return column.role === 'town' || approvedKeys.has(column.label.toLowerCase());
+    return isRowIdentity(column) || approvedKeys.has(column.label.toLowerCase());
   });
 }

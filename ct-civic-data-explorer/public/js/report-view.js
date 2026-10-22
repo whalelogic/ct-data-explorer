@@ -34,6 +34,9 @@ export function renderReport(container, report) {
     }
     article.append(header);
   }
+  if (report.summaries?.length) {
+    article.append(renderSummaries(report.summaries));
+  }
 
   for (const block of report.blocks) {
     const blockElement = renderBlock(block, report.places, indicatorsByKey, pendingCharts, style);
@@ -49,6 +52,27 @@ export function renderReport(container, report) {
     updateChartPage(chartView, 0);
   }
   chartsByContainer.set(container, pendingCharts);
+}
+
+/** One value each for the whole report, e.g. average population per town, with how it was worked out. */
+function renderSummaries(summaries) {
+  const list = createElement('dl', { class: 'report-summaries' });
+  for (const summary of summaries) {
+    // The number leads; how it was worked out is one hover away, not on the tile.
+    const working = [summary.explanation, summary.benchmark?.explanation].filter(Boolean).join('\n');
+    const tile = createElement('div', { class: 'report-summary', title: working },
+      createElement('dt', {}, summary.label),
+      createElement('dd', { class: 'report-summary-value' }, summary.display),
+      createElement('dd', { class: 'report-summary-detail' }, summary.detail));
+    // The same figure for all of Connecticut (or the whole dataset), for comparison.
+    if (summary.benchmark) {
+      tile.append(createElement('dd', { class: 'report-summary-benchmark' },
+        createElement('strong', {}, summary.benchmark.display),
+        createElement('span', {}, summary.benchmark.label)));
+    }
+    list.append(tile);
+  }
+  return list;
 }
 
 export function clearReport(container) {
@@ -96,7 +120,10 @@ function renderChart(chart, places, indicatorsByKey, pendingCharts) {
   const tableContainer = createElement('div');
   const summary = createElement('summary', {}, 'Show this chart page as a table');
   const details = createElement('details', { class: 'chart-data' }, summary, tableContainer);
-  const heading = createElement('figcaption', { class: 'chart-title' }, title);
+  const heading = createElement('figcaption', { class: 'chart-heading' }, createElement('span', { class: 'chart-title' }, title));
+  if (chart.subtitle) {
+    heading.append(createElement('span', { class: 'chart-subtitle' }, chart.subtitle));
+  }
   const chartView = {
     canvas,
     chartBox,
@@ -347,7 +374,8 @@ function drawChart(canvas, chart, fullChart = chart) {
   const datasets = [];
   for (const [seriesIndex, series] of chart.series.entries()) {
     const style = resolveReportStyle(chart.style);
-    const seriesColor = style.palette[seriesIndex % style.palette.length];
+    // A color chosen for this field in the builder wins over the report palette.
+    const seriesColor = series.color ?? style.palette[seriesIndex % style.palette.length];
     let backgroundColor = seriesColor;
     if (chart.type === 'bar') {
       backgroundColor = chart.labels.map((label, labelIndex) => (
