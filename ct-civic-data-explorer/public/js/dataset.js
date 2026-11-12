@@ -11,7 +11,6 @@ import { mountDatasetPresentation } from './dataset-presentation.js';
 import { mountIndicatorEditor } from './indicator-editor.js';
 import { boot, formatDate, renderHeader, showStatus } from './layout.js';
 import { mountTabs } from './tabs.js';
-import { renderShapePanel } from './data-shape.js';
 import { setAssistantContext } from './assistant.js';
 import { fieldUnitLabel } from '/shared/field-groups.js';
 
@@ -458,11 +457,6 @@ async function loadDataset(nextOffset = previewOffset) {
 
 function renderDataset({ dataset, shape, indicators, preview }) {
   renderDatasetHeader(dataset);
-  renderShapePanel(getElement('data-shape'), {
-    shape,
-    fields: indicators.filter(isUsableField),
-    emptyFieldsText: isAdmin ? 'Choose which columns reports may use in Settings.' : 'No columns are available yet.',
-  });
   renderFieldCards(indicators);
   renderDataPreview(dataset, shape, indicators, preview);
   renderUploadNotes(dataset);
@@ -475,7 +469,11 @@ function renderDataset({ dataset, shape, indicators, preview }) {
  */
 function renderDataPreview(dataset, shape, indicators, preview) {
   const isRecordDataset = dataset.dataFormat === 'records';
-  const columns = previewColumns(isRecordDataset, shape, indicators, preview);
+  const allColumns = previewColumns(isRecordDataset, shape, indicators, preview);
+  // Columns reports cannot use stay out of the way unless an administrator asks to see them.
+  const hiddenCount = allColumns.filter((column) => column.isHidden).length;
+  const columns = showHiddenColumns ? allColumns : allColumns.filter((column) => !column.isHidden);
+  renderHiddenToggle(hiddenCount, () => renderDataPreview(dataset, shape, indicators, preview));
   const table = createElement('table', { class: 'data shape-table' });
   const captionText = `${dataset.name}, ${dataset.vintage}, version ${dataset.version}`;
   table.append(createElement('caption', { class: 'sr-only' }, captionText));
@@ -502,7 +500,8 @@ function renderDataPreview(dataset, shape, indicators, preview) {
   if (preview.total) {
     const firstRow = preview.rows.length ? previewOffset + 1 : 0;
     const lastRow = previewOffset + preview.rows.length;
-    summary = `Showing rows ${firstRow}–${lastRow} of ${preview.total.toLocaleString('en-US')}. Blank values are shown as N/A.`;
+    const rowName = columns[0]?.isRowLabel ? ` Each row is one ${isRecordDataset ? columns[0].label : 'place'}.` : '';
+    summary = `Rows ${firstRow}–${lastRow} of ${preview.total.toLocaleString('en-US')}.${rowName} Blank values are shown as N/A.`;
   }
   getElement('preview-summary').textContent = summary;
   getElement('previous').disabled = previewOffset === 0;
@@ -540,10 +539,34 @@ function previewColumns(isRecordDataset, shape, indicators, preview) {
 
 function createPreviewHeading(column) {
   const classes = [column.isNumeric ? 'num' : '', column.isRowLabel ? 'is-row-label' : '', column.isHidden ? 'is-hidden-column' : ''];
-  const caption = column.isHidden ? `${column.caption} · hidden` : column.caption;
-  return createElement('th', { scope: 'col', class: classes.join(' ').trim() || null },
+  let caption = column.isHidden ? `${column.caption} · hidden` : column.caption;
+  if (column.isRowLabel) {
+    caption = 'Names each row';
+  }
+  // Long names are cut to two lines; the full name stays available on hover and to screen readers.
+  return createElement('th', { scope: 'col', class: classes.join(' ').trim() || null, title: column.label },
     createElement('span', { class: 'column-name' }, column.label),
     createElement('span', { class: 'column-type' }, caption));
+}
+
+let showHiddenColumns = false;
+
+/** Administrators can bring the columns hidden from reports into the preview. */
+function renderHiddenToggle(hiddenCount, redraw) {
+  const container = getElement('hidden-columns');
+  container.replaceChildren();
+  container.hidden = hiddenCount === 0;
+  if (hiddenCount === 0) {
+    return;
+  }
+  const checkbox = createElement('input', { type: 'checkbox', id: 'show-hidden-columns' });
+  checkbox.checked = showHiddenColumns;
+  checkbox.addEventListener('change', () => {
+    showHiddenColumns = checkbox.checked;
+    redraw();
+  });
+  const noun = hiddenCount === 1 ? 'column' : 'columns';
+  container.append(checkbox, createElement('span', {}, `Also show ${hiddenCount} ${noun} hidden from reports`));
 }
 
 function loadPreviousPage() {

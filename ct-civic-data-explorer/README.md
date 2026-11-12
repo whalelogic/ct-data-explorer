@@ -9,7 +9,9 @@ The interactive workflow advances the dynamic reporting direction in `SRS.docx` 
 1. An administrator opens **Datasets** (`/admin`, searchable, sortable and filterable by reporting period, status and field review) and selects **+ Add dataset** (`/admin/datasets/new`). The upload page asks three things in order: the file, its name/source/reporting period, and what each row describes. The row column is suggested from the file (a `Town` column, the column that best matches Connecticut places, otherwise the first text column). Tick **These are Connecticut places** only when they are; names are then matched to the official list and a statewide comparison becomes available. Industries, programs or record IDs work too.
 2. The upload opens the dataset page on its **Settings** tab, a numbered checklist: **Choose the fields people can use** (tick cards, then save), **Default comparison**, **Names and display** (optional) and **Publish**, which stays disabled, with the reason shown, until fields are chosen and saved. An empty approval unpublishes the dataset. The **Data** tab (default for everyone) previews the rows and the **Fields** tab lists what reports can use. Tabs are linkable as `#data`, `#fields` and `#settings`.
 3. In the **Report builder**, work through four steps: **Compare** (pick towns, counties, planning regions or an approved text column such as Program, then tick which ones from a list; nothing is typed), **Show** (tick the fields as cards, then order or rename them; calculated ratios are optional), **Charts & tables** (starts with a chart and a table) and **Finish** (title, optional colors, **Save report** and **Export PDF**). The statewide figure is off by default. Source rows are never implicitly summed.
-4. **Save** gives the report a readable address, `/explore/<report-name>.html`. **Explore reports** lists saved reports; each opens as an interactive page with its charts, tables and a ranking of its rows. PDF export is available from the builder and the viewer.
+4. Unsaved work in the builder is kept in the browser tab (session storage) and offered back after a reload or an expired session; signing out clears it.
+5. A report has one name: the name it is saved under is also the title on the page and the PDF, unless a different **Title on the report** is typed in the Finish step.
+6. **Save** gives the report a readable address, `/explore/<report-name>.html`. **Explore reports** lists saved reports; each opens as an interactive page with its charts, tables and a ranking of its rows. PDF export is available from the builder and the viewer.
 
 Older links to `/explore?dataset=…` open the builder with that dataset. Saved reports that stored `towns` are read as `rows`, so they keep working.
 
@@ -61,9 +63,9 @@ In the builder, **Report appearance** offers an **Override** toggle for each set
 
 Poppins is bundled locally with its OFL license and embedded in PDFs. `src/shared/theme.js` and `public/css/app.css` use CTData navy `#262558`, teal `#39738C`, coral `#DE6F59` and the supporting brand palette. Charts avoid using teal and green together as required by the brand guide. No font CDN is needed.
 
-`/explore/<report-name>.html?embed=1` shows a saved report without site chrome for same-origin embedding. Authentication remains required. Cross-origin WordPress embedding or a public viewer requires the actual hosting origin and a decision about public versus signed-in access; the existing same-origin frame policy is retained. No WordPress credentials or hosting target are configured in this repository.
+Every saved report has a public embed view at `/embed/<report-name>.html`: the report only, no sign-in. The Embed button on a report copies the iframe code. `EMBED_FRAME_ANCESTORS` limits which sites may frame it (default: any). The page posts `{ type: 'ctde:embed-height', height }` to its parent so a host can size the iframe. Every other page still refuses to be framed by another site.
 
-Deploy from this application directory with `docker compose up -d --build`, which applies migrations automatically. Verify the configured local URL's `/healthz` and sign-in/exploration flow. Back up the database first and preserve the existing database volume. Migration `006_preserve_saved_reports.sql` renames the legacy saved-selection table to `reports` without copying or deleting saved selections; fresh databases already have the new table. Deploy the previous compatible report-based revision to roll back application code; do not roll back to a revision using the legacy table name against the renamed table without restoring its matching backup.
+Production deployment (settings, reverse proxy, backups, upgrades and the audit trail) is described in [docs/deployment.md](docs/deployment.md). In short: deploy from this application directory with `docker compose up -d --build`, which applies migrations automatically. Verify the configured local URL's `/healthz` and sign-in/exploration flow. Back up the database first and preserve the existing database volume. Migration `006_preserve_saved_reports.sql` renames the legacy saved-selection table to `reports` without copying or deleting saved selections; fresh databases already have the new table. Deploy the previous compatible report-based revision to roll back application code; do not roll back to a revision using the legacy table name against the renamed table without restoring its matching backup.
 
 ## Quick start
 
@@ -81,7 +83,7 @@ npm run dev                        # http://localhost:3000
 
 `create-admin` prints a one-time link. Open it to set your password.
 
-To run the app and database together in containers, use `docker compose up --build`. Migrations run on startup. Create the admin with `docker compose exec app node scripts/create-admin.js --email … --first … --last …`, then choose **Datasets › + Add dataset**. Selecting a CSV or `.xlsx` workbook reveals its name, source and reporting-period fields. A successful upload opens the dataset's **Settings** tab; clicking an existing dataset row opens its **Data** tab (drafts open on **Settings**).
+To run the app and database together in containers, use `docker compose up --build`. The app container runs in production mode, so set `SESSION_SECRET` in `.env` first; if a required setting is missing the container stops and lists what to fix. Migrations run on startup. Create the admin with `docker compose exec app node scripts/create-admin.js --email … --first … --last …`, then choose **Datasets › + Add dataset**. Selecting a CSV or `.xlsx` workbook reveals its name, source and reporting-period fields. A successful upload opens the dataset's **Settings** tab; clicking an existing dataset row opens its **Data** tab (drafts open on **Settings**).
 
 Excel uploads import the first worksheet by default; enter a worksheet name to import another sheet. Choose the column that identifies each row; files with exactly one `Town` header (case-insensitive) work without a choice. Rows can repeat: each nonblank source row is retained separately. Blank rows are skipped and numeric cells use their underlying values rather than display formatting. Formula cells use values saved by Excel; the server does not recalculate formulas. Save the workbook in Excel before uploading. Files are limited to 10 MB, 10,000 rows and 100 columns. Legacy `.xls` files should be saved as `.xlsx` first.
 
@@ -89,7 +91,7 @@ Excel uploads import the first worksheet by default; enter a worksheet name to i
 
 For example, Industry Jobs retains five industry rows for each town; its repeated Total Jobs value is never summed. Key Employers retains the employer names and Bridgewater's note explaining its blank entries. Population Within 45 Minutes detects the numeric population column despite its descriptive heading. A header explicitly indicating a decimal-format percentage is displayed as a percentage without changing its stored fraction.
 
-Reports over source rows offer category filters and select columns from that dataset. Charts use numeric columns; text-only datasets render as tables. Browser charts show 20 locations per page, indicator tables show 10 locations, and source tables show 50 rows. Page controls reach the complete selection. PDFs include all selected locations in readable chart and table sections, with source details on every page. No implicit sums, averages or cross-dataset joins are performed.
+Reports over source rows offer category filters and select columns from that dataset. Charts use numeric columns; text-only datasets render as tables. Browser charts show 20 locations per page, indicator tables show 10 locations, and source tables show 50 rows. Page controls reach the complete selection. PDFs include all selected locations with source details on every page: up to six rows are drawn as upright bars and up to four as table columns; larger selections become bar lists (one line per row, value at the end of each bar) and tables with one line per row, five fields across. A PDF stops at 500 pages with a message asking for fewer rows, fields or blocks. No implicit sums, averages or cross-dataset joins are performed.
 
 ## Commands
 
@@ -115,7 +117,7 @@ Use descriptive camelCase names for variables and functions, and UPPER_SNAKE_CAS
 - `src/services/*` holds the logic.
 - `src/repositories/*` holds hand-written, parameterized SQL through one `mysql2` pool (`src/db/pool.js`). There is no ORM.
 
-`src/app.js` puts middleware in this order: helmet, request log, static files, JSON body parsing, session, then `/api/auth`, then `requireAuth` and CSRF for the rest of `/api`. Role checks (`requireRole`) and ownership checks are applied per route. One central error handler returns safe messages; `HttpError` messages are shown to users.
+`src/app.js` puts middleware in this order: request id, helmet, request log, static files, JSON body parsing, session, then `/api/auth`, then `requireAuth`, the per-person rate limit and CSRF for the rest of `/api`. Role checks (`requireRole`) and ownership checks are applied per route. One central error handler returns safe messages; `HttpError` messages are shown to users, and server-side failures include the request id as a reference that matches the log. Unknown page addresses get `public/404.html`.
 
 **MySQL.** The app targets MySQL 8.4 (8.0.19 or later works). A few things differ from what you might assume:
 - Every table uses the `utf8mb4_0900_as_cs` collation, so comparisons and unique keys are case-sensitive. Case-insensitive matching is written out explicitly: `LOWER()` for town names, emails and sources, and a `_ci` collation for report search.
@@ -134,16 +136,19 @@ Use descriptive camelCase names for variables and functions, and UPPER_SNAKE_CAS
 
 **Text blocks.** Text uses a small Markdown subset: `#`/`##`/`###` headings, paragraphs, `-` and `1.` lists, `**bold**`, `*italic*` and `[links](https://…)` (http, https and mailto only). `services/markup.js` parses it on the server into a node tree, which the preview renders with text-only DOM calls and the PDF draws with pdfkit, so user text never becomes HTML. Anything else (nested lists, images, raw HTML) shows as plain text. Reports saved before layouts existed are converted when read: their chart, table and notes become blocks in that order.
 
-**PDF.** `services/pdf/index.js` is the boundary. The current renderer draws with pdfkit vector primitives, needs no headless browser, and gives the same bytes for the same report data. Swap the renderer there if faithful HTML-to-PDF output is ever needed (SRS OQ-4).
+**PDF.** `services/pdf/index.js` is the boundary. The current renderer draws with pdfkit vector primitives, needs no headless browser, and gives the same bytes for the same report data. Swap the renderer there if faithful HTML-to-PDF output is ever needed (SRS OQ-4). Rendering is synchronous, so `MAX_PDF_PAGES` (500) bounds how long one export can occupy the server; a longer report is refused with `422`.
 
-**AI summary (optional).** `services/ai/` drafts two to four sentences, which the user can add to the report as a text block. It is outside the render path: figures, tables and charts always come from the database. Only public aggregate figures and labels are sent. Every number in the draft is checked against the report's computed values, and mismatches are flagged before the user accepts the text. With `AI_PROVIDER=none` (the default), the button is hidden and text is written by hand. With `AI_PROVIDER=anthropic`, the server calls Claude (`claude-opus-5` by default, with server-side refusal fallback enabled) using `ANTHROPIC_API_KEY`. To add another provider, add a module exposing `draft(facts) => Promise<string>` and register it in `services/ai/index.js`.
+**AI summary (optional).** `services/ai/` drafts two to four sentences, which the user can add to the report as a text block. It is outside the render path: figures, tables and charts always come from the database. Only public aggregate figures and labels are sent. Every number in the draft is checked against the report's computed values, and mismatches are flagged before the user accepts the text. With `AI_PROVIDER=none` (the default), the button is hidden and text is written by hand. With `AI_PROVIDER=anthropic`, the server calls Claude (`claude-opus-5-5` by default, with server-side refusal fallback enabled) using `ANTHROPIC_API_KEY`. To add another provider, add a module exposing `draft(facts) => Promise<string>` and register it in `services/ai/index.js`.
 
 **Accounts and security.**
 - Accounts are invite-only; there is no self-registration. Passwords are hashed with bcrypt (cost 12, 12 characters to 72 bytes).
 - Invite and reset links are single-use. Only their hash is stored, and the token travels in the URL fragment so it never reaches server logs.
 - Sessions are stored server-side in MySQL (`src/db/session-store.js`) behind an HttpOnly cookie. They expire after 30 minutes idle or 8 hours total.
 - Five failed sign-ins in 15 minutes lock the account for 15 minutes, and there is a per-IP rate limit on credential endpoints.
+- People change their own password under their name in the header (**Your account**), which ends their sessions on other devices. Forgotten passwords still go through an administrator's reset link.
 - State-changing requests need a synchronizer CSRF token in `X-CSRF-Token`.
+- Signed-in requests are rate-limited per person (`src/middleware/rate-limits.js`), with tighter limits on PDF export, uploads and AI drafting.
+- Sign-ins and changes to people, datasets and reports are written to an audit trail (`services/audit.js`, table `audit_log`) that administrators read under **Datasets › Activity**. Entries are kept for two years.
 - Chart.js is served from `node_modules`, not a CDN, so pages make no third-party requests.
 
 ## Configuration
@@ -151,14 +156,16 @@ Use descriptive camelCase names for variables and functions, and UPPER_SNAKE_CAS
 | Variable | Default | Notes |
 | --- | --- | --- |
 | `PORT` | `3000` | |
-| `APP_BASE_URL` | `http://localhost:$PORT` | Used to build invite and reset links |
+| `APP_BASE_URL` | `http://localhost:$PORT` | Used to build invite and reset links. Set it to the public `https://` address in production |
 | `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` | `localhost`, `3306` | MySQL connection. `.env.example` uses port `3307`, which is also the host port docker compose publishes |
 | `DB_POOL_MAX` | `10` | Maximum MySQL connections in the pool |
-| `SESSION_SECRET` | random per start (dev only) | Required when `NODE_ENV=production` |
+| `SESSION_SECRET` | random per start (dev only) | Required when `NODE_ENV=production`, at least 32 characters |
 | `COOKIE_SECURE` | `true` in production | Set `false` only for plain-HTTP local development |
 | `TRUST_PROXY` | `false` | Set `true` behind Nginx |
-| `AI_PROVIDER` | `none` | `none` or `anthropic` |
-| `ANTHROPIC_API_KEY`, `AI_MODEL`, `AI_EFFORT` | –, `claude-opus-5`, `low` | Used only when `AI_PROVIDER=anthropic` |
+| `AI_PROVIDER` | `none` | `none` or `anthropic`; anything else stops the server at startup |
+| `ANTHROPIC_API_KEY`, `AI_MODEL`, `AI_EFFORT` | –, `claude-opus-5-5`, `low` | Used only when `AI_PROVIDER=anthropic` |
+
+Settings are checked when the server starts (`src/config.js`). Invalid or missing values are listed together and the process exits; combinations that would silently break sign-in, such as a `Secure` cookie on a plain-HTTP address, are logged as warnings.
 
 ## Extending
 
@@ -172,6 +179,7 @@ These choices go beyond, or resolve ambiguity in, SRS draft v1.0:
 
 - **No email is sent.** Admins choose **People** in the header to copy invite and password-reset links. The SRS assumes emailed reset tokens.
 - **Dataset upload is admin-only.** This follows SRS §4.2 (CRUD), although US003 says "staff member".
+- **Deactivated people's reports.** Reports stay visible and can be duplicated, but nobody, including administrators, can rename or delete a report whose creator has left. Consider letting administrators manage any report.
 - **Duplicating reports.** Any signed-in user can duplicate any report, and the copy belongs to them. Only the creator can rename, edit or delete a report.
 - **Source footer is mandatory.** It appears on every report and PDF page and cannot be removed from the layout.
 - **One unit per chart.** Mixed-unit selections produce separate charts automatically, so counts, percentages and currency keep their own scales.

@@ -108,6 +108,7 @@ async function removeTestData(userIds, testTag) {
   }
 
   await pool.query('DELETE FROM sources WHERE name = ?', [testTag]);
+  await pool.query('DELETE FROM audit_log WHERE actor_id IN (?)', [userIds]);
   await pool.query('DELETE FROM users WHERE id IN (?)', [userIds]);
 }
 
@@ -489,6 +490,13 @@ test('datasets without a town column upload, publish, report and export by their
     const saved = await sendWriteRequest(staff, 'post', '/api/reports', { title: testTag, selection }).expect(201);
     const reloaded = await staff.agent.get(`/api/reports/${saved.body.id}`).expect(200);
     assert.deepEqual(reloaded.body.selection.rows, ['Food pantry']);
+
+    // The embed view is public: no session, the same figures, and nothing about who saved it.
+    const embedded = await request(app).get(`/embed/${saved.body.slug}.json`).expect(200);
+    assert.equal(embedded.body.title, testTag);
+    assert.deepEqual(embedded.body.data.places.map((place) => place.label), ['Food pantry — North', 'Food pantry — South']);
+    assert.ok(!JSON.stringify(embedded.body).includes(saved.body.createdBy.name));
+    await request(app).get('/embed/no-such-report.json').expect(404);
     await staff.agent.get(`/api/reports/${saved.body.id}/pdf`).expect(200).expect('Content-Type', /pdf/);
 
     // Staff may relabel rows by another approved text field, never by a number or an unknown column.
@@ -583,7 +591,7 @@ function lastToolResult(claude) {
   return claude.requests.at(-1).messages.at(-1).content[0];
 }
 
-test('the data assistant reads published figures, keeps record values private and proposes reports', {
+test('the data assistant reads published figures from every kind of dataset and proposes reports', {
   skip: process.env.CT_CURATION_INTEGRATION !== '1',
 }, async () => {
   const testTag = `assistant-test-${crypto.randomUUID()}`;
@@ -617,10 +625,10 @@ test('the data assistant reads published figures, keeps record values private an
     const first = JSON.parse(figures.requests[1].messages.at(-1).content[0].content);
     assert.deepEqual(first.values, { Population: { Andover: '1,234', Bridgewater: '2,000' } });
     assert.equal(first.summaries[0].value, '1,617.00');
-    const privateResult = lastToolResult(figures);
-    assert.equal(privateResult.is_error, true);
-    assert.match(privateResult.content, /private/);
-    assert.ok(!JSON.stringify(figures.requests).includes('Food pantry'), 'record values never reach the model');
+    // Published data is public, so approved values of record datasets are readable too.
+    const recordResult = lastToolResult(figures);
+    assert.ok(!recordResult.is_error, recordResult.content);
+    assert.deepEqual(JSON.parse(recordResult.content).values, { Clients: { 'Food pantry': '1,200', 'Housing help': '300' } });
 
     const proposing = scriptedClaude([
       { tool: 'propose_report', input: { dataset_id: numeric.body.id, compare_by: 'town', rows: ['Andover'], fields: ['pop', 'households'], summaries: [{ field: 'pop', calculation: 'median', name: 'Median population' }], include_statewide: false, title: '' } },
@@ -635,6 +643,24 @@ test('the data assistant reads published figures, keeps record values private an
     assert.deepEqual(proposal.body.proposal.selection.indicators, ['pop', 'households', 'ratio_1']);
     assert.equal(proposal.body.proposal.selection.customIndicators[0].calculation, 'median');
     await sendWriteRequest(staff, 'post', '/api/reports/preview', proposal.body.proposal.selection).expect(200);
+
+    // The streamed route sends one JSON object per line: progress, then the finished answer.
+    setAssistantClientForTests(scriptedClaude([
+      { tool: 'list_datasets', input: {} },
+      { text: 'There are two datasets.' },
+    ]));
+    const streamed = await sendWriteRequest(staff, 'post', '/api/assistant/stream', {
+      messages: [{ role: 'user', content: 'What data is there?' }],
+    }).buffer(true).parse((response, done) => {
+      let text = '';
+      response.setEncoding('utf8');
+      response.on('data', (chunk) => { text += chunk; });
+      response.on('end', () => done(null, text));
+    }).expect(200);
+    const events = streamed.body.trim().split('\n').map((line) => JSON.parse(line));
+    assert.deepEqual(events.map((event) => event.type), ['status', 'done']);
+    assert.equal(events[0].text, 'Looking at the datasets…');
+    assert.equal(events[1].reply, 'There are two datasets.');
 
     await sendWriteRequest(staff, 'post', '/api/assistant', { messages: [{ role: 'assistant', content: 'Hi' }] }).expect(400);
     await staff.agent.post('/api/assistant').send({ messages: [{ role: 'user', content: 'Hi' }] }).expect(403);

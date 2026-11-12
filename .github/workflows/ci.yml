@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 defaults:
   run:
     working-directory: ct-civic-data-explorer
@@ -26,3 +30,41 @@ jobs:
       - run: npm run lint
       - run: npm test
       - run: npm audit --audit-level=high
+
+  # The same suite again with a real MySQL, which turns on the tests that sign in,
+  # upload, publish and build reports end to end.
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ct-civic-data-explorer/package-lock.json
+      - run: npm ci
+      - name: Start MySQL the way the README does
+        run: |
+          cp .env.example .env
+          docker compose up -d --wait db
+      - run: npm run migrate
+      - run: npm test
+        env:
+          CT_CURATION_INTEGRATION: "1"
+      - name: Database logs
+        if: failure()
+        run: docker compose logs db
+
+  # The production image must build, and must refuse to start without its settings.
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t ct-civic-data-explorer:ci .
+      - name: A missing SESSION_SECRET stops the container with a clear message
+        run: |
+          if output=$(docker run --rm ct-civic-data-explorer:ci 2>&1); then
+            echo "The container started without SESSION_SECRET"; exit 1
+          fi
+          echo "$output"
+          echo "$output" | grep -q "SESSION_SECRET is required in production"

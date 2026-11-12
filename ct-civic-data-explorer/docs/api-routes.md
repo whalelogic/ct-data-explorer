@@ -12,13 +12,17 @@
 | GET | `/login` | Public | Sign-in page |
 | GET | `/set-password` | Public | Set a password from an invite or reset link |
 | GET | `/explore` | Public file | Saved report gallery (data requires sign-in); old `?dataset=` links redirect to the builder |
-| GET | `/explore/:slug.html` | Public file | Interactive report viewer (data requires sign-in); `?embed=1` hides site chrome for same-origin embedding |
+| GET | `/explore/:slug.html` | Public file | Interactive report viewer (data requires sign-in) |
+| GET | `/embed/:slug.html` | Public | A saved report on its own, for an iframe on another site. Framing allowed per `EMBED_FRAME_ANCESTORS` |
+| GET | `/embed/:slug.json` | Public | That report's title, last update and current figures. 120 requests a minute per address |
 | GET | `/builder` | Public file | Report builder page |
 | GET | `/dataset` | Public file | Dataset detail page |
 | GET | `/town` | Public file | Town profile page |
 | GET | `/admin` | Public file | Admin dataset list: search, sort and filter |
 | GET | `/admin/datasets/new` | Public file | Add a dataset (upload page) |
 | GET | `/users` | Public file | People: invite and manage users (admins) |
+| GET | `/admin/activity` | Public file | Activity: the audit trail (admins) |
+| GET | `/account` | Public file | Your account: details and changing your own password |
 | GET | `/js/*`, `/css/*` | Public | Front-end scripts and styles |
 | GET | `/shared/*` | Public | Code shared by server and browser (formatting, theme) |
 | GET | `/vendor/chart.js/*` | Public | Chart.js library |
@@ -29,10 +33,11 @@
 | Method | Path | Access | What it does |
 | --- | --- | --- | --- |
 | POST | `/api/auth/login` | Public (rate-limited) | Sign in with email and password |
-| POST | `/api/auth/logout` | Signed in | Sign out and end the session |
+| POST | `/api/auth/logout` | Signed in | Sign out and end the session (`204`) |
 | GET | `/api/auth/me` | Signed in | Current user, CSRF token and enabled features |
 | POST | `/api/auth/token` | Public (rate-limited) | Check an invite or reset link token |
 | POST | `/api/auth/set-password` | Public (rate-limited) | Set a password using a link token |
+| POST | `/api/auth/password` | Signed in (rate-limited) | Change your own password (`{ currentPassword, newPassword }`). Ends every other session and returns a fresh session with a new CSRF token |
 
 ## Towns: `/api/towns`
 
@@ -70,16 +75,16 @@
 | Method | Path | Access | What it does |
 | --- | --- | --- | --- |
 | POST | `/api/reports/preview` | Signed in | Build an unsaved report for preview |
-| POST | `/api/reports/pdf` | Signed in | Download an unsaved report as PDF |
+| POST | `/api/reports/pdf` | Signed in | Download an unsaved report as PDF (`422` if it would exceed 500 pages) |
 | POST | `/api/reports/summary` | Signed in | AI-drafted summary (if AI is configured; not for record-based datasets) |
-| GET | `/api/reports` | Signed in | List saved reports (`?q=` to search) |
+| GET | `/api/reports` | Signed in | List saved reports, the 200 most recently updated (`?q=` to search) |
 | POST | `/api/reports` | Signed in | Save a new report |
 | GET | `/api/reports/:id` | Signed in | Get a saved report (includes `slug` and `viewUrl`) |
 | GET | `/api/reports/by-slug/:slug` | Signed in | A saved report and its current figures, for the viewer |
 | PUT | `/api/reports/:id` | Signed in (owner only) | Update a saved report |
 | POST | `/api/reports/:id/duplicate` | Signed in | Copy a report (the copy belongs to you) |
 | DELETE | `/api/reports/:id` | Signed in (owner only) | Delete a report (`204`) |
-| GET | `/api/reports/:id/pdf` | Signed in | Download a saved report as PDF, rebuilt from current data |
+| GET | `/api/reports/:id/pdf` | Signed in | Download a saved report as PDF, rebuilt from current data (`422` if it would exceed 500 pages) |
 
 ## Assistant: `/api/assistant`
 
@@ -96,9 +101,25 @@
 | PATCH | `/api/users/:id` | Admin | Change a user's details, role or active status |
 | POST | `/api/users/:id/password-link` | Admin | Issue a new set-password link |
 
+## Audit trail: `/api/audit`
+
+| Method | Path | Access | What it does |
+| --- | --- | --- | --- |
+| GET | `/api/audit` | Admin | Activity, newest first: `{ entries, hasMore }`. `?limit=` (max 200, default 50), `?before=<id>` for the next page, `?category=auth\|user\|dataset\|report` |
+
+Recorded actions: `auth.signed_in`, `auth.signed_out`, `auth.sign_in_failed`, `auth.sign_in_locked`, `auth.password_changed`, `auth.password_set_from_link`, `user.invited`, `user.role_changed`, `user.deactivated`, `user.reactivated`, `user.password_link_issued`, `dataset.uploaded`, `dataset.fields_approved`, `dataset.published`, `dataset.unpublished`, `dataset.row_label_changed`, `report.created`, `report.deleted`.
+
+## Rate limits
+
+Limits are per signed-in person and answer `429` with a message to show. Everything under `/api` after sign-in: 600 a minute. PDF export: 60 per 10 minutes. Dataset inspect and upload: 60 per 10 minutes. AI summary: 20 per 10 minutes. Assistant: 40 per 10 minutes. Credential endpoints are limited per network address: 30 per 15 minutes.
+
+## Errors
+
+Errors are JSON: `{ "error": "message to show", "details"?: [...] }`. Responses with a `5xx` status also carry `requestId`, the same value as the `X-Request-Id` response header and the `id=` field in the server log.
+
 ## Fallbacks
 
 | Method | Path | Result |
 | --- | --- | --- |
 | Any | Any other `/api/...` path | `404` JSON error (`401` first if not signed in) |
-| Any | Any other non-API path | Express's default `404` page |
+| Any | Any other non-API path | `404` with a page that links back to the dashboard (plain text for non-browser clients) |

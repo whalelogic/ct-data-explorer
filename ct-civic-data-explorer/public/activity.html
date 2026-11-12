@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Activity · CT Civic Data Explorer</title>
+    <link rel="stylesheet" href="/css/app.css" />
+    <script type="module" src="/js/activity.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site"><a class="brand" href="/">CT Civic Data Explorer</a></header>
+    <main id="main" class="container">
+      <nav id="admin-nav" class="sub-nav" aria-label="Administration"></nav>
+      <div class="workspace-heading">
+        <div>
+          <h1>Activity</h1>
+          <p class="page-intro">Sign-ins and changes to people, datasets and reports, newest first. Entries are kept for two years.</p>
+        </div>
+      </div>
+      <p id="page-status" class="status" role="alert" hidden></p>
+
+      <section class="panel" aria-label="Activity">
+        <div class="activity-filter">
+          <label for="activity-category">Show</label>
+          <select id="activity-category">
+            <option value="">Everything</option>
+            <option value="auth">Sign-ins and passwords</option>
+            <option value="user">People</option>
+            <option value="dataset">Datasets</option>
+            <option value="report">Reports</option>
+          </select>
+        </div>
+        <p id="activity-status" class="status" role="status">Loading activity…</p>
+        <div class="table-wrap">
+          <table class="data activity-table">
+            <caption class="sr-only">Activity, newest first</caption>
+            <thead>
+              <tr>
+                <th scope="col">When</th>
+                <th scope="col">Who</th>
+                <th scope="col">What happened</th>
+              </tr>
+            </thead>
+            <tbody id="activity-body"></tbody>
+          </table>
+        </div>
+        <div class="button-row">
+          <button id="activity-more" type="button" class="secondary" hidden>Show older activity</button>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

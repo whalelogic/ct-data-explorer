@@ -1,10 +1,26 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { HttpError } from '../lib/http-error.js';
+
+const PUBLIC_DIRECTORY = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'public');
 
 export function apiNotFound(_req, _res, next) {
   next(new HttpError(404, 'Not found'));
 }
 
-/** Central error handler: logs unexpected errors with context and returns a safe message, never a stack trace. */
+/** Unknown page addresses get a page that helps people back, not Express's bare "Cannot GET". */
+export function pageNotFound(req, res) {
+  if ((req.method === 'GET' || req.method === 'HEAD') && req.accepts('html')) {
+    res.status(404).sendFile('404.html', { root: PUBLIC_DIRECTORY });
+    return;
+  }
+  res.status(404).type('text/plain').send('Not found');
+}
+
+/**
+ * Central error handler: logs unexpected errors with context and returns a safe message,
+ * never a stack trace. Server-side failures carry the request id so the person can quote it.
+ */
 export function errorHandler(err, req, res, next) {
   let status = 500;
   let body = { error: 'Something went wrong on our side. Please try again.' };
@@ -24,7 +40,8 @@ export function errorHandler(err, req, res, next) {
   }
 
   if (status >= 500) {
-    const context = `${req.method} ${req.originalUrl.split('?')[0]} user=${req.user?.id ?? '-'}`;
+    body.requestId = req.id;
+    const context = `${req.method} ${req.originalUrl.split('?')[0]} user=${req.user?.id ?? '-'} id=${req.id ?? '-'}`;
     // Expected server-side conditions (e.g. an unconfigured AI provider) get one line; anything unexpected gets the stack.
     if (err instanceof HttpError) console.error(`[error] ${context} ${status} ${err.message}`);
     else console.error(`[error] ${context}`, err);

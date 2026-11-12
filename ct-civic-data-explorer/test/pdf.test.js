@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import PDFDocument from 'pdfkit';
 import { applyFieldPresentation, appendFieldNotes } from '../src/services/presentation.js';
 import { parseMarkup } from '../src/services/markup.js';
-import { reportFilename, renderReportPdf } from '../src/services/pdf/index.js';
+import { MAX_PDF_PAGES, reportFilename, renderReportPdf } from '../src/services/pdf/index.js';
 
 const places = [
   { id: 1, name: 'West Hartford', geoType: 'town', label: 'West Hartford' },
@@ -131,7 +131,8 @@ test('all 169 locations, indicator values, chart titles, and page footers surviv
   });
   const pdf = await renderReportPdf(report);
   const numberOfPages = pageCount(pdf);
-  assert.ok(numberOfPages > 20);
+  // One line per town in each chart and in the table, not a page per handful of towns.
+  assert.ok(numberOfPages > 5 && numberOfPages < 25, `${numberOfPages} pages`);
   for (const place of allPlaces) {
     assert.equal(writtenText.filter((text) => text === place.label).length, 3, place.label);
   }
@@ -140,7 +141,7 @@ test('all 169 locations, indicator values, chart titles, and page footers surviv
   }
   assert.ok(writtenText.includes(chart.title));
   assert.ok(writtenText.includes(secondChart.title));
-  assert.ok(writtenText.includes('Locations 169-169 of 169'));
+  assert.ok(writtenText.some((text) => /Locations \d+-169 of 169$/.test(text)));
   assert.equal(writtenText.filter((text) => text === report.sourceLine).length, numberOfPages);
   assert.ok(writtenText.includes(`Page ${numberOfPages} of ${numberOfPages}`));
 });
@@ -280,4 +281,59 @@ test('PDF uses chosen colors and typography per report without leaking styles to
   }
   assert.ok(sizes.some((item) => item.heading === style.headingColor && item.value === 11));
   assert.ok(strokes.every((item) => item.heading !== style.headingColor || item.value !== '#FFFFFF'));
+});
+
+
+test('a line chart of many rows is split into parts that say which rows they show', async (context) => {
+  const writtenText = capturePdfText(context);
+  const labels = Array.from({ length: 30 }, (_, index) => `Industry ${index + 1}`);
+  const chart = { ...incomeChart, type: 'line', labels, benchmarkIndex: -1, series: [{ key: 'jobs', label: 'Jobs', values: labels.map((_, index) => index) }] };
+  await renderReportPdf(makeReport({ rowNoun: 'Industry', blocks: [{ type: 'chart', chart }] }));
+  assert.ok(writtenText.some((text) => text.endsWith('Industries 25-30 of 30')));
+  for (const label of labels) {
+    assert.ok(writtenText.includes(label), label);
+  }
+});
+
+test('a single-series chart has no legend repeating its title; several series keep theirs', async (context) => {
+  const writtenText = capturePdfText(context);
+  await renderReportPdf(makeReport({ blocks: [{ type: 'chart', chart: incomeChart }] }));
+  assert.equal(writtenText.filter((text) => text === incomeChart.series[0].label).length, 1);
+
+  writtenText.length = 0;
+  const grouped = { ...incomeChart, type: 'grouped_bar', title: 'Two fields', series: [...incomeChart.series, { key: 'x', label: 'Other field', values: [1, 2, 3] }] };
+  await renderReportPdf(makeReport({ blocks: [{ type: 'chart', chart: grouped }] }));
+  assert.ok(writtenText.includes('Other field'));
+});
+
+test('a table of many rows lists one row per line and continues extra fields in further tables', async (context) => {
+  const writtenText = capturePdfText(context);
+  const manyPlaces = Array.from({ length: 12 }, (_, index) => ({ id: index + 1, name: `Town ${index + 1}`, label: `Town ${index + 1}`, geoType: 'town' }));
+  const fields = Array.from({ length: 7 }, (_, fieldIndex) => ({
+    ...income,
+    key: `f${fieldIndex}`,
+    displayLabel: `Field ${fieldIndex + 1}`,
+    cells: manyPlaces.map((_, placeIndex) => ({ value: placeIndex, display: `F${fieldIndex + 1}-T${placeIndex + 1}` })),
+  }));
+  const pdf = await renderReportPdf(makeReport({ places: manyPlaces, indicators: fields, blocks: [{ type: 'table', indicators: fields }] }));
+  assert.ok(pageCount(pdf) <= 2);
+  assert.ok(writtenText.includes('Fields 6-7 of 7'));
+  for (const field of fields) {
+    for (const cell of field.cells) {
+      assert.ok(writtenText.includes(cell.display), cell.display);
+    }
+  }
+  // Row names are repeated beside each group of fields.
+  assert.equal(writtenText.filter((text) => text === 'Town 12').length, 2);
+});
+
+test('a report that would run past the page limit is refused with a message people can act on', async () => {
+  const columns = Array.from({ length: 4 }, (_, index) => ({ label: `Field ${index + 1}`, type: 'text' }));
+  const records = Array.from({ length: 2000 }, (_, rowIndex) => ({
+    values: columns.map(() => `Row ${rowIndex + 1} ${'long text '.repeat(40)}`),
+  }));
+  await assert.rejects(
+    renderReportPdf(makeReport({ blocks: [{ type: 'records', columns, records, repeatColumns: [0] }] })),
+    (error) => error.status === 422 && error.message.includes(`${MAX_PDF_PAGES} pages`),
+  );
 });

@@ -35,6 +35,13 @@
       </div>
       <p id="page-status" class="status builder-page-status" role="alert" hidden></p>
       <p id="builder-status" class="status builder-page-status" role="status" aria-live="polite" hidden></p>
+      <div id="draft-recovery" class="status builder-page-status draft-recovery" role="region" aria-label="Unsaved changes" hidden>
+        <p id="draft-recovery-text"></p>
+        <div class="draft-recovery-actions">
+          <button type="button" id="recovery-restore">Restore changes</button>
+          <button type="button" id="recovery-discard" class="secondary">Discard them</button>
+        </div>
+      </div>
 
       <div class="builder-workspace">
         <form id="builder-form" class="builder-panel" novalidate>
@@ -205,6 +212,7 @@
 
           <!-- 3. The ordered report blocks. -->
           <section id="panel-content" class="builder-tab-panel" role="tabpanel" aria-labelledby="tab-content" tabindex="0" hidden>
+            <p class="muted small builder-hint">Your report starts with a chart and a table of what you chose. Select one to change it, or add more.</p>
             <div class="builder-add-row" role="group" aria-label="Add a block">
               <span class="small muted">Add</span>
               <button type="button" class="secondary" data-add-block="chart">+ Chart</button>
@@ -225,7 +233,6 @@
                 <button type="button" id="draft-discard" class="link">Discard</button>
               </div>
             </div>
-            <p class="muted small builder-hint">Your report starts with a chart and a table of what you chose. Select one to change it.</p>
             <ol id="layout-list" class="layout-list"></ol>
             <details class="markup-help">
               <summary>Formatting text blocks</summary>
@@ -241,7 +248,7 @@
 
           <!-- 4. Title, subtitle and report-specific appearance. -->
           <section id="panel-style" class="builder-tab-panel" role="tabpanel" aria-labelledby="tab-style" tabindex="0" hidden>
-            <label for="title">Report title</label>
+            <label for="title">Title on the report</label>
             <input id="title" maxlength="200" placeholder="Leave blank to name it after what you compare" />
             <label for="subtitle">Subtitle</label>
             <input id="subtitle" maxlength="300" placeholder="Leave blank to use the dataset name and period" />

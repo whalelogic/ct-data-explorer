@@ -1,4 +1,5 @@
 import { api, loadSession } from './api.js';
+import { confirmDialog } from './dialogs.js';
 import { h } from './dom.js';
 import { boot, renderAdminNav, renderHeader, showStatus } from './layout.js';
 
@@ -48,9 +49,40 @@ boot(async () => {
             await api(`/users/${u.id}`, { method: 'PATCH', json });
             await loadUsers();
           });
+        const name = `${u.firstName} ${u.lastName}`;
+        // Giving or removing administrator access changes what someone can do everywhere, so confirm it.
+        const changeRole = async (select) => {
+          const makeAdmin = select.value === 'admin';
+          const confirmed = await confirmDialog({
+            title: makeAdmin ? `Make ${name} an administrator?` : `Remove administrator access from ${name}?`,
+            message: makeAdmin
+              ? 'Administrators can upload and publish datasets, invite people and change roles.'
+              : 'They will still be able to build and save reports, but not manage datasets or people.',
+            confirmLabel: makeAdmin ? 'Make administrator' : 'Remove access',
+          });
+          if (confirmed) {
+            update({ role: select.value });
+          } else {
+            select.value = u.role;
+          }
+        };
+        const toggleActive = async () => {
+          if (u.isActive) {
+            const confirmed = await confirmDialog({
+              title: `Deactivate ${name}?`,
+              message: 'They are signed out immediately and cannot sign in again until you reactivate them. Their saved reports stay available to everyone.',
+              confirmLabel: 'Deactivate',
+              danger: true,
+            });
+            if (!confirmed) {
+              return;
+            }
+          }
+          update({ isActive: !u.isActive });
+        };
         const role = h(
           'select',
-          { 'aria-label': `Role for ${u.email}`, disabled: self, onChange: (e) => update({ role: e.target.value }) },
+          { 'aria-label': `Role for ${u.email}`, disabled: self, onChange: (e) => changeRole(e.target) },
           h('option', { value: 'staff' }, 'Staff'),
           h('option', { value: 'admin' }, 'Admin'),
         );
@@ -58,7 +90,7 @@ boot(async () => {
         return h(
           'tr',
           {},
-          h('td', {}, `${u.firstName} ${u.lastName}`),
+          h('td', {}, name),
           h('td', {}, u.email),
           h('td', {}, role),
           h('td', {}, !u.isActive ? 'Deactivated' : u.hasPassword ? 'Active' : 'Invite pending'),
@@ -83,7 +115,7 @@ boot(async () => {
               ? null
               : h(
                   'button',
-                  { type: 'button', class: u.isActive ? 'danger' : 'secondary', onClick: () => update({ isActive: !u.isActive }) },
+                  { type: 'button', class: u.isActive ? 'danger' : 'secondary', onClick: toggleActive },
                   u.isActive ? 'Deactivate' : 'Reactivate',
                 ),
           ),

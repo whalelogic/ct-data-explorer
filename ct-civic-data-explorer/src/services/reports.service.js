@@ -5,6 +5,7 @@
  * object is returned as JSON for the live preview and handed to the PDF renderer,
  * so both always show the same figures.
  */
+import crypto from 'node:crypto';
 import { resolveReportStyle } from '../shared/report-style.js';
 import { HttpError } from '../lib/http-error.js';
 import { formatValue } from '../shared/format.js';
@@ -126,13 +127,13 @@ export async function getReport(id) {
 
 export async function createReport({ title, selection }, user) {
   const builtReport = await buildReport(selection);
-  const id = await reports.insert({
+  const id = await writeWithUniqueSlug(title, null, (slug) => reports.insert({
     title,
-    slug: await uniqueSlug(title),
+    slug,
     selection,
     createdBy: user.id,
     datasetId: builtReport.dataset.id,
-  });
+  }));
   return reports.findById(id);
 }
 
@@ -141,13 +142,13 @@ export async function updateReport(id, { title, selection }, user) {
   const nextSelection = selection ?? parseStoredSelection(report.selection);
   const builtReport = await buildReport(nextSelection);
   const nextTitle = title ?? report.title;
-  await reports.update(id, {
-    title: nextTitle,
-    // The address follows the name; an unchanged name keeps its address.
-    slug: nextTitle === report.title && report.slug ? report.slug : await uniqueSlug(nextTitle, id),
-    selection: nextSelection,
-    datasetId: builtReport.dataset.id,
-  });
+  const write = (slug) => reports.update(id, { title: nextTitle, slug, selection: nextSelection, datasetId: builtReport.dataset.id });
+  // The address follows the name; an unchanged name keeps its address.
+  if (nextTitle === report.title && report.slug) {
+    await write(report.slug);
+  } else {
+    await writeWithUniqueSlug(nextTitle, id, write);
+  }
   return reports.findById(id);
 }
 
@@ -157,13 +158,13 @@ export async function duplicateReport(id, user) {
   const selection = parseStoredSelection(report.selection);
   const builtReport = await buildReport(selection);
   const title = `${report.title} (copy)`.slice(0, 200);
-  const copyId = await reports.insert({
+  const copyId = await writeWithUniqueSlug(title, null, (slug) => reports.insert({
     title,
-    slug: await uniqueSlug(title),
+    slug,
     selection,
     createdBy: user.id,
     datasetId: builtReport.dataset.id,
-  });
+  }));
   return reports.findById(copyId);
 }
 
@@ -173,8 +174,17 @@ export async function getReportView(slug) {
   if (!report) {
     throw new HttpError(404, 'Report not found');
   }
-  const data = await buildReport(parseStoredSelection(report.selection));
+  const data = await buildReport(savedSelection(report));
   return { report, data };
+}
+
+/**
+ * The stored selection of a saved report, ready to build. A report has one name: unless
+ * its selection sets a different title, the report is titled with the name it was saved under.
+ */
+export function savedSelection(report) {
+  const selection = parseStoredSelection(report.selection);
+  return selection.title ? selection : { ...selection, title: report.title };
 }
 
 /** Readable and unique: "Hartford housing", then "Hartford housing 2", and so on. */
@@ -189,9 +199,32 @@ async function uniqueSlug(title, excludeId = null) {
   return `${base}-${Date.now().toString(36)}`;
 }
 
+/**
+ * Two people saving reports with the same name at the same moment can both be offered the
+ * same address. The database's unique key refuses the second; pick again instead of failing.
+ */
+async function writeWithUniqueSlug(title, excludeId, write) {
+  const numberedAttempts = 4;
+  for (let attempt = 1; ; attempt++) {
+    // Under heavy contention the next number keeps being taken, so finish with a random ending.
+    const slug = attempt <= numberedAttempts
+      ? await uniqueSlug(title, excludeId)
+      : `${createSlug(title)}-${crypto.randomBytes(4).toString('hex')}`;
+    try {
+      return await write(slug);
+    } catch (error) {
+      if (error?.code !== 'ER_DUP_ENTRY' || attempt >= numberedAttempts + 3) {
+        throw error;
+      }
+    }
+  }
+}
+
+/** @returns the report as it was, so the caller can record what was removed */
 export async function deleteReport(id, user) {
-  await getOwnedReport(id, user);
+  const report = await getOwnedReport(id, user);
   await reports.remove(id);
+  return report;
 }
 
 async function getOwnedReport(id, user) {

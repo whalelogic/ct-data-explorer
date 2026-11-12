@@ -13,6 +13,7 @@
 | [`sample-data/`](sample-data/) | The ACS 2024 sample CSV used by `npm run seed` and the tests |
 | `SRS.docx` | The software requirements specification |
 | [`ct-civic-data-explorer/docs/api-routes.md`](ct-civic-data-explorer/docs/api-routes.md) | All HTTP routes, methods and callers |
+| [`ct-civic-data-explorer/docs/deployment.md`](ct-civic-data-explorer/docs/deployment.md) | Running it in production: settings, reverse proxy, backups, upgrades |
 
 ## Local setup
 
@@ -86,7 +87,7 @@ npm run lint
 npm test                           # no database needed
 ```
 
-CI runs the same checks, plus `npm audit`, on every pull request.
+CI runs the same checks, plus `npm audit`, on every pull request. It also runs the suite against a real MySQL and builds the production image. To run those database tests yourself, with the database up and migrated: `CT_CURATION_INTEGRATION=1 npm test` (they create and remove their own rows).
 
 ### Good to know
 

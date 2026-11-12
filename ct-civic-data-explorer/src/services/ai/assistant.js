@@ -5,12 +5,12 @@
  * Claude runs on the server with read-only tools that call the same services as the rest
  * of the app, as the signed-in user, so it can never see more than they can:
  *   list_datasets, describe_dataset   published datasets and their approved fields
- *   get_figures                       values and summaries, from town (indicator) datasets only
+ *   get_figures                       values and summaries from any published dataset
  *   propose_report                    a validated report setup the user can apply (staff/admin)
  *
- * Privacy matches AI summary drafting: values from uploaded record datasets (names, notes,
- * any row-level content) never leave the server. Only field metadata and Connecticut place
- * names do. Credentials resolve from the environment and never reach the browser.
+ * Published data is public, so its approved fields may be read by the model. Draft datasets,
+ * unapproved fields and accounts never are: every tool goes through the same checks as the
+ * report builder. Credentials resolve from the environment and never reach the browser.
  */
 import Anthropic from '@anthropic-ai/sdk';
 import { config } from '../../config.js';
@@ -24,6 +24,8 @@ import { CALCULATIONS, selectionSchema } from '../selection.js';
 const MAX_TOOL_ROUNDS = 8;
 /** Tool results are capped so one large answer cannot crowd out the conversation. */
 const MAX_TOOL_RESULT_CHARS = 60_000;
+/** Row names listed per way of comparing; get_figures with no names still reads every row. */
+const MAX_LISTED_ROW_NAMES = 500;
 const SUMMARY_CALCULATIONS = CALCULATIONS.filter((calculation) => calculation !== 'ratio' && calculation !== 'average_filled');
 
 /** Who may have the assistant set up reports. One place to change when roles grow. */
@@ -46,7 +48,6 @@ How to help:
 - Answer questions about the data only from your tools. Never estimate, recall or invent a figure; if a tool cannot provide it, say so plainly.
 - Quote figures exactly as the tools format them. Do not calculate new numbers yourself. To get an average, median, highest, lowest or total, ask get_figures for a summary instead.
 - Use describe_dataset to find exact field keys and names before calling get_figures or propose_report.
-- Values from record datasets are private and the tools will not return them. You can still explain those datasets' fields and help set up reports with them.
 - When the person asks you to build, fill in, set up or change a report, call propose_report. They will see an Apply button; tell them in one sentence what you set up. If propose_report says they are not allowed, explain that report generation is limited to staff and administrators, and offer to answer questions instead.
 - If the request is unclear, ask one short question rather than guessing.
 
@@ -56,13 +57,13 @@ Style: brief, friendly and plain. Two to five short sentences, or a short list u
 const TOOLS = [
   {
     name: 'list_datasets',
-    description: 'List the published datasets: id, name, reporting period, source and whether values can be read with get_figures.',
+    description: 'List the published datasets: id, name, reporting period, source and number of rows.',
     strict: true,
     input_schema: { type: 'object', properties: {}, required: [], additionalProperties: false },
   },
   {
     name: 'describe_dataset',
-    description: 'Describe one dataset: its fields (key, name, unit, type, description), what its rows can be compared by (with Connecticut place names when the rows are places), and whether a statewide total exists.',
+    description: 'Describe one dataset: its fields (key, name, unit, type, description), what its rows can be compared by (each with an id and its row names), and whether a statewide total exists.',
     strict: true,
     input_schema: {
       type: 'object',
@@ -73,14 +74,14 @@ const TOOLS = [
   },
   {
     name: 'get_figures',
-    description: 'Read values from a town (indicator) dataset for chosen places and fields, and optionally summaries across those places (average, median, highest, lowest, total) with the same figure for all of Connecticut. Leave places empty to use every place of the chosen kind.',
+    description: 'Read values from a dataset for chosen rows and fields, and optionally summaries across those rows (average, median, highest, lowest, total) with the same figure for the whole dataset. Leave places empty to use every row.',
     strict: true,
     input_schema: {
       type: 'object',
       properties: {
         dataset_id: { type: 'integer' },
-        compare_by: { type: 'string', enum: ['town', 'county', 'region'], description: 'Kind of place. Usually town.' },
-        places: { type: 'array', items: { type: 'string' }, description: 'Place names exactly as describe_dataset lists them. Empty means all.' },
+        compare_by: { type: 'string', description: 'A compareBy id from describe_dataset, such as town, county, region or c2. Use its defaultCompare unless asked otherwise.' },
+        places: { type: 'array', items: { type: 'string' }, description: 'Row names exactly as describe_dataset lists them. Empty means all.' },
         fields: { type: 'array', items: { type: 'string' }, description: 'Field keys to read for each place.' },
         include_statewide: { type: 'boolean', description: 'Also return the Connecticut statewide row.' },
         summaries: {
@@ -149,9 +150,11 @@ function getClient() {
  * @param {{ role: 'user'|'assistant', content: string }[]} history plain-text turns, last one the user's
  * @param {{ page?: string, datasetId?: number, selection?: object }} context what the person is looking at
  * @param {{ id: number, role: string }} user
+ * @param {(event: { type: 'text', delta: string } | { type: 'status', text: string }) => void} [onEvent]
+ *   called as the reply is written and before each lookup, so the page can show progress
  * @returns {Promise<{ reply: string, proposal: object | null }>}
  */
-export async function askAssistant(history, context, user) {
+export async function askAssistant(history, context, user, onEvent = () => {}) {
   if (!isAssistantAvailable()) {
     throw new HttpError(503, 'The assistant is not set up on this server.');
   }
@@ -164,7 +167,7 @@ export async function askAssistant(history, context, user) {
   ];
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-    const response = await callClaude(messages);
+    const response = await callClaude(messages, onEvent);
     if (response.stop_reason === 'refusal') {
       return { reply: 'I can’t help with that one. Try asking about the data or your report.', proposal: null };
     }
@@ -174,6 +177,8 @@ export async function askAssistant(history, context, user) {
       const reply = response.content.filter((block) => block.type === 'text').map((block) => block.text).join('').trim();
       return { reply: reply || 'Sorry, I don’t have an answer for that.', proposal: state.proposal };
     }
+    // Anything written before a lookup was a working note, not the answer; the page replaces it.
+    onEvent({ type: 'status', text: TOOL_STATUS[toolUses[0].name] ?? 'Working on it…' });
     // All results go back in one user message, so parallel tool calls keep working.
     const results = [];
     for (const toolUse of toolUses) {
@@ -184,20 +189,36 @@ export async function askAssistant(history, context, user) {
   return { reply: 'That took more steps than I can manage at once. Try a narrower question.', proposal: state.proposal };
 }
 
-async function callClaude(messages) {
+/** What the page shows while a tool runs. */
+const TOOL_STATUS = {
+  list_datasets: 'Looking at the datasets…',
+  describe_dataset: 'Reading the dataset’s fields…',
+  get_figures: 'Looking up the figures…',
+  propose_report: 'Setting up the report…',
+};
+
+async function callClaude(messages, onEvent) {
+  const request = {
+    model: config.ai.model,
+    max_tokens: 16000,
+    // If the model declines, the API re-runs the request on Anthropic's recommended fallback model.
+    betas: ['server-side-fallback-2026-07-01'],
+    fallbacks: 'default',
+    output_config: { effort: config.ai.effort },
+    cache_control: { type: 'ephemeral' },
+    system: SYSTEM_PROMPT,
+    tools: TOOLS,
+    messages,
+  };
   try {
-    return await getClient().beta.messages.create({
-      model: config.ai.model,
-      max_tokens: 16000,
-      // If the model declines, the API re-runs the request on Anthropic's recommended fallback model.
-      betas: ['server-side-fallback-2026-07-01'],
-      fallbacks: 'default',
-      output_config: { effort: config.ai.effort },
-      cache_control: { type: 'ephemeral' },
-      system: SYSTEM_PROMPT,
-      tools: TOOLS,
-      messages,
-    });
+    const api = getClient().beta.messages;
+    // Scripted test clients only implement create(); the real client streams the words as they come.
+    if (typeof api.stream !== 'function') {
+      return await api.create(request);
+    }
+    const stream = api.stream(request);
+    stream.on('text', (delta) => onEvent({ type: 'text', delta }));
+    return await stream.finalMessage();
   } catch (err) {
     console.error(`[ai] assistant request failed: ${describeApiError(err)}`);
     throw new HttpError(502, 'The assistant is unavailable right now. Try again in a moment.');
@@ -266,7 +287,6 @@ const TOOL_HANDLERS = {
         source: dataset.source,
         description: dataset.description || undefined,
         rows: dataset.rowCount,
-        valuesReadable: dataset.dataFormat !== 'records',
       };
     });
   },
@@ -278,7 +298,6 @@ const TOOL_HANDLERS = {
       id: dataset.id,
       name: presentDataset(dataset).displayName,
       reportingPeriod: dataset.vintage,
-      valuesReadable: dataset.data_format !== 'records',
       fields: options.columns.map((field) => ({
         key: field.key,
         name: field.displayLabel || field.label,
@@ -290,8 +309,7 @@ const TOOL_HANDLERS = {
         id: option.id,
         name: option.label,
         count: option.values.length,
-        // Connecticut place names are public; other row labels come from the uploaded file.
-        ...(option.kind === 'place' ? { values: option.values } : {}),
+        values: option.values.slice(0, MAX_LISTED_ROW_NAMES),
       })),
       defaultCompare: options.defaultCompare,
       hasStatewide: Boolean(options.hasState),
@@ -300,9 +318,6 @@ const TOOL_HANDLERS = {
 
   async get_figures(input, user) {
     const dataset = await requireDataset(input.dataset_id, user);
-    if (dataset.data_format === 'records') {
-      throw new HttpError(403, 'Values from this record dataset are private and cannot be read by the assistant. Describe its fields instead.');
-    }
     const summaries = input.summaries.slice(0, 6).map((summary, index) => ({
       key: `ratio_${index + 1}`,
       label: `${summary.calculation} of ${summary.field}`,

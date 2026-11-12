@@ -84,6 +84,28 @@ export async function setPasswordWithToken(token, password) {
   });
 }
 
+/**
+ * Change a signed-in user's password after confirming the current one. Outstanding
+ * reset links are retired and every session ends; the caller starts a new one.
+ */
+export async function changePassword(userId, currentPassword, newPassword) {
+  const user = await users.findById(userId);
+  if (!user?.is_active || !user.password_hash) throw new HttpError(401, 'Please sign in');
+  if (!(await bcrypt.compare(currentPassword, user.password_hash))) {
+    throw new HttpError(400, 'Your current password is incorrect');
+  }
+  if (await bcrypt.compare(newPassword, user.password_hash)) {
+    throw new HttpError(400, 'Choose a password that is different from your current one');
+  }
+  const passwordHash = await bcrypt.hash(newPassword, BCRYPT_COST);
+  return withTransaction(async (client) => {
+    await users.setPassword(userId, passwordHash, client);
+    await tokens.invalidateForUser(userId, client);
+    await users.deleteSessions(userId, client);
+    return users.findById(userId, client);
+  });
+}
+
 async function issueLink(userId, purpose, db) {
   await tokens.invalidateForUser(userId, db);
   const token = crypto.randomBytes(32).toString('base64url');

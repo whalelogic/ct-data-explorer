@@ -10,6 +10,8 @@ import { fetchReports, reportActionButtons, summarizeRows } from './report-libra
 let currentUser = null;
 let reports = [];
 let requestNumber = 0;
+/** GET /api/reports returns at most this many (repositories/reports.js). */
+const MAX_LISTED_REPORTS = 200;
 const scheduleSearch = debounce(loadReports, 250);
 
 function getElement(id) {
@@ -98,7 +100,9 @@ function renderGallery() {
     gallery.append(createCard(report));
   }
   const total = reports.length;
-  getElement('gallery-status').textContent = total ? `${visible.length} of ${total} reports` : '';
+  // The server returns the most recently updated reports only; say so instead of implying that is all.
+  const capped = total >= MAX_LISTED_REPORTS ? ' most recently updated. Search to find older reports.' : '';
+  getElement('gallery-status').textContent = total ? `${visible.length} of ${total} reports${capped}` : '';
   const empty = getElement('gallery-empty');
   empty.hidden = visible.length > 0;
   if (visible.length === 0) {

@@ -16,6 +16,14 @@ Or pull them out of a `server.log` you already saved:
 grep ' /api/auth/' server.log > auth.log
 ```
 
+Each line has a timestamp, the method and path, the status, how long it took, the signed-in user id and a request id:
+
+```
+2026-11-11T14:03:22.118Z POST /api/auth/login 200 84.2ms user=7 id=3f9c2a71b0de
+```
+
+Administrators can also read sign-ins, failed sign-ins and password changes in the app under **Datasets › Activity**, which is the durable record; this log is for debugging.
+
 How to read each line:
 
 | Line | Meaning |
@@ -25,7 +33,8 @@ How to read each line:
 | `POST /api/auth/login 423` | Account locked after too many failed tries |
 | `POST /api/auth/login 429` | Rate limit: too many attempts from your connection |
 | `POST /api/auth/login 400` | The form data was invalid, e.g. a badly formed email |
-| `POST /api/auth/logout 200` | Signed out |
+| `POST /api/auth/logout 204` | Signed out |
+| `POST /api/auth/password 200` | Someone changed their own password. 400 means the current password was wrong or the new one was not accepted. |
 | `POST /api/auth/token` | Someone opened an invite or reset link. 400 means the link was invalid or expired. |
 | `POST /api/auth/set-password 200` | A password was set from a link |
 | `GET /api/auth/me 401` | A page checked for a signed-in user and found none. This is normal before sign-in. |

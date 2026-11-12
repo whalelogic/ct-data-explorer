@@ -47,6 +47,7 @@ async function initializeViewer() {
   getElement('edit-report').href = `/builder?report=${savedReport.id}`;
   getElement('edit-report').textContent = savedReport.createdBy.id === user.id ? 'Edit in builder' : 'Open a copy in builder';
   getElement('copy-link').addEventListener('click', copyLink);
+  getElement('copy-embed').addEventListener('click', copyEmbedCode);
   getElement('viewer-pdf').addEventListener('click', exportPdf);
   getElement('viewer-actions').hidden = isEmbedded;
 
@@ -60,7 +61,15 @@ async function initializeViewer() {
 function renderMeta(user, data) {
   const dataset = `${savedReport.dataset.displayName || savedReport.dataset.name}, ${savedReport.dataset.vintage}`;
   const owner = savedReport.createdBy.id === user.id ? 'you' : savedReport.createdBy.name;
-  const rows = savedReport.allRows ? `all ${data.places.length} rows` : `${data.places.length} ${data.places.length === 1 ? 'row' : 'rows'}`;
+  const noun = (data.rowNoun ?? 'Row').toLowerCase();
+  const count = data.places.length;
+  let plural = `${noun}s`;
+  if (/[^aeiou]y$/.test(noun)) {
+    plural = `${noun.slice(0, -1)}ies`;
+  } else if (noun.endsWith('s')) {
+    plural = noun;
+  }
+  const rows = `${savedReport.allRows ? 'all ' : ''}${count.toLocaleString('en-US')} ${count === 1 ? noun : plural}`;
   getElement('viewer-meta').textContent = `${dataset} · ${rows} · Saved by ${owner}, ${formatDate(savedReport.updatedAt)}`;
 }
 
@@ -71,6 +80,19 @@ async function copyLink() {
     showStatus(getElement('viewer-status'), 'Link copied. People need to sign in to open it.', 'ok');
   } catch {
     showStatus(getElement('viewer-status'), `Copy this link: ${link}`);
+  }
+}
+
+/** An <iframe> for another website. The embed page is public: it needs no sign-in. */
+async function copyEmbedCode() {
+  const title = savedReport.title.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;');
+  const address = `${location.origin}/embed/${savedReport.slug}.html`;
+  const code = `<iframe src="${address}" title="${title}" width="100%" height="700" style="border:0" loading="lazy"></iframe>`;
+  try {
+    await navigator.clipboard.writeText(code);
+    showStatus(getElement('viewer-status'), 'Embed code copied. Paste it into a web page; anyone can see the report there without signing in.', 'ok');
+  } catch {
+    showStatus(getElement('viewer-status'), `Copy this code: ${code}`);
   }
 }
 

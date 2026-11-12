@@ -45,6 +45,10 @@ test('formatting: separators for counts and currency, fixed decimals for rates a
 test('axis labels and unit-bearing indicator labels', () => {
   assert.equal(formatAxisValue(130000, { unit: 'currency' }), '$130K');
   assert.equal(formatAxisValue(7.5, { unit: 'percent' }), '7.5%');
+  // Small scales keep their digits instead of rounding every tick to 0.
+  assert.equal(formatAxisValue(0.04, { unit: 'ratio' }), '0.04');
+  assert.equal(formatAxisValue(1.25, { unit: 'number' }), '1.25');
+  assert.equal(formatAxisValue(0, { unit: 'count' }), '0');
   assert.equal(indicatorLabel({ label: 'Population Density', unit: 'density' }), 'Population Density (per sq mi)');
   assert.equal(indicatorLabel({ label: 'Population', unit: 'count' }), 'Population');
 });

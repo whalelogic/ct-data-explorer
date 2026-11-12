@@ -49,6 +49,14 @@ let isLoadingOptions = false;
 let defaultChartType = 'grouped_bar';
 let lastPreviewReport = null;
 let savedSnapshot = '';
+let isSaving = false;
+/**
+ * Unsaved work is kept in this tab (sessionStorage) so an expired session, a reload or a
+ * crashed tab does not lose it. It is offered back, never applied silently.
+ */
+const DRAFT_KEY = 'ctde.builder.draft';
+const storeDraft = debounce(writeDraft, 500);
+let draftsEnabled = true;
 // Blocks whose editors are open. Holds block objects, so it survives reordering.
 const expandedBlocks = new Set();
 // Fields whose "rename for this report" panel is open.
@@ -103,6 +111,7 @@ async function initializeBuilder() {
   updateTabCounts();
   savedSnapshot = createSnapshot();
   updateSaveState();
+  offerDraft(pending ? null : readDraft());
   setAssistantContext(() => ({
     page: 'builder',
     datasetId: findSelectedDataset()?.id,
@@ -180,7 +189,16 @@ async function loadInitialSelection() {
   }
   if (queryParameters.has('report')) {
     const reportId = encodeURIComponent(queryParameters.get('report'));
-    const report = await api(`/reports/${reportId}`);
+    let report;
+    try {
+      report = await api(`/reports/${reportId}`);
+    } catch (error) {
+      // Nothing on the page can work without the report, so show only the explanation.
+      document.querySelector('.builder-workspace').hidden = true;
+      document.querySelector('.builder-bar-actions')?.setAttribute('hidden', '');
+      getElement('builder-heading').textContent = 'Report unavailable';
+      throw new Error(`${error.message}. It may have been deleted. Open Reports to find another, or start a new report.`, { cause: error });
+    }
     savedReport = { id: report.id, ownerId: report.createdBy.id, title: report.title, viewUrl: report.viewUrl };
     reportSelection = { ...reportSelection, ...report.selection };
   }
@@ -240,6 +258,7 @@ function fillFormControls() {
   getElement('title').value = reportSelection.title;
   getElement('subtitle').value = reportSelection.subtitle;
   getElement('report-name').value = savedReport?.title ?? '';
+  updateTitlePlaceholder();
 }
 
 function readFormControls() {
@@ -277,7 +296,7 @@ function registerEventHandlers() {
   getElement('field-search').addEventListener('input', renderAvailableFields);
   getElement('clear-fields').addEventListener('click', clearFields);
   getElement('select-all-fields').addEventListener('click', selectAllFields);
-  getElement('report-name').addEventListener('input', updateSaveState);
+  getElement('report-name').addEventListener('input', handleReportNameInput);
   getElement('report-name').addEventListener('keydown', handleReportNameKeydown);
   getElement('save').addEventListener('click', saveReport);
   getElement('reset-overrides').addEventListener('click', resetFieldOverrides);
@@ -314,6 +333,12 @@ function registerEventHandlers() {
   }
   document.addEventListener('keydown', handleSaveShortcut);
   window.addEventListener('beforeunload', warnAboutUnsavedChanges);
+  // Leaving the page (an expired session sends the browser to sign-in) keeps the latest edits.
+  window.addEventListener('pagehide', writeDraft);
+  // Signing out is a deliberate end: nothing is kept for the next person at this browser.
+  window.addEventListener('ctde:signout', () => {
+    draftsEnabled = false;
+  });
 }
 
 function preventFormSubmission(event) {
@@ -1972,7 +1997,7 @@ async function refreshPreview() {
   }
 
   try {
-    const report = await api('/reports/preview', { method: 'POST', json: reportSelection });
+    const report = await api('/reports/preview', { method: 'POST', json: selectionForOutput() });
     // An older response must not overwrite changes made while it was loading.
     if (requestNumber !== previewRequestNumber) {
       return;
@@ -2011,6 +2036,7 @@ function hasUnsavedChanges() {
 
 function updateSaveState() {
   renderSaveSummary();
+  storeDraft();
   const saveState = getElement('save-state');
   if (hasUnsavedChanges()) {
     saveState.textContent = 'Unsaved changes';
@@ -2037,6 +2063,29 @@ function handleSaveShortcut(event) {
   }
 }
 
+/**
+ * A report has one name. Unless a different title is typed in the Finish step, the name
+ * is also the title on the report, so the preview follows it as it is typed.
+ */
+function selectionForOutput() {
+  const name = getElement('report-name').value.trim();
+  return reportSelection.title.trim() || !name ? reportSelection : { ...reportSelection, title: name };
+}
+
+function handleReportNameInput() {
+  updateSaveState();
+  updateTitlePlaceholder();
+  if (!reportSelection.title.trim()) {
+    markPreviewStale();
+    schedulePreview();
+  }
+}
+
+function updateTitlePlaceholder() {
+  const name = getElement('report-name').value.trim();
+  getElement('title').placeholder = name ? `Same as the report name: ${name}` : 'Leave blank to name it after what you compare';
+}
+
 function handleReportNameKeydown(event) {
   if (event.key === 'Enter') {
     event.preventDefault();
@@ -2060,6 +2109,10 @@ function updateHeading() {
 }
 
 async function saveReport() {
+  // Ctrl+S or Enter during a save must not create the report twice.
+  if (isSaving) {
+    return;
+  }
   readFormControls();
   const nameInput = getElement('report-name');
   // An unnamed report takes its displayed title, which the preview always has.
@@ -2075,6 +2128,7 @@ async function saveReport() {
 
   const saveButton = getElement('save');
   saveButton.disabled = true;
+  isSaving = true;
   try {
     const requestBody = { title, selection: reportSelection };
     let report;
@@ -2092,8 +2146,104 @@ async function saveReport() {
   } catch (error) {
     showStatus(getElement('builder-status'), error.message, 'error');
   } finally {
+    isSaving = false;
     saveButton.disabled = false;
   }
+}
+
+// ---- Draft recovery -------------------------------------------------------------------------
+
+/** Keep the unsaved report in this tab, or forget it once everything is saved. */
+function writeDraft() {
+  // While an earlier draft is on offer, new edits must not replace it.
+  if (!draftsEnabled || !getElement('draft-recovery').hidden) {
+    return;
+  }
+  try {
+    const worthKeeping = hasUnsavedChanges() && (savedReport || reportSelection.indicators.length > 0);
+    if (!worthKeeping) {
+      sessionStorage.removeItem(DRAFT_KEY);
+      return;
+    }
+    sessionStorage.setItem(DRAFT_KEY, JSON.stringify({
+      userId: currentUser.id,
+      reportId: savedReport?.id ?? null,
+      name: getElement('report-name').value,
+      selection: reportSelection,
+      savedAt: Date.now(),
+    }));
+  } catch {
+    // Storage can be full or switched off; the builder works without draft recovery.
+  }
+}
+
+/** The draft left in this tab, if it belongs to this person and this report. */
+function readDraft() {
+  try {
+    const draft = JSON.parse(sessionStorage.getItem(DRAFT_KEY) ?? 'null');
+    const matches = draft
+      && draft.userId === currentUser.id
+      && draft.reportId === (savedReport?.id ?? null)
+      && typeof draft.selection === 'object' && draft.selection !== null
+      && Array.isArray(draft.selection.indicators) && Array.isArray(draft.selection.layout);
+    if (!matches) {
+      // Someone else's draft, or one for another report, must not linger in a shared browser.
+      if (draft && draft.userId !== currentUser.id) {
+        sessionStorage.removeItem(DRAFT_KEY);
+      }
+      return null;
+    }
+    const unchanged = JSON.stringify({ name: String(draft.name ?? '').trim(), selection: draft.selection }) === savedSnapshot;
+    return unchanged ? null : draft;
+  } catch {
+    return null;
+  }
+}
+
+/** Show "you have unsaved changes from earlier" with the choice to bring them back. */
+function offerDraft(draft) {
+  const notice = getElement('draft-recovery');
+  if (!draft) {
+    notice.hidden = true;
+    return;
+  }
+  const savedAt = new Date(draft.savedAt);
+  const when = Number.isNaN(savedAt.getTime())
+    ? 'earlier'
+    : `at ${savedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+  getElement('draft-recovery-text').textContent = savedReport
+    ? `This report has changes from ${when} that were not saved.`
+    : `A report you started ${when} was not saved.`;
+  notice.hidden = false;
+
+  getElement('recovery-restore').onclick = async () => {
+    notice.hidden = true;
+    try {
+      await restoreDraft(draft);
+      showStatus(getElement('builder-status'), 'Your unsaved changes are back. Save the report to keep them.', 'ok');
+    } catch (error) {
+      showStatus(getElement('builder-status'), `The unsaved changes could not be restored: ${error.message}`, 'error');
+    }
+  };
+  getElement('recovery-discard').onclick = () => {
+    notice.hidden = true;
+    writeDraft();
+  };
+}
+
+async function restoreDraft(draft) {
+  reportSelection = assistantSelection(draft.selection);
+  renderDatasetOptions();
+  fillFormControls();
+  getElement('report-name').value = String(draft.name ?? '');
+  updateTitlePlaceholder();
+  await loadDatasetColumns();
+  expandedBlocks.clear();
+  updateStyleEditor();
+  renderFields();
+  renderLayout();
+  selectTab(chooseInitialTab(), { focus: false });
+  selectionChanged();
 }
 
 async function downloadPdf(event) {
@@ -2108,7 +2258,7 @@ async function downloadPdf(event) {
   const originalLabel = button.textContent;
   button.textContent = 'Exporting…';
   try {
-    const { blob, filename } = await api('/reports/pdf', { method: 'POST', json: reportSelection, expect: 'blob' });
+    const { blob, filename } = await api('/reports/pdf', { method: 'POST', json: selectionForOutput(), expect: 'blob' });
     downloadBlob(blob, filename);
     showStatus(getElement('builder-status'), `Downloaded ${filename}.`, 'ok');
   } catch (error) {
@@ -2128,7 +2278,7 @@ async function draftSummary() {
   showStatus(getElement('builder-status'), 'Drafting a summary…');
 
   try {
-    const { text, mismatches } = await api('/reports/summary', { method: 'POST', json: reportSelection });
+    const { text, mismatches } = await api('/reports/summary', { method: 'POST', json: selectionForOutput() });
     getElement('draft-text').value = text;
     const warningList = getElement('draft-warnings');
     warningList.replaceChildren();
@@ -2153,8 +2303,14 @@ async function draftSummary() {
 
 function acceptDraft() {
   // The generated summary is only added to the report after the user accepts it.
+  const text = getElement('draft-text').value.trim();
+  if (!text) {
+    showStatus(getElement('builder-status'), 'The draft is empty. Write something or choose Discard.', 'error');
+    getElement('draft-text').focus();
+    return;
+  }
   getElement('draft').hidden = true;
-  addBlock('text', { text: getElement('draft-text').value.trim() });
+  addBlock('text', { text });
 }
 
 function discardDraft() {
