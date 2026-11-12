@@ -8,6 +8,8 @@
 import { NUMBER, validateDatasetRecords } from './csv-validation.js';
 
 const numeric = (value) => NUMBER.test(value.replaceAll(',', '')) && Number.isFinite(Number(value.replaceAll(',', '')));
+/** Stored for number columns whose precision nobody has chosen; such values are rounded for display. */
+const UNSET_DECIMALS = 9;
 /** Share of a column's values that must name a town before it is suggested as a town column. */
 const TOWN_MATCH_SHARE = 0.8;
 /** Rows shown on the upload page while choosing what each row describes. */
@@ -55,15 +57,22 @@ export function inspectTabularColumns(records, known) {
 
   // Prefer a column named Town, then the column that best matches towns, then the first text column.
   const named = columns.find((column) => column.label.toLowerCase() === 'town');
-  const bestTownMatch = [...columns].sort((first, second) => second.townShare - first.townShare)[0];
+  // A column holding one place on every row ("Connecticut") describes the file, not its rows.
+  const bestTownMatch = columns
+    .filter((column) => column.distinctCount > 1 || data.length === 1)
+    .sort((first, second) => second.townShare - first.townShare)[0];
   let suggested;
   if (named) {
     suggested = { label: named.label, isTown: named.townShare >= TOWN_MATCH_SHARE || named.townShare === 0 };
   } else if (bestTownMatch && bestTownMatch.townShare >= TOWN_MATCH_SHARE) {
     suggested = { label: bestTownMatch.label, isTown: true };
   } else {
-    const firstText = columns.find((column) => !column.isNumeric);
-    suggested = firstText ? { label: firstText.label, isTown: false } : null;
+    // A column that says the same thing on every row cannot tell rows apart, so prefer the first
+    // text column that mostly differs from row to row, then the one with the most different values.
+    const text = columns.filter((column) => !column.isNumeric);
+    const distinctive = text.find((column) => column.distinctCount >= data.length * 0.8)
+      ?? [...text].sort((first, second) => second.distinctCount - first.distinctCount)[0];
+    suggested = distinctive ? { label: distinctive.label, isTown: false } : null;
   }
   // A few rows, cell by cell in file order, so staff can see what a row is before choosing.
   const previewRows = data.slice(0, PREVIEW_ROW_COUNT).map((row) => columns.map((column) => (row.record[column.index] ?? '').trim()));
@@ -134,7 +143,7 @@ export function prepareTabularDataset(records, known, { labelColumn, labelIsTown
     }
     columns.push({ key: `c${i}`, index: i, label, type: isNumber ? 'number' : 'text', role,
       unit: definition?.unit ?? (fraction ? 'percent' : 'number'),
-      scale: fraction ? 100 : 1, decimals: definition?.decimals ?? (fraction ? 1 : 9) });
+      scale: fraction ? 100 : 1, decimals: definition?.decimals ?? (fraction ? 1 : UNSET_DECIMALS) });
   }
   const findTown = townLookup(known.towns);
   const counts = new Map();
@@ -189,9 +198,15 @@ export function formatDatasetCell(value, column) {
   if (value == null) return 'N/A';
   if (column.type !== 'number') return String(value);
   const scaled = value * (column.scale ?? 1);
+  const chosen = column.decimals != null && column.decimals < UNSET_DECIMALS;
+  let maximumFractionDigits = column.decimals;
+  if (!chosen) {
+    // Nobody picked a precision: two decimals read well, and small fractions keep a little more.
+    maximumFractionDigits = Math.abs(scaled) >= 1 || scaled === 0 ? 2 : 4;
+  }
   const formatted = scaled.toLocaleString('en-US', {
-    minimumFractionDigits: column.unit === 'percent' ? column.decimals ?? 1 : 0,
-    maximumFractionDigits: column.decimals ?? 9,
+    minimumFractionDigits: column.unit === 'percent' && chosen ? column.decimals : 0,
+    maximumFractionDigits,
   });
   return column.unit === 'percent' ? `${formatted}%` : column.unit === 'currency' ? `$${formatted}` : formatted;
 }

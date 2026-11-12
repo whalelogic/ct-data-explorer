@@ -23,7 +23,12 @@ export function renderHeader(user) {
     navigation.append(link);
   }
 
-  const userName = createElement('span', { class: 'who' }, `${user.firstName} ${user.lastName}`);
+  const userName = createElement('a', {
+    class: 'who',
+    href: '/account',
+    title: 'Your account',
+    'aria-current': location.pathname === '/account' ? 'page' : null,
+  }, `${user.firstName} ${user.lastName}`);
   const signOutButton = createElement('button', {
     type: 'button',
     class: 'link',
@@ -38,15 +43,22 @@ export function renderHeader(user) {
   );
   brandLink.href = '/';
   header.append(navigation, account);
+  // On a phone the links sit on one row that scrolls sideways; keep the current page in view.
+  const current = navigation.querySelector('[aria-current="page"]');
+  if (current && navigation.scrollWidth > navigation.clientWidth) {
+    navigation.scrollLeft = Math.max(0, current.offsetLeft - navigation.offsetLeft - 16);
+  }
   // The data assistant appears on every signed-in page when the server has AI set up.
   mountAssistant();
 }
 
-/** Admin pages share one sub-navigation: datasets, adding one, and people. */
+/**
+ * Admin pages share one sub-navigation for the places the header does not reach.
+ * Datasets and People are already in the header, so they are not repeated here.
+ */
 const ADMIN_LINKS = [
-  ['/admin', 'Datasets'],
   ['/admin/datasets/new', 'Add dataset'],
-  ['/users', 'People'],
+  ['/admin/activity', 'Activity'],
 ];
 
 export function renderAdminNav(container) {
@@ -118,6 +130,13 @@ async function signOut() {
     await api('/auth/logout', { method: 'POST' });
   } catch {
     // Return to the login page even if the session has already expired.
+  }
+  try {
+    // Drafts and assistant conversations kept in this tab belong to the person signing out.
+    window.dispatchEvent(new Event('ctde:signout'));
+    sessionStorage.clear();
+  } catch {
+    // Storage may be unavailable; signing out still works.
   }
   location.assign('/login');
 }

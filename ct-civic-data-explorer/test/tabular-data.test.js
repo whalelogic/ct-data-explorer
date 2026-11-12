@@ -108,3 +108,12 @@ test('text-only reports include the original note and no fabricated chart', asyn
   assert.deepEqual(report.blocks[0].records[0].values, ['Bridgewater', 'N/A', 'Blank by request']);
   assert.ok((await renderReportPdf(report)).length > 1000);
 });
+
+test('numbers nobody chose a precision for are rounded for reading', () => {
+  const column = { type: 'number', unit: 'number', decimals: 9 };
+  assert.equal(formatDatasetCell(22.286769514, column), '22.29');
+  assert.equal(formatDatasetCell(0.337660414, column), '0.3377');
+  assert.equal(formatDatasetCell(1397324, column), '1,397,324');
+  // A chosen precision is kept exactly.
+  assert.equal(formatDatasetCell(22.286769514, { ...column, decimals: 3 }), '22.287');
+});

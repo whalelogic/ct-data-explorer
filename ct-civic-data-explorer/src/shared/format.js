@@ -31,9 +31,11 @@ export function formatValue(value, { unit, decimals }) {
   }
 }
 
-/** Short axis tick label, e.g. $130K, 2.9K, 9.3%. */
+/** Short axis tick label, e.g. $130K, 2.9K, 9.3%, 0.04. */
 export function formatAxisValue(value, { unit }) {
-  const compact = numberFormat({ notation: 'compact', maximumFractionDigits: 1 }).format(value);
+  // One decimal suits thousands and millions; small scales (0.02, 0.04…) need their own digits.
+  const digits = Math.abs(value) < 10 ? { maximumSignificantDigits: 3 } : { maximumFractionDigits: 1 };
+  const compact = numberFormat({ notation: 'compact', ...digits }).format(value);
   if (unit === 'currency') return `$${compact}`;
   if (unit === 'percent') return `${compact}%`;
   return compact;

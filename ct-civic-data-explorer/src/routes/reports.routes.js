@@ -1,7 +1,9 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { idParams } from '../lib/schemas.js';
+import { pdfLimiter, summaryLimiter } from '../middleware/rate-limits.js';
 import { validate } from '../middleware/validate.js';
+import { recordAudit } from '../services/audit.js';
 import { draftSummary } from '../services/ai/index.js';
 import {
   buildReport,
@@ -11,7 +13,7 @@ import {
   getReport,
   getReportView,
   listReports,
-  parseStoredSelection,
+  savedSelection,
   updateReport,
 } from '../services/reports.service.js';
 import { reportFilename, renderReportPdf } from '../services/pdf/index.js';
@@ -33,11 +35,11 @@ reportsRouter.post('/preview', validate(selectionSchema), async (req, res) => {
   res.json(await buildReport(req.valid.body));
 });
 
-reportsRouter.post('/pdf', validate(selectionSchema), async (req, res) => {
+reportsRouter.post('/pdf', pdfLimiter, validate(selectionSchema), async (req, res) => {
   await sendPdf(res, await buildReport(req.valid.body));
 });
 
-reportsRouter.post('/summary', validate(selectionSchema), async (req, res) => {
+reportsRouter.post('/summary', summaryLimiter, validate(selectionSchema), async (req, res) => {
   res.json(await draftSummary(await buildReport(req.valid.body)));
 });
 
@@ -48,7 +50,9 @@ reportsRouter.get('/', validate(listQuery, 'query'), async (req, res) => {
 });
 
 reportsRouter.post('/', validate(createSchema), async (req, res) => {
-  res.status(201).json(presentReport(await createReport(req.valid.body, req.user)));
+  const report = await createReport(req.valid.body, req.user);
+  await recordAudit(req, 'report.created', { target: reportTarget(report) });
+  res.status(201).json(presentReport(report));
 });
 
 /** The interactive viewer: the saved report and its current figures. */
@@ -70,15 +74,20 @@ reportsRouter.post('/:id/duplicate', validate(idParams, 'params'), async (req, r
 });
 
 reportsRouter.delete('/:id', validate(idParams, 'params'), async (req, res) => {
-  await deleteReport(req.valid.params.id, req.user);
+  const report = await deleteReport(req.valid.params.id, req.user);
+  await recordAudit(req, 'report.deleted', { target: reportTarget(report) });
   res.status(204).end();
 });
 
 /** Re-render a saved report against current data. */
-reportsRouter.get('/:id/pdf', validate(idParams, 'params'), async (req, res) => {
+reportsRouter.get('/:id/pdf', pdfLimiter, validate(idParams, 'params'), async (req, res) => {
   const report = await getReport(req.valid.params.id);
-  await sendPdf(res, await buildReport(parseStoredSelection(report.selection)));
+  await sendPdf(res, await buildReport(savedSelection(report)));
 });
+
+function reportTarget(report) {
+  return { type: 'report', id: report.id, label: report.title };
+}
 
 async function sendPdf(res, report) {
   // Render fully before sending headers, so a failure returns an error, never an empty file.

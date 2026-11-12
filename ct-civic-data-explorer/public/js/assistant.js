@@ -7,7 +7,7 @@
  * receives proposed reports through setAssistantApply(). The conversation is kept for this
  * tab only (sessionStorage), so it survives moving between pages but not closing the tab.
  */
-import { api, currentSession } from './api.js';
+import { currentSession, apiEvents } from './api.js';
 import { h } from './dom.js';
 
 const STORAGE_KEY = 'ctde-assistant';
@@ -318,9 +318,18 @@ async function send(text) {
   state.messages.push({ role: 'user', content: text });
   saveState();
   renderMessages();
-  const typing = h('div', { class: 'assistant-message is-typing', 'aria-label': 'The assistant is looking at the data' },
-    h('span'), h('span'), h('span'));
-  elements.log.append(typing);
+  // One live area: dots (with what is being looked up) until words arrive, then the words.
+  const live = h('div', { class: 'assistant-live', 'aria-live': 'polite' });
+  const showWorking = (label = '') => {
+    live.replaceChildren(
+      h('div', { class: 'assistant-message is-typing', 'aria-label': label || 'The assistant is looking at the data' },
+        h('span'), h('span'), h('span')),
+      label ? h('p', { class: 'assistant-status' }, label) : '',
+    );
+    scrollToEnd();
+  };
+  showWorking();
+  elements.log.append(live);
   scrollToEnd();
 
   try {
@@ -331,8 +340,26 @@ async function send(text) {
     while (turns.length && turns[0].role !== 'user') {
       turns.shift();
     }
-    const { reply, proposal } = await api('/assistant', { method: 'POST', json: { messages: turns, context: currentContext() } });
-    state.messages.push({ role: 'assistant', content: reply, proposal: proposal ?? undefined });
+    let partial = '';
+    let result = null;
+    await apiEvents('/assistant/stream', { messages: turns, context: currentContext() }, (event) => {
+      if (event.type === 'text') {
+        partial += event.delta;
+        live.replaceChildren(h('div', { class: 'assistant-message' }, ...renderRichText(partial)));
+        scrollToEnd();
+      } else if (event.type === 'status') {
+        partial = '';
+        showWorking(event.text);
+      } else if (event.type === 'done') {
+        result = event;
+      } else if (event.type === 'error') {
+        throw new Error(event.error);
+      }
+    });
+    if (!result) {
+      throw new Error('The answer was cut off. Try again.');
+    }
+    state.messages.push({ role: 'assistant', content: result.reply, proposal: result.proposal ?? undefined });
   } catch (error) {
     state.messages.push({ role: 'assistant', content: error.message, error: true });
   } finally {

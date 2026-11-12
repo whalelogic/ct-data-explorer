@@ -2,11 +2,33 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import mysql from 'mysql2/promise';
-import { connectionOptions, SESSION_SETUP } from './pool.js';
+import { connectionOptions, pool, SESSION_SETUP } from './pool.js';
 
 const MIGRATIONS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../migrations');
 const LOCK_NAME = 'ctde:migrations'; // concurrent runners wait for each other
 const LOCK_TIMEOUT_SECONDS = 60;
+
+async function migrationFiles() {
+  return (await fs.readdir(MIGRATIONS_DIR)).filter((f) => /^\d+_[\w-]+\.sql$/.test(f)).sort();
+}
+
+/**
+ * Migration files that have not been applied to this database. Read-only; used at
+ * startup to warn when the schema is behind the code.
+ * @returns {Promise<string[]>}
+ */
+export async function pendingMigrations() {
+  const files = await migrationFiles();
+  let applied;
+  try {
+    const { rows } = await pool.query('SELECT filename FROM schema_migrations');
+    applied = new Set(rows.map((row) => row.filename));
+  } catch (err) {
+    if (err.code !== 'ER_NO_SUCH_TABLE') throw err;
+    applied = new Set(); // a brand-new database
+  }
+  return files.filter((file) => !applied.has(file));
+}
 
 /**
  * Apply pending forward-only migrations (migrations/NNN_name.sql) in filename order
@@ -32,7 +54,7 @@ export async function runMigrations({ log = console.log } = {}) {
     ) DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_as_cs`);
     const [rows] = await connection.query('SELECT filename FROM schema_migrations');
     const applied = new Set(rows.map((r) => r.filename));
-    const files = (await fs.readdir(MIGRATIONS_DIR)).filter((f) => /^\d+_[\w-]+\.sql$/.test(f)).sort();
+    const files = await migrationFiles();
     const pending = files.filter((f) => !applied.has(f));
 
     for (const file of pending) {

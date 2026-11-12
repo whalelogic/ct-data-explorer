@@ -5,6 +5,8 @@
  */
 import { renderWithPdfkit } from './pdfkit-renderer.js';
 
+export { MAX_PDF_PAGES } from './pdfkit-renderer.js';
+
 /** @returns {Promise<Buffer>} */
 export function renderReportPdf(report) {
   return renderWithPdfkit(report);

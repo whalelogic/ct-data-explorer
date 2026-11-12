@@ -5,7 +5,9 @@ import { config } from '../config.js';
 import { HttpError } from '../lib/http-error.js';
 import { idParams } from '../lib/schemas.js';
 import { requireRole } from '../middleware/auth.js';
+import { uploadLimiter } from '../middleware/rate-limits.js';
 import { validate } from '../middleware/validate.js';
+import { recordAudit } from '../services/audit.js';
 import {
   getDatasetCuration,
   getDatasetPresentation,
@@ -107,6 +109,10 @@ datasetsRouter.put(
     const datasetId = request.valid.params.id;
     const approvedFields = request.valid.body.approvedFields;
     const curation = await updateDatasetCuration(datasetId, approvedFields, request.user);
+    await recordAudit(request, 'dataset.fields_approved', {
+      target: { type: 'dataset', id: datasetId, label: versionLabel(curation.dataset) },
+      details: { approvedFields: curation.approvedFields.length, published: curation.dataset.isActive },
+    });
     response.json(curation);
   },
 );
@@ -114,6 +120,7 @@ datasetsRouter.put(
 datasetsRouter.post(
   '/inspect',
   requireRole('admin'),
+  uploadLimiter,
   upload.single('file'),
   validate(inspectFields),
   async (request, response) => {
@@ -132,6 +139,7 @@ datasetsRouter.post(
 datasetsRouter.post(
   '/',
   requireRole('admin'),
+  uploadLimiter,
   upload.single('file'),
   validate(uploadFields),
   async (request, response) => {
@@ -144,6 +152,10 @@ datasetsRouter.post(
       ...request.valid.body,
     };
     const dataset = await uploadDataset(uploadDetails, request.user);
+    await recordAudit(request, 'dataset.uploaded', {
+      target: datasetTarget(dataset),
+      details: { file: request.file.originalname.slice(0, 200), rows: dataset.row_count },
+    });
     response.status(201).json(presentDataset(dataset));
   },
 );
@@ -157,6 +169,7 @@ datasetsRouter.patch(
     const datasetId = request.valid.params.id;
     const isActive = request.valid.body.isActive;
     const dataset = await setDatasetActive(datasetId, isActive);
+    await recordAudit(request, isActive ? 'dataset.published' : 'dataset.unpublished', { target: datasetTarget(dataset) });
     response.json(presentDataset(dataset));
   },
 );
@@ -175,5 +188,18 @@ datasetsRouter.get('/:id/row-label', validate(idParams, 'params'), async (reques
 });
 
 datasetsRouter.put('/:id/row-label', validate(idParams, 'params'), validate(rowLabelFields), async (request, response) => {
-  response.json(await setDatasetRowLabel(request.valid.params.id, request.valid.body.rowLabelKey, request.user));
+  const settings = await setDatasetRowLabel(request.valid.params.id, request.valid.body.rowLabelKey, request.user);
+  await recordAudit(request, 'dataset.row_label_changed', {
+    target: { type: 'dataset', id: request.valid.params.id },
+    details: { rowLabelKey: settings.rowLabelKey },
+  });
+  response.json(settings);
 });
+
+function versionLabel({ name, vintage, version }) {
+  return `${name}, ${vintage} (version ${version})`;
+}
+
+function datasetTarget(dataset) {
+  return { type: 'dataset', id: dataset.id, label: versionLabel(dataset) };
+}

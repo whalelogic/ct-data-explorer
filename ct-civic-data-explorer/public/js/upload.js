@@ -13,6 +13,7 @@ const TOWN_MATCH_SHARE = 0.8;
 
 let inspectedColumns = [];
 let previewRows = [];
+let inspectedRowCount = 0;
 let inspectRequestNumber = 0;
 
 function getElement(id) {
@@ -78,6 +79,7 @@ async function inspectSelectedFile() {
     }
     inspectedColumns = inspection.columns;
     previewRows = inspection.previewRows ?? [];
+    inspectedRowCount = inspection.rowCount;
     const select = getElement('ds-label-column');
     select.replaceChildren();
     // Number columns rarely name rows, so they go last.
@@ -136,11 +138,28 @@ function showLabelSamples() {
   const column = inspectedColumns.find((candidate) => candidate.label === getElement('ds-label-column').value);
   if (!column) {
     getElement('label-samples').textContent = '';
+    getElement('label-warning').hidden = true;
     return;
   }
   const share = Math.round(column.townShare * 100);
   const placeNote = share > 0 ? ` ${share}% of these are Connecticut places.` : '';
   getElement('label-samples').textContent = `For example: ${column.samples.join(', ') || 'none'}.${placeNote}`;
+  showLabelWarning(column);
+}
+
+/** A row column with one value on every row would make every row look the same in reports. */
+function showLabelWarning(column) {
+  const warning = getElement('label-warning');
+  if (column.distinctCount > 1 || inspectedRowCount < 2) {
+    warning.hidden = true;
+    return;
+  }
+  const better = inspectedColumns
+    .filter((candidate) => !candidate.isNumeric && candidate.distinctCount > 1)
+    .sort((first, second) => second.distinctCount - first.distinctCount)[0];
+  const suggestion = better ? ` Try “${better.label}”, which has ${better.distinctCount} different values.` : '';
+  warning.textContent = `Every row has the same value in “${column.label}” (${column.samples[0] ?? 'blank'}), so reports could not tell the rows apart.${suggestion}`;
+  warning.hidden = false;
 }
 
 function handleLabelColumnChange() {

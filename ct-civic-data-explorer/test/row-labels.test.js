@@ -241,3 +241,8 @@ test('summaries sit beside the same figure for every comparable row, unless swit
   assert.equal(renderRecordReport(everyTown, dataset, placeRows, undefined, { datasetRows: placeRows }).summaries[0].benchmark, undefined,
     'a report that already covers every town needs no benchmark');
 });
+
+test('inspection skips a column that says the same thing on every row', () => {
+  const file = records([['ST', 'Area', 'Renters'], ['CT', 'Bridgeport', 5], ['CT', 'Danbury', 7], ['CT', 'Hartford', 9]]);
+  assert.deepEqual(inspectTabularColumns(file, known).suggested, { label: 'Area', isTown: false });
+});

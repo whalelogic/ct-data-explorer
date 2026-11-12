@@ -158,7 +158,10 @@ function updateChartPage(chartView, pageIndex) {
   };
   chartView.instance?.destroy();
   chartView.canvas.setAttribute('aria-label', describeChart(chart));
-  chartView.chartBox.style.minWidth = `${Math.max(440, chart.labels.length * 70)}px`;
+  // A page of single bars fits the report width; grouped bars need room for each group and
+  // scroll sideways (the scroll area shows a shadow on the side that has more).
+  const widthPerLabel = Math.max(32, chart.series.length * 14 + 10);
+  chartView.chartBox.style.minWidth = `${Math.max(440, chart.labels.length * widthPerLabel)}px`;
   chartView.instance = drawChart(chartView.canvas, chart, chartView.chart);
   const table = renderIndicatorTable(chartView.places, chartView.indicators, start, end);
   chartView.tableContainer.replaceChildren(table);
@@ -284,7 +287,7 @@ function updateIndicatorTablePage(tableView, pageIndex) {
 
 function renderIndicatorTable(places, indicators, start = 0, end = places.length) {
   const headingRow = createElement('tr');
-  headingRow.append(createElement('th', { scope: 'col' }, 'Indicator'));
+  headingRow.append(createElement('th', { scope: 'col' }, 'Field'));
   for (const place of places.slice(start, end)) {
     headingRow.append(createElement('th', { scope: 'col', class: 'num' }, place.label));
   }
@@ -305,7 +308,7 @@ function renderIndicatorTable(places, indicators, start = 0, end = places.length
     class: 'table-wrap',
     tabindex: '0',
     role: 'region',
-    'aria-label': 'Indicator values',
+    'aria-label': 'Field values',
   }, table);
 }
 
@@ -422,6 +425,8 @@ function drawChart(canvas, chart, fullChart = chart) {
       },
       plugins: {
         legend: {
+          // One series is already named by the chart heading.
+          display: chart.series.length > 1,
           position: 'top',
           labels: { usePointStyle: true, boxWidth: 8, padding: 18 },
         },

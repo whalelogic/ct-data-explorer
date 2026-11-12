@@ -1,6 +1,15 @@
+# Log rotation for both services: without it, container logs grow until the disk is full.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   db:
     image: mysql:8.4
+    restart: unless-stopped
+    logging: *default-logging
     environment:
       MYSQL_DATABASE: ${DB_NAME}
       MYSQL_USER: ${DB_USER}
@@ -23,16 +32,22 @@ services:
 
   app:
     build: .
+    restart: unless-stopped
+    init: true # forwards SIGTERM to Node so shutdown is graceful, and reaps child processes
+    logging: *default-logging
     env_file: .env
     environment:
       DB_HOST: db
       DB_PORT: "3306"
+      PORT: "3000" # the port inside the container; PORT in .env is the host port below
     ports:
       - "127.0.0.1:${PORT:-3000}:3000"
     depends_on:
       db:
         condition: service_healthy
-    command: ["sh", "-c", "node scripts/migrate.js && node src/server.js"]
+    # exec replaces the shell, so Node receives the stop signal and can finish requests in flight.
+    command: ["sh", "-c", "node scripts/migrate.js && exec node src/server.js"]
+    stop_grace_period: 15s
 
 volumes:
   mysqldata:

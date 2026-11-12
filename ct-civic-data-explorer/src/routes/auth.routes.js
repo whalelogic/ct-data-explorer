@@ -8,6 +8,7 @@ import { csrfProtection, csrfTokenFor } from '../middleware/csrf.js';
 import { validate } from '../middleware/validate.js';
 import { isSummaryAvailable } from '../services/ai/index.js';
 import { canGenerateReports, isAssistantAvailable } from '../services/ai/assistant.js';
+import { recordAudit } from '../services/audit.js';
 import * as auth from '../services/auth.service.js';
 import { presentUser } from '../services/presenters.js';
 
@@ -26,17 +27,34 @@ const loginSchema = z.object({
 });
 const tokenSchema = z.object({ token: z.string().min(20).max(200) });
 const setPasswordSchema = tokenSchema.extend({ password: newPasswordSchema });
+const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1, 'Enter your current password').max(1000),
+  newPassword: newPasswordSchema,
+});
 
 export const authRouter = Router();
 
 authRouter.post('/login', credentialLimiter, validate(loginSchema), async (req, res) => {
-  const user = await auth.authenticate(req.valid.body.email, req.valid.body.password);
+  let user;
+  try {
+    user = await auth.authenticate(req.valid.body.email, req.valid.body.password);
+  } catch (err) {
+    // 401 wrong credentials, 423 locked. The attempted address is kept; the password never is.
+    if (err.status === 401 || err.status === 423) {
+      await recordAudit(req, err.status === 423 ? 'auth.sign_in_locked' : 'auth.sign_in_failed', {
+        actor: { id: null, email: req.valid.body.email },
+      });
+    }
+    throw err;
+  }
   await startSession(req, user);
+  await recordAudit(req, 'auth.signed_in', { actor: user });
   res.json(sessionPayload(req, user));
 });
 
 authRouter.post('/logout', requireAuth, csrfProtection, async (req, res) => {
   await destroySession(req);
+  await recordAudit(req, 'auth.signed_out');
   res.clearCookie(config.session.cookieName);
   res.status(204).end();
 });
@@ -54,8 +72,28 @@ authRouter.post('/token', credentialLimiter, validate(tokenSchema), async (req, 
 authRouter.post('/set-password', credentialLimiter, validate(setPasswordSchema), async (req, res) => {
   const user = await auth.setPasswordWithToken(req.valid.body.token, req.valid.body.password);
   await startSession(req, user);
+  await recordAudit(req, 'auth.password_set_from_link', { actor: user });
   res.json(sessionPayload(req, user));
 });
+
+/**
+ * Change your own password. Every session for the account ends, including any on other
+ * devices, and this browser gets a fresh one (so the CSRF token changes too).
+ */
+authRouter.post(
+  '/password',
+  requireAuth,
+  csrfProtection,
+  credentialLimiter,
+  validate(changePasswordSchema),
+  async (req, res) => {
+    const { currentPassword, newPassword } = req.valid.body;
+    const user = await auth.changePassword(req.user.id, currentPassword, newPassword);
+    await startSession(req, user);
+    await recordAudit(req, 'auth.password_changed', { actor: user });
+    res.json(sessionPayload(req, user));
+  },
+);
 
 async function startSession(req, user) {
   await regenerateSession(req);

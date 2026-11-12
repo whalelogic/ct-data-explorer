@@ -20,11 +20,8 @@ function getProvider() {
     case 'anthropic':
       provider = createAnthropicProvider(config.ai);
       break;
-    case 'none':
-      provider = null;
-      break;
     default:
-      console.error(`[ai] unknown AI_PROVIDER "${config.ai.provider}"; summary drafting is disabled`);
+      // config.js accepts only 'none' and 'anthropic'.
       provider = null;
   }
   return provider;
@@ -36,7 +33,7 @@ export function isSummaryAvailable() {
 
 const PLACE_TYPES = { state: 'statewide', town: 'town', county: 'county', region: 'planning region', row: 'row' };
 
-/** Only already-public aggregate figures and labels leave the server; never accounts or uploaded files. */
+/** Only what is on the report leaves the server: published, approved figures and labels. Never accounts or unapproved fields. */
 export function summaryFacts(report) {
   return {
     dataset: { name: report.dataset.name, source: report.dataset.source, vintage: report.dataset.vintage },
@@ -60,12 +57,6 @@ export function summaryFacts(report) {
 export async function draftSummary(report) {
   const active = getProvider();
   if (!active) throw new HttpError(503, 'AI summary drafting is not configured. You can write the text by hand.');
-  // Row-based reports show the uploaded file's own rows (names, notes), not public
-  // aggregates, so they stay on the server.
-  if (report.rowBased) {
-    throw new HttpError(422, 'AI summaries are not available for record-based datasets. You can write the text by hand.');
-  }
-
   let text;
   try {
     text = await active.draft(summaryFacts(report));

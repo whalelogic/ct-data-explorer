@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Your account · CT Civic Data Explorer</title>
+    <link rel="stylesheet" href="/css/app.css" />
+    <script type="module" src="/js/account.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site"><a class="brand" href="/">CT Civic Data Explorer</a></header>
+    <main id="main" class="container narrow-container">
+      <h1>Your account</h1>
+      <p id="page-status" class="status" role="alert" hidden></p>
+
+      <section class="panel" aria-labelledby="details-heading">
+        <h2 id="details-heading">Details</h2>
+        <dl class="account-details">
+          <div><dt>Name</dt><dd id="account-name"></dd></div>
+          <div><dt>Email</dt><dd id="account-email"></dd></div>
+          <div><dt>Role</dt><dd id="account-role"></dd></div>
+        </dl>
+        <p class="muted small">To change your name, email or role, ask an administrator.</p>
+      </section>
+
+      <section class="panel" aria-labelledby="password-heading">
+        <h2 id="password-heading">Change password</h2>
+        <p class="muted">Changing your password signs you out on every other device.</p>
+        <form id="password-form" class="account-form" novalidate>
+          <!-- Lets password managers attach the new password to the right account. -->
+          <input id="account-username" type="email" name="username" autocomplete="username" hidden readonly />
+          <label for="current-password">Current password</label>
+          <input id="current-password" name="currentPassword" type="password" autocomplete="current-password" required />
+          <label for="new-password">New password</label>
+          <input id="new-password" name="newPassword" type="password" autocomplete="new-password" minlength="12" required
+            aria-describedby="new-password-help" />
+          <p id="new-password-help" class="muted small">At least 12 characters. A few unrelated words work well.</p>
+          <label for="confirm-password">Confirm new password</label>
+          <input id="confirm-password" name="confirmPassword" type="password" autocomplete="new-password" required />
+          <label class="check"><input id="show-passwords" type="checkbox" /> Show passwords</label>
+          <p id="password-status" class="status" role="alert" hidden></p>
+          <div class="button-row"><button type="submit">Change password</button></div>
+        </form>
+      </section>
+    </main>
+  </body>
+</html>

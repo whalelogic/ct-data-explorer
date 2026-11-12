@@ -39,8 +39,10 @@
 
         <!-- Data: what the rows look like. Neutral about what a row is. -->
         <section id="panel-data" class="panel tab-panel" role="tabpanel" aria-labelledby="tab-data" tabindex="0">
-          <div id="data-shape" class="shape-panel"></div>
-          <p id="preview-summary" class="muted small" role="status"></p>
+          <div class="preview-bar">
+            <p id="preview-summary" class="muted small" role="status"></p>
+            <label id="hidden-columns" class="check preview-hidden-toggle" hidden></label>
+          </div>
           <div
             id="data-preview"
             class="table-wrap"
