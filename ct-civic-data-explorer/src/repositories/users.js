@@ -43,6 +43,14 @@ export async function setPassword(id, passwordHash, db = pool) {
   );
 }
 
+export async function setPasswordIfHashMatches(id, expectedHash, passwordHash, db = pool) {
+  return db.query(
+    `UPDATE users SET password_hash = ?, failed_login_count = 0, first_failed_login_at = NULL, locked_until = NULL
+     WHERE id = ? AND password_hash = ?`,
+    [passwordHash, id, expectedHash],
+  );
+}
+
 /**
  * Count a failed sign-in. Failures inside the window accumulate; reaching
  * maxFailures locks the account for lockMinutes. Done in one statement so

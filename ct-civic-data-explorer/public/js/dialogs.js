@@ -76,8 +76,9 @@ function openDialog({ title, message, confirmLabel, cancelLabel, danger, field }
     });
     dialog.addEventListener('close', () => {
       dialog.remove();
-      if (opener instanceof HTMLElement && opener.isConnected) {
-        opener.focus();
+      const focusTarget = openerTarget(opener);
+      if (focusTarget) {
+        focusTarget.focus();
       }
       resolve(result);
     });
@@ -93,4 +94,18 @@ function openDialog({ title, message, confirmLabel, cancelLabel, danger, field }
       confirmButton.focus();
     }
   });
+}
+
+function openerTarget(opener) {
+  if (!(opener instanceof HTMLElement) || !opener.isConnected) {
+    return null;
+  }
+  const menu = opener.closest('details');
+  if (menu && !menu.open) {
+    const summary = menu.querySelector(':scope > summary');
+    if (summary instanceof HTMLElement) {
+      return summary;
+    }
+  }
+  return opener;
 }

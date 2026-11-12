@@ -44,6 +44,10 @@ embedRouter.get(EMBED_PATH, allowFraming, embedLimiter, async (req, res) => {
     return;
   }
   const { report, data } = await getReportView(slug);
+  const dataset = data.dataset ? { ...data.dataset } : null;
+  if (dataset) {
+    delete dataset.uploadedBy;
+  }
   res.set('Cache-Control', 'no-store');
-  res.json({ title: report.title, updatedAt: report.updated_at, data });
+  res.json({ title: report.title, updatedAt: report.updated_at, data: { ...data, dataset } });
 });

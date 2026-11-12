@@ -630,7 +630,9 @@ function drawBarList(document, chart, scale) {
         const valueX = xOf(value);
         document.rect(Math.min(zeroX, valueX), barY, Math.max(Math.abs(valueX - zeroX), 0.75), barHeight).fill(color);
         document.fillColor(INK);
-        document.text(formatValue(value, { unit: chart.unit, decimals: Math.min(chart.decimals ?? 0, 2) }), Math.max(zeroX, valueX) + 4, textY, {
+        const adaptive = chart.decimals == null || chart.decimals >= 9;
+        const decimals = adaptive ? (Math.abs(value) >= 1 || value === 0 ? 2 : 4) : chart.decimals;
+        document.text(formatValue(value, { unit: chart.unit, decimals }), Math.max(zeroX, valueX) + 4, textY, {
           width: valueWidth + plot.x + plot.width - Math.max(zeroX, valueX) - 4,
           lineBreak: false,
         });

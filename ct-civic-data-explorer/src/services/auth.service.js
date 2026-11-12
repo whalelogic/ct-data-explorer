@@ -99,7 +99,10 @@ export async function changePassword(userId, currentPassword, newPassword) {
   }
   const passwordHash = await bcrypt.hash(newPassword, BCRYPT_COST);
   return withTransaction(async (client) => {
-    await users.setPassword(userId, passwordHash, client);
+    const { rowCount } = await users.setPasswordIfHashMatches(userId, user.password_hash, passwordHash, client);
+    if (!rowCount) {
+      throw new HttpError(409, 'Your password changed in another session. Please sign in and try again');
+    }
     await tokens.invalidateForUser(userId, client);
     await users.deleteSessions(userId, client);
     return users.findById(userId, client);

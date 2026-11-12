@@ -101,7 +101,7 @@ PROFILE = [
     ('Per capita income', lambda t: whole(metric('Per capita income (ACS)', t))),
     ('Labor force', lambda t: int(labor[2023][t]['labor_force'])),
     ('Unemployed residents', lambda t: int(labor[2023][t]['unemployed'])),
-    ('Unemployment rate (%)', lambda t: round(float(labor[2023][t]['unemp_rate']), 4)),
+    ('Unemployment rate (percent decimal)', lambda t: round(float(labor[2023][t]['unemp_rate']), 4)),
     ('Median home value ($)', lambda t: whole(metric('Median value of owner occupied homes (ACS)', t))),
     ('Housing units (2020 Census)', lambda t: int(doh[t]['_2010_census'])),
     ('Assisted affordable housing units', lambda t: int(doh[t]['total_assisted'])),
@@ -121,7 +121,7 @@ for town in [STATE] + towns:
 
 years = sorted(labor)
 trend = workbook.create_sheet('Unemployment 2019-2024')
-trend.append(['Town'] + [f'{year} unemployment rate (%)' for year in years])
+trend.append(['Town'] + [f'{year} unemployment rate (percent decimal)' for year in years])
 for town in [STATE] + towns:
     trend.append([town] + [round(float(labor[year][town]['unemp_rate']), 4) for year in years])
 

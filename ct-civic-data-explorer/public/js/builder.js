@@ -54,7 +54,7 @@ let isSaving = false;
  * Unsaved work is kept in this tab (sessionStorage) so an expired session, a reload or a
  * crashed tab does not lose it. It is offered back, never applied silently.
  */
-const DRAFT_KEY = 'ctde.builder.draft';
+const DRAFT_KEY_PREFIX = 'ctde.builder.draft';
 const storeDraft = debounce(writeDraft, 500);
 let draftsEnabled = true;
 // Blocks whose editors are open. Holds block objects, so it survives reordering.
@@ -2160,12 +2160,13 @@ function writeDraft() {
     return;
   }
   try {
+    const draftKey = currentDraftKey();
     const worthKeeping = hasUnsavedChanges() && (savedReport || reportSelection.indicators.length > 0);
     if (!worthKeeping) {
-      sessionStorage.removeItem(DRAFT_KEY);
+      sessionStorage.removeItem(draftKey);
       return;
     }
-    sessionStorage.setItem(DRAFT_KEY, JSON.stringify({
+    sessionStorage.setItem(draftKey, JSON.stringify({
       userId: currentUser.id,
       reportId: savedReport?.id ?? null,
       name: getElement('report-name').value,
@@ -2180,24 +2181,23 @@ function writeDraft() {
 /** The draft left in this tab, if it belongs to this person and this report. */
 function readDraft() {
   try {
-    const draft = JSON.parse(sessionStorage.getItem(DRAFT_KEY) ?? 'null');
+    const draft = JSON.parse(sessionStorage.getItem(currentDraftKey()) ?? 'null');
     const matches = draft
       && draft.userId === currentUser.id
       && draft.reportId === (savedReport?.id ?? null)
       && typeof draft.selection === 'object' && draft.selection !== null
       && Array.isArray(draft.selection.indicators) && Array.isArray(draft.selection.layout);
-    if (!matches) {
-      // Someone else's draft, or one for another report, must not linger in a shared browser.
-      if (draft && draft.userId !== currentUser.id) {
-        sessionStorage.removeItem(DRAFT_KEY);
-      }
-      return null;
-    }
+    if (!matches) return null;
     const unchanged = JSON.stringify({ name: String(draft.name ?? '').trim(), selection: draft.selection }) === savedSnapshot;
     return unchanged ? null : draft;
   } catch {
     return null;
   }
+}
+
+function currentDraftKey() {
+  const reportId = savedReport?.id ?? 'new';
+  return `${DRAFT_KEY_PREFIX}.${currentUser?.id ?? 'unknown'}.${reportId}`;
 }
 
 /** Show "you have unsaved changes from earlier" with the choice to bring them back. */
