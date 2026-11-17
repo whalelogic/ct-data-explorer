@@ -3,7 +3,7 @@ import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { config } from '../config.js';
 import { emailSchema, newPasswordSchema } from '../lib/schemas.js';
-import { destroySession, regenerateSession, requireAuth } from '../middleware/auth.js';
+import { destroySession, optionalAuth, regenerateSession, requireSignedIn } from '../middleware/auth.js';
 import { csrfProtection, csrfTokenFor } from '../middleware/csrf.js';
 import { validate } from '../middleware/validate.js';
 import { canGenerateReports, isAssistantAvailable } from '../services/ai/assistant.js';
@@ -35,13 +35,18 @@ authRouter.post('/login', credentialLimiter, validate(loginSchema), async (req, 
   res.json(await sessionPayload(req, user));
 });
 
-authRouter.post('/logout', requireAuth, csrfProtection, async (req, res) => {
+authRouter.post('/logout', optionalAuth, requireSignedIn, csrfProtection, async (req, res) => {
   await destroySession(req);
   res.clearCookie(config.session.cookieName);
   res.status(204).end();
 });
 
-authRouter.get('/me', requireAuth, async (req, res) => {
+authRouter.get('/me', optionalAuth, requireSignedIn, async (req, res) => {
+  res.json(await sessionPayload(req, req.user));
+});
+
+// Guest requests use the same session and CSRF mechanism as signed-in requests.
+authRouter.get('/session', optionalAuth, async (req, res) => {
   res.json(await sessionPayload(req, req.user));
 });
 
@@ -67,7 +72,7 @@ async function sessionPayload(req, user) {
   const aiAvailable = await isAiAvailable();
   const assistantAvailable = await isAssistantAvailable(aiAvailable);
   return {
-    user: presentUser(user),
+    user: user ? presentUser(user) : null,
     csrfToken: csrfTokenFor(req.session),
     features: {
       aiSummary: aiAvailable,

@@ -63,13 +63,17 @@ function createCuratedReport(overrides = {}) {
   return renderRecordReport(selection, dataset, sourceRows);
 }
 
+const csrfToken = 'curation-test-token';
+
 function setStaffUser(req, _res, next) {
   req.user = { role: 'staff' };
+  req.session = { csrfToken };
   next();
 }
 
 function setAdminUser(req, _res, next) {
   req.user = { role: 'admin' };
+  req.session = { csrfToken };
   next();
 }
 
@@ -230,6 +234,7 @@ test('curation routes reject anonymous users and staff before accessing dataset 
   await request(staffApp).get('/datasets/1/curation').expect(403);
   await request(staffApp)
     .put('/datasets/1/curation')
+    .set('X-CSRF-Token', csrfToken)
     .send({ approvedFields: ['c2'] })
     .expect(403);
 });
@@ -250,7 +255,7 @@ test('curation validates administrator requests before accessing dataset data', 
 
   const invalidRequests = [{}, { approvedFields: 'c2' }, { approvedFields: [''] }];
   for (const body of invalidRequests) {
-    await request(adminApp).put('/datasets/1/curation').send(body).expect(400);
+    await request(adminApp).put('/datasets/1/curation').set('X-CSRF-Token', csrfToken).send(body).expect(400);
   }
   await request(adminApp).get('/datasets/not-an-id/curation').expect(400);
 });

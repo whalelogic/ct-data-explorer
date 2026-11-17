@@ -1,5 +1,5 @@
 import { api, loadSession } from './api.js';
-import { reportActionButtons, fetchReports, summarizeRows } from './report-library.js';
+import { fetchReports, reportActionButtons, reportBuilderUrl, reportIsMine, summarizeRows } from './report-library.js';
 import { h as createElement } from './dom.js';
 import { boot, debounce, formatDate, renderHeader, showStatus } from './layout.js';
 
@@ -19,11 +19,15 @@ let reportRequestNumber = 0;
 let reportsLoaded = false;
 
 async function initializeDashboard() {
-  const session = await loadSession();
+  const session = await loadSession({ allowGuest: true });
   currentUser = session.user;
   renderHeader(currentUser);
-  document.getElementById('dash-greeting').textContent = greeting(currentUser.firstName);
-  document.getElementById('manage-datasets').hidden = currentUser.role !== 'admin';
+  document.getElementById('dash-greeting').textContent = currentUser ? greeting(currentUser.firstName) : 'Explore Connecticut data';
+  document.getElementById('manage-datasets').hidden = currentUser?.role !== 'admin';
+  if (!currentUser) {
+    document.getElementById('reports-intro').textContent = 'Reports you save as a guest are available in this browser.';
+    document.getElementById('dashboard-owner-filter').hidden = true;
+  }
   searchInput.addEventListener('input', handleSearchInput);
   document.getElementById('dashboard-search').addEventListener('submit', handleSearchSubmit);
   document.getElementById('clear-search').addEventListener('click', clearSearch);
@@ -74,7 +78,7 @@ function renderDatasets() {
     : String(publishedDatasets.length);
   let emptyMessage = 'No datasets match your search. Try a different name, source, or period.';
   if (!searchText) {
-    const nextStep = currentUser.role === 'admin'
+    const nextStep = currentUser?.role === 'admin'
       ? 'Use Manage datasets to upload and approve data.'
       : 'Your data administrator can publish a dataset here.';
     emptyMessage = `No published datasets yet. ${nextStep}`;
@@ -98,7 +102,7 @@ function createDatasetTile(dataset) {
     body.append(createElement('p', { class: 'dash-card-description' }, dataset.description));
   }
   // Review status is an administrator's task, so only they see it, and only when it needs doing.
-  if (currentUser.role === 'admin' && !dataset.curationReviewed) {
+  if (currentUser?.role === 'admin' && !dataset.curationReviewed) {
     body.append(createElement('span', { class: 'tag warn' }, 'Fields need review'));
   }
   const actions = createElement('div', { class: 'saved-report-actions' });
@@ -121,7 +125,7 @@ async function loadReports() {
   document.getElementById('reports-limit').hidden = true;
   showStatus(reportsStatus, 'Loading reports…');
   try {
-    const reports = await fetchReports(searchInput.value.trim());
+    const reports = await fetchReports(searchInput.value.trim(), { user: currentUser });
     // A newer search may finish first; never replace it with an older response.
     if (requestNumber !== reportRequestNumber) {
       return;
@@ -147,14 +151,14 @@ function renderReports() {
   if (!reportsLoaded) {
     return;
   }
-  const visibleReports = matchingReports.filter((report) => !onlyMine.checked || report.createdBy.id === currentUser.id);
+  const visibleReports = matchingReports.filter((report) => !onlyMine.checked || reportIsMine(report, currentUser));
   visibleReports.sort(compareReports);
   reportsGrid.replaceChildren();
   for (const report of visibleReports) {
     reportsGrid.append(createReportTile(report));
   }
   document.getElementById('report-count').textContent = String(visibleReports.length);
-  document.getElementById('reports-limit').hidden = matchingReports.length < 200;
+  document.getElementById('reports-limit').hidden = !currentUser || matchingReports.length < 200;
   document.getElementById('reports-empty').hidden = visibleReports.length > 0;
   let title = 'Your first report starts with a dataset';
   let description = 'Choose the places and measures you need, then save your report here.';
@@ -179,17 +183,18 @@ function compareReports(first, second) {
 
 /** Title, what it compares, one line of facts, then the actions in one consistent style. */
 function createReportTile(report) {
+  const editUrl = reportBuilderUrl(report);
   const title = createElement('h3', { class: 'saved-report-title' },
-    createElement('a', { href: report.viewUrl ?? `/builder?report=${report.id}`, class: 'stretched-link' }, report.title));
+    createElement('a', { href: report.viewUrl ?? editUrl, class: 'stretched-link' }, report.title));
   const rows = createElement('p', { class: 'saved-report-towns' }, summarizeRows(report));
-  const author = report.createdBy.id === currentUser.id ? 'you' : report.createdBy.name;
+  const author = reportIsMine(report, currentUser) ? 'you' : report.createdBy.name;
   const dataset = `${report.dataset.displayName || report.dataset.name}, ${report.dataset.vintage}`;
   const meta = createElement('p', { class: 'dash-card-meta', title: dataset }, dataset);
   const updated = createElement('p', { class: 'dash-card-meta' }, 'Updated ',
-    createElement('time', { datetime: report.updatedAt }, formatDate(report.updatedAt)), ` by ${author}`);
+    createElement('time', { datetime: report.updatedAt }, formatDate(report.updatedAt)), report.isLocal ? null : ` by ${author}`);
   const body = createElement('div', { class: 'saved-report-body' }, title, rows, meta, updated);
   const actions = createElement('div', { class: 'saved-report-actions' });
-  actions.append(createElement('a', { href: `/builder?report=${report.id}`, class: 'button secondary dash-card-primary' }, 'Edit'));
+  actions.append(createElement('a', { href: editUrl, class: 'button secondary dash-card-primary' }, 'Edit'));
   actions.append(...reportActionButtons(report, {
     user: currentUser,
     status: document.getElementById('report-action-status'),

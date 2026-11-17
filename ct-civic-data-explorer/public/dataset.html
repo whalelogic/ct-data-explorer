@@ -92,22 +92,23 @@
 
             <li id="row-label-panel" class="panel setup-step" hidden>
               <div class="setup-step-head">
-                <h2 id="row-label-heading">Default comparison</h2>
+                <h2 id="row-label-heading">Primary field</h2>
               </div>
-              <p id="row-label-current"></p>
-              <p id="row-label-only" class="muted small" hidden>
-                To let people compare by another text column (for example Industry), tick it under
-                <a href="#settings" id="row-label-approve-link">Choose the fields people can use</a>.
-              </p>
+              <p id="row-label-current" class="muted"></p>
               <div id="row-label-change" hidden>
-                <label for="row-label-select">New reports compare</label>
-                <select id="row-label-select" aria-describedby="row-label-help"></select>
+                <label for="row-label-select">Default comparison field</label>
+                <select id="row-label-select" aria-describedby="row-label-help row-label-samples"></select>
+                <p id="row-label-samples" class="muted small" aria-live="polite" hidden></p>
                 <p id="row-label-help" class="muted small">
-                  People can still switch to another approved column in the report builder.
-                  Saved reports keep what they compare.
+                  This field labels rows in the data preview and is the starting point for new reports.
+                  Choose a field such as an ID, a category, or a name.
+                </p>
+                <p id="row-label-only" class="muted small" hidden>
+                  To make more fields available here,
+                  <a href="#settings" id="row-label-approve-link">approve them for reports</a>.
                 </p>
                 <div class="button-row">
-                  <button id="save-row-label" type="button" disabled>Use this column</button>
+                  <button id="save-row-label" type="button" disabled>Save primary field</button>
                 </div>
               </div>
               <p id="row-label-status" class="status" role="status" hidden></p>
@@ -116,9 +117,9 @@
             <li id="step-display" class="panel setup-step">
               <details>
                 <summary class="setup-step-head">
-                  <h2 id="presentation-heading">Names and display <span class="setup-optional">Optional</span></h2>
+                  <h2 id="presentation-heading">Display names and formatting <span class="setup-optional">Optional</span></h2>
                 </summary>
-                <p class="muted">Give the dataset and its fields friendlier names. Source values never change, and each report can still override these.</p>
+                <p class="muted">Set the names readers see in the dataset and in new reports.</p>
                 <div id="dataset-presentation"></div>
               </details>
             </li>

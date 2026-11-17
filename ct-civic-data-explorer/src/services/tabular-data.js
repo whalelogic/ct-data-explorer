@@ -8,6 +8,18 @@
 import { NUMBER, validateDatasetRecords } from './csv-validation.js';
 
 const numeric = (value) => NUMBER.test(value.replaceAll(',', '')) && Number.isFinite(Number(value.replaceAll(',', '')));
+
+function identifierHeading(label) {
+  const words = label.replace(/([a-z\d])([A-Z])/g, '$1 $2');
+  return /(?:^|[\s_-])(?:id|identifier|code|fips|zip)$/i.test(words);
+}
+
+function numericColumn(label, values) {
+  if (!values.length || identifierHeading(label) || !values.every(numeric)) return false;
+  // An integer identifier may have padding or exceed JavaScript's exact integer range.
+  return !values.some((value) => /^\d+$/.test(value) && (/^0\d/.test(value) || !Number.isSafeInteger(Number(value))));
+}
+
 /** Share of a column's values that must name a town before it is suggested as a town column. */
 const TOWN_MATCH_SHARE = 0.8;
 /** Rows shown on the upload page while choosing what each row describes. */
@@ -45,7 +57,7 @@ export function inspectTabularColumns(records, known) {
     columns.push({
       index,
       label: label || `Unnamed column ${index + 1}`,
-      isNumeric: values.length > 0 && values.every(numeric),
+      isNumeric: numericColumn(label, values),
       townShare: values.length ? townMatches / values.length : 0,
       distinctCount,
       blankCount: data.length - values.length,
@@ -53,17 +65,18 @@ export function inspectTabularColumns(records, known) {
     });
   }
 
-  // Prefer a column named Town, then the column that best matches towns, then the first text column.
   const named = columns.find((column) => column.label.toLowerCase() === 'town');
   const bestTownMatch = [...columns].sort((first, second) => second.townShare - first.townShare)[0];
+  const populated = columns.filter((column) => column.blankCount < data.length);
+  const firstText = populated.find((column) => !column.isNumeric && !identifierHeading(column.label));
+  const fallback = firstText ?? populated.find((column) => !column.isNumeric) ?? populated[0];
   let suggested;
-  if (named) {
-    suggested = { label: named.label, isTown: named.townShare >= TOWN_MATCH_SHARE || named.townShare === 0 };
+  if (named?.townShare >= TOWN_MATCH_SHARE) {
+    suggested = { label: named.label, isTown: true };
   } else if (bestTownMatch && bestTownMatch.townShare >= TOWN_MATCH_SHARE) {
     suggested = { label: bestTownMatch.label, isTown: true };
   } else {
-    const firstText = columns.find((column) => !column.isNumeric);
-    suggested = firstText ? { label: firstText.label, isTown: false } : null;
+    suggested = fallback ? { label: fallback.label, isTown: false } : null;
   }
   // A few rows, cell by cell in file order, so staff can see what a row is before choosing.
   const previewRows = data.slice(0, PREVIEW_ROW_COUNT).map((row) => columns.map((column) => (row.record[column.index] ?? '').trim()));
@@ -100,7 +113,7 @@ export function prepareTabularDataset(records, known, { labelColumn, labelIsTown
       return fail();
     }
     labelIndex = matches[0];
-    townKeyed = labelIsTown ?? true;
+    townKeyed = labelIsTown ?? (wanted === 'town');
   } else {
     const townIndexes = header.flatMap((label, i) => label.trim().toLowerCase() === 'town' ? [i] : []);
     if (townIndexes.length !== 1) {
@@ -115,7 +128,7 @@ export function prepareTabularDataset(records, known, { labelColumn, labelIsTown
   const columns = [];
   const labels = new Set();
   for (let i = 0; i < width; i++) {
-    const populated = data.map((row) => row.record[i] ?? '').filter((cell) => cell !== '');
+    const populated = data.map((row) => (row.record[i] ?? '').trim()).filter((cell) => cell !== '');
     let label = (header[i] ?? '').trim();
     if (!label && !populated.length) continue; // Ignore entirely empty spreadsheet padding.
     if (!label) {
@@ -126,7 +139,7 @@ export function prepareTabularDataset(records, known, { labelColumn, labelIsTown
     if (labels.has(label.toLowerCase())) problems.push(`Column heading "${label}" appears more than once.`);
     labels.add(label.toLowerCase());
     const definition = knownColumns.get(label.toLowerCase());
-    const isNumber = i !== townIndex && (definition || (populated.length > 0 && populated.every(numeric)));
+    const isNumber = i !== townIndex && (definition || numericColumn(label, populated));
     const fraction = /(?:percentage|percent).*decimal/i.test(label);
     let role = isNumber ? 'measure' : 'dimension';
     if (i === townIndex) {

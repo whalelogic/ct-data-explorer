@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { selectionSchema } from '../src/services/selection.js';
+import { comparisonOptionsSchema, selectionSchema } from '../src/services/selection.js';
 
 const base = {
   dataset: { name: 'ACS 5-Year Town Profile', vintage: '2024' },
@@ -67,6 +67,30 @@ test('rows can be any labels, and "all rows" needs no list', () => {
   assert.equal(parsed.allRows, false);
   assert.deepEqual(selectionSchema.parse({ ...rest, allRows: true }).rows, []);
   assert.equal(towns.length, 2);
+});
+
+test('source column values can differ only by case', () => {
+  const selection = { ...base, compareBy: 'c0', rows: ['pa', 'PA'] };
+  assert.deepEqual(selectionSchema.parse(selection).rows, ['pa', 'PA']);
+  assert.equal(firstError({ ...selection, rows: ['PA', 'PA'] }), '"PA" is selected more than once');
+});
+
+test('comparison by matching fields keeps exact row values and only accepts keys from its datasets', () => {
+  const comparison = {
+    groupBy: 'fields',
+    matchFields: { 1: 'c0', 2: 'town' },
+    sources: [{ datasetId: 1, indicator: 'c1' }, { datasetId: 2, indicator: 'pop' }],
+  };
+  const selection = { ...base, rows: [' PA ', 'pa', '001'], indicators: ['d1:c1', 'd2:pop'], comparison };
+  const parsed = selectionSchema.parse(selection);
+  assert.deepEqual(parsed.rows, ['PA', 'pa', '001']);
+  assert.deepEqual(parsed.comparison.matchFields, comparison.matchFields);
+  assert.equal(firstError({ ...selection, rows: ['PA', 'PA '] }), '"PA" is selected more than once');
+  assert.match(firstError({ ...selection, comparison: { ...comparison, matchFields: { 3: 'c1' } } }), /datasets in this comparison/);
+  assert.match(firstError({ ...selection, comparison: { ...comparison, groupBy: 'town' } }), /Select Match fields/);
+  assert.doesNotThrow(() => comparisonOptionsSchema.parse({ datasetIds: [1, 2], matchFields: { 2: 'c3' } }));
+  assert.equal(comparisonOptionsSchema.safeParse({ datasetIds: [1, 2], matchFields: { 3: 'c3' } }).success, false);
+  assert.equal(comparisonOptionsSchema.safeParse({ datasetIds: [1, 2], matchFields: { 2: 'pop' } }).success, false);
 });
 
 test('custom ratio indicators are validated and chart colors must be hex', () => {

@@ -10,11 +10,12 @@ export function renderReportPdf(report) {
   return renderWithPdfkit(report);
 }
 
-/** Readable filename, e.g. ctdata-report-west-hartford-acs2024.pdf */
 export function reportFilename(report) {
-  const primary = report.places.find((p) => p.geoType === 'town') ?? report.places[0];
+  const primary = report.places.find((place) => place.geoType !== 'state') ?? report.places[0];
   const datasetWord = report.dataset.name.trim().split(/\s+/)[0] ?? 'data';
-  return `ctdata-report-${slug(primary?.name ?? 'connecticut')}-${slug(datasetWord)}${slug(report.dataset.vintage)}.pdf`;
+  const datasetSlug = slug(datasetWord) || 'data';
+  const rowSlug = slug(primary?.name ?? '') || datasetSlug;
+  return `ctdata-report-${rowSlug}-${datasetSlug}${slug(report.dataset.vintage)}.pdf`;
 }
 
 function slug(text) {
@@ -22,5 +23,6 @@ function slug(text) {
     .normalize('NFKD')
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
+    .slice(0, 80)
     .replace(/^-+|-+$/g, '');
 }

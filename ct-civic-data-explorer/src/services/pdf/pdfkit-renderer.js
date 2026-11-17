@@ -671,7 +671,7 @@ function drawTableRow(document, cells, layout, { bold = false, fill = null } = {
   document.y = y + height;
 }
 
-/** Split wide source data into smaller tables, repeating Town in each part. */
+/** Split wide source data into smaller tables and repeat the row identifiers in each part. */
 function drawRecordTables(document, block) {
   const repeatedColumns = block.repeatColumns ?? [0];
   const otherColumns = [];

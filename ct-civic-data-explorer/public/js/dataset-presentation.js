@@ -26,8 +26,8 @@ export async function mountDatasetPresentation(container, id, onSave) {
   general.append(control('Dataset display name', name), control('Default chart style', chart));
   fieldsList = h('ol', { class: 'presentation-fields' });
   const fieldsSection = h('details', { open: true });
-  fieldsSection.append(h('summary', {}, 'Field names, descriptions and order'), fieldsList);
-  save = h('button', { type: 'submit' }, 'Save shared defaults');
+  fieldsSection.append(h('summary', {}, 'Field display names, descriptions and order'), fieldsList);
+  save = h('button', { type: 'submit' }, 'Save display settings');
   reload = h('button', { type: 'button', class: 'secondary', onClick: load }, 'Reload defaults');
   reset = h('button', { type: 'button', class: 'link', onClick: resetDefaults }, 'Use source defaults');
   const styleContainer = h('div');
@@ -40,7 +40,6 @@ export async function mountDatasetPresentation(container, id, onSave) {
   form.addEventListener('input', () => showStatus(status, 'Unsaved changes to shared defaults.'));
   container.replaceChildren(form);
   await load();
-
 }
 
 async function load() {
@@ -74,9 +73,12 @@ function render() {
     const source = h('div', { class: 'presentation-source' }, h('strong', {}, field.label), h('code', {}, field.key));
     const label = h('input', {
       id: `presentation-label-${index}`, maxlength: 120, value: settings.label ?? '',
-      placeholder: field.label, 'data-setting': 'label',
+      placeholder: field.label, 'data-setting': 'label', 'aria-label': `Display name for ${field.label}`,
     });
-    const decimals = h('select', { id: `presentation-decimals-${index}`, 'data-setting': 'decimals', disabled: field.type === 'text' });
+    const decimals = h('select', {
+      id: `presentation-decimals-${index}`, 'data-setting': 'decimals', disabled: field.type === 'text',
+      'aria-label': `Decimals for ${field.label}`,
+    });
     decimals.append(h('option', { value: '' }, `Source default${field.type === 'text' ? '' : ` (${field.decimals})`}`));
     for (let digits = 0; digits <= 4; digits++) {
       decimals.append(h('option', { value: String(digits) }, String(digits)));
@@ -84,7 +86,7 @@ function render() {
     decimals.value = settings.decimals === undefined ? '' : String(settings.decimals);
     const help = h('input', {
       id: `presentation-help-${index}`, maxlength: 500, value: settings.description ?? '',
-      placeholder: 'Help users understand this field', 'data-setting': 'description',
+      placeholder: 'Help users understand this field', 'data-setting': 'description', 'aria-label': `Description for ${field.label}`,
     });
     const orderButtons = h('div', { class: 'order' });
     for (const direction of [-1, 1]) {
@@ -94,8 +96,8 @@ function render() {
         onClick: () => moveField(index, direction),
       }, direction < 0 ? '↑' : '↓'));
     }
-    row.append(source, control(`Display name for ${field.label}`, label), control(`Decimals for ${field.label}`, decimals), orderButtons);
-    const helpControl = control(`Description for ${field.label}`, help);
+    row.append(source, control('Display name', label), control('Decimals', decimals), orderButtons);
+    const helpControl = control('Description', help);
     helpControl.className = 'presentation-field-help';
     row.append(helpControl);
     fieldsList.append(row);
@@ -149,7 +151,7 @@ async function saveDefaults(event) {
     current = await api(`/datasets/${datasetId}/presentation`, { method: 'PUT', json: settings });
     setFields();
     render();
-    showStatus(status, 'Shared defaults saved. Reports with their own overrides keep those choices.', 'ok');
+    showStatus(status, 'Display settings saved.', 'ok');
     await onSaved();
   } catch (error) {
     showStatus(status, error.message, 'error');

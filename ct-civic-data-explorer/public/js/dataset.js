@@ -2,8 +2,7 @@
  * Dataset page: a compact summary, then tabs.
  *   Data      the rows themselves (default for everyone)
  *   Fields    what a report can use
- *   Settings  the setup steps in order: choose fields → default comparison →
- *             names and display (optional) → publish. Approval and publishing are admin-only.
+ *   Settings  field approval → primary field → display names and formatting → publishing.
  */
 import { api, loadSession } from './api.js';
 import { h as createElement } from './dom.js';
@@ -20,6 +19,8 @@ const SEARCHABLE_FIELD_COUNT = 8;
 
 let datasetId;
 let isAdmin = false;
+let isSignedIn = false;
+let assistantAvailable = false;
 let currentOverview;
 let previewOffset = 0;
 let fieldCuration;
@@ -31,7 +32,7 @@ function getElement(id) {
 }
 
 async function initializeDatasetPage() {
-  const { user } = await loadSession();
+  const { user, features } = await loadSession({ allowGuest: true });
   renderHeader(user);
 
   datasetId = new URLSearchParams(location.search).get('id');
@@ -39,7 +40,9 @@ async function initializeDatasetPage() {
     throw new Error('Choose a dataset from the dataset table.');
   }
 
-  isAdmin = user.role === 'admin';
+  isSignedIn = Boolean(user);
+  isAdmin = user?.role === 'admin';
+  assistantAvailable = features.assistant;
   getElement('back-link').href = isAdmin ? '/admin' : '/';
   getElement('previous').addEventListener('click', loadPreviousPage);
   getElement('next').addEventListener('click', loadNextPage);
@@ -51,8 +54,9 @@ async function initializeDatasetPage() {
     getElement('step-approve').scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
   getElement('save-row-label').addEventListener('click', saveRowLabel);
-  getElement('row-label-select').addEventListener('change', (event) => {
-    getElement('save-row-label').disabled = event.target.value === event.target.dataset.saved;
+  getElement('row-label-select').addEventListener('change', () => {
+    showStatus(getElement('row-label-status'), '');
+    updatePrimaryFieldChoice();
   });
 
   await loadWorkspace();
@@ -66,7 +70,7 @@ async function loadWorkspace() {
   await loadDataset();
   if (!currentOverview) return;
 
-  getElement('tab-settings').hidden = false;
+  getElement('tab-settings').hidden = !isSignedIn;
   getElement('step-approve').hidden = !canCurateDataset();
   getElement('step-publish').hidden = !canCurateDataset();
   if (canCurateDataset()) {
@@ -74,6 +78,7 @@ async function loadWorkspace() {
   }
 
   tabs = mountTabs(document.querySelector('.page-tabs'), { fallback: 'data' });
+  if (!isSignedIn) return;
   await loadFieldCuration();
   await loadRowLabel();
   await mountDatasetPresentation(getElement('dataset-presentation'), datasetId, async () => {
@@ -133,7 +138,7 @@ function renderDatasetHeader(dataset) {
   reportLink.hidden = !canReport;
   reportLink.href = `/builder?dataset=${dataset.id}`;
   const askAiLink = getElement('ask-ai');
-  askAiLink.hidden = !canReport;
+  askAiLink.hidden = !canReport || !assistantAvailable;
   askAiLink.href = `/chat?dataset=${dataset.id}`;
   getElement('finish-setup').hidden = !canCurateDataset() || dataset.isActive;
   const badge = getElement('settings-badge');
@@ -154,7 +159,7 @@ function renderUploadNotes(dataset) {
 
 // ---- Fields tab -----------------------------------------------------------------------------
 
-function renderFieldCards(indicators) {
+function renderFieldCards(indicators, primaryKey) {
   const container = getElement('field-cards');
   container.replaceChildren();
   // Usable fields first; administrators also see hidden columns, marked as such.
@@ -163,7 +168,9 @@ function renderFieldCards(indicators) {
     const isUsable = isUsableField(field);
     const card = createElement('div', { class: isUsable ? 'field-card' : 'field-card is-hidden' });
     let kind = fieldUnitLabel(field);
-    if (!isUsable) {
+    if (field.key === primaryKey) {
+      kind = `${kind} · primary field`;
+    } else if (!isUsable) {
       kind = `${kind} · hidden from reports`;
     }
     if (field.derivation === 'ratio') {
@@ -195,59 +202,88 @@ function renderUnapprovedNote() {
   note.textContent = `${hiddenCount} ${hiddenCount === 1 ? 'column is' : 'columns are'} hidden from reports. Change this in Settings.`;
 }
 
-// ---- Settings: default comparison -----------------------------------------------------------
+// ---- Settings: primary field ----------------------------------------------------------------
 
-/**
- * Source-row datasets can compare by any identifier column or approved text field.
- * With only one candidate there is nothing to choose, so the step just states it.
- */
 async function loadRowLabel() {
-  let settings;
+  getElement('row-label-panel').hidden = false;
   try {
-    settings = await api(`/datasets/${datasetId}/row-label`);
-  } catch {
-    getElement('row-label-panel').hidden = true;
-    return;
+    renderPrimaryField(await api(`/datasets/${datasetId}/row-label`));
+    showStatus(getElement('row-label-status'), '');
+  } catch (error) {
+    showStatus(getElement('row-label-status'), error.message, 'error');
   }
-  getElement('row-label-panel').hidden = !settings.canChange;
+}
+
+function renderPrimaryField(settings) {
   const current = settings.candidates.find((candidate) => candidate.key === settings.rowLabelKey);
-  const description = current?.isTown ? ' (Connecticut towns, counties and planning regions)' : '';
-  getElement('row-label-current').replaceChildren(
-    'Reports start by comparing ',
-    createElement('strong', {}, current?.label ?? 'each spreadsheet row'),
-    `${description}.`,
-  );
+  const label = current?.label ?? currentOverview.shape.rowColumn?.label;
+  const currentLabel = getElement('row-label-current');
+  currentLabel.replaceChildren();
+  if (label) {
+    currentLabel.append('Currently using ', createElement('strong', {}, label), '.');
+  } else {
+    currentLabel.textContent = 'Rows are labeled by their spreadsheet row numbers.';
+  }
 
   const canChoose = settings.candidates.length > 1;
   getElement('row-label-only').hidden = canChoose || !canCurateDataset();
-  getElement('row-label-change').hidden = !canChoose;
   const select = getElement('row-label-select');
+  getElement('row-label-change').hidden = !settings.canChange || !settings.candidates.length;
   select.replaceChildren();
-  for (const candidate of settings.candidates) {
-    const label = candidate.isTown ? `${candidate.label} (Connecticut places)` : candidate.label;
-    select.append(createElement('option', { value: candidate.key }, label));
+  if (!current) {
+    select.append(createElement('option', { value: '', disabled: true }, 'Choose a field'));
   }
-  select.value = settings.rowLabelKey ?? '';
+  for (const candidate of settings.candidates) {
+    const sourceName = candidate.sourceLabel && candidate.sourceLabel !== candidate.label ? ` (${candidate.sourceLabel})` : '';
+    select.append(createElement('option', { value: candidate.key }, `${candidate.label}${sourceName}`));
+  }
+  select.value = current?.key ?? '';
   select.dataset.saved = select.value;
-  getElement('save-row-label').disabled = true;
+  select.disabled = !canChoose && Boolean(current);
+  updatePrimaryFieldChoice();
+}
+
+function updatePrimaryFieldChoice() {
+  const select = getElement('row-label-select');
+  getElement('save-row-label').disabled = select.disabled || !select.value || select.value === select.dataset.saved;
+  renderPrimaryFieldSamples(select.value);
+}
+
+function renderPrimaryFieldSamples(key) {
+  const samples = getElement('row-label-samples');
+  const preview = currentOverview?.preview;
+  const columnIndex = preview?.columns?.findIndex((column) => column.key === key) ?? -1;
+  const values = new Set();
+  if (columnIndex >= 0) {
+    for (const row of preview.rows) {
+      const value = String(row.cells[columnIndex]?.value ?? '').trim();
+      if (value) values.add(value);
+      if (values.size === 3) break;
+    }
+  }
+  samples.hidden = !values.size;
+  samples.textContent = values.size ? `Sample values · ${[...values].join(' · ')}` : '';
 }
 
 async function saveRowLabel() {
   const status = getElement('row-label-status');
   const button = getElement('save-row-label');
+  const select = getElement('row-label-select');
   button.disabled = true;
+  select.disabled = true;
   try {
     const settings = await api(`/datasets/${datasetId}/row-label`, {
       method: 'PUT',
-      json: { rowLabelKey: getElement('row-label-select').value },
+      json: { rowLabelKey: select.value },
     });
     const chosen = settings.candidates.find((candidate) => candidate.key === settings.rowLabelKey);
-    showStatus(status, `New reports will compare ${chosen?.label ?? 'the chosen column'}.`, 'ok');
+    showStatus(status, `New reports will compare by ${chosen?.label ?? 'the chosen field'}.`, 'ok');
     await loadDataset();
-    await loadRowLabel();
+    renderPrimaryField(settings);
   } catch (error) {
     showStatus(status, error.message, 'error');
-    button.disabled = false;
+    select.disabled = false;
+    updatePrimaryFieldChoice();
   }
 }
 
@@ -476,21 +512,22 @@ function renderDataset({ dataset, shape, indicators, preview }) {
     fields: indicators.filter(isUsableField),
     emptyFieldsText: canCurateDataset() ? 'Choose which columns reports may use in Settings.' : 'No columns are available yet.',
   });
-  renderFieldCards(indicators);
+  renderFieldCards(indicators, shape.rowColumn?.key);
   renderDataPreview(dataset, shape, indicators, preview);
-  renderUploadNotes(dataset);
+  renderPrimaryFieldSamples(getElement('row-label-select').value);
+  if (isSignedIn) renderUploadNotes(dataset);
   renderPublishStep();
 }
 
 /**
- * The preview leads with the column that names each row, highlighted as "Rows", then one
+ * The preview leads with the column that identifies each row, highlighted as "Primary field", then one
  * column per field with its type underneath. Admins also see hidden columns, marked.
  */
 function renderDataPreview(dataset, shape, indicators, preview) {
   const isRecordDataset = dataset.dataFormat === 'records';
   const columns = previewColumns(isRecordDataset, shape, indicators, preview);
   const table = createElement('table', { class: 'data shape-table' });
-  const captionText = `${dataset.name}, ${dataset.vintage}, version ${dataset.version}`;
+  const captionText = `${dataset.displayName || dataset.name}, ${dataset.vintage}, version ${dataset.version}`;
   table.append(createElement('caption', { class: 'sr-only' }, captionText));
   const headingRow = createElement('tr');
   for (const column of columns) {
@@ -515,7 +552,7 @@ function renderDataPreview(dataset, shape, indicators, preview) {
   if (preview.total) {
     const firstRow = preview.rows.length ? previewOffset + 1 : 0;
     const lastRow = previewOffset + preview.rows.length;
-    summary = `Showing rows ${firstRow}–${lastRow} of ${preview.total.toLocaleString('en-US')}. Blank values are shown as N/A.`;
+    summary = `Showing rows ${firstRow}–${lastRow} of ${preview.total.toLocaleString('en-US')}.`;
   }
   getElement('preview-summary').textContent = summary;
   getElement('previous').disabled = previewOffset === 0;
@@ -525,7 +562,7 @@ function renderDataPreview(dataset, shape, indicators, preview) {
 /** Column descriptors: heading text, a type caption, and how to read each row's cell. */
 function previewColumns(isRecordDataset, shape, indicators, preview) {
   if (!isRecordDataset) {
-    const rowLabel = { label: 'Place', caption: 'Rows', isRowLabel: true, cell: (row) => row.place.label };
+    const rowLabel = { label: 'Place', caption: 'Primary field', isRowLabel: true, cell: (row) => row.place.label };
     return [rowLabel, ...indicators.map((indicator, index) => ({
       label: indicator.derivation === 'ratio' ? `${indicator.displayLabel} (calculated)` : indicator.displayLabel,
       caption: fieldUnitLabel(indicator),
@@ -545,10 +582,17 @@ function previewColumns(isRecordDataset, shape, indicators, preview) {
   const labelIndex = descriptors.findIndex((column) => column.key === shape.rowColumn?.key);
   if (labelIndex === -1) {
     // Without a label column, rows are known by their spreadsheet row number.
-    return [{ label: 'Row', caption: 'Rows', isRowLabel: true, cell: (row) => `Row ${row.sourceRow}` }, ...descriptors];
+    return [{ label: 'Row number', caption: 'Primary field', isRowLabel: true, cell: (row) => `Row ${row.sourceRow}` }, ...descriptors];
   }
   const [labelColumn] = descriptors.splice(labelIndex, 1);
-  return [{ ...labelColumn, caption: 'Rows', isNumeric: false, isHidden: false, isRowLabel: true }, ...descriptors];
+  return [{
+    ...labelColumn,
+    caption: 'Primary field',
+    isNumeric: false,
+    isHidden: false,
+    isRowLabel: true,
+    cell: (row) => String(row.cells[labelIndex].value ?? '').trim() || `Row ${row.sourceRow}`,
+  }, ...descriptors];
 }
 
 function createPreviewHeading(column) {

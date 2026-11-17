@@ -1,39 +1,20 @@
 /**
- * Explain a dataset's shape in plain words: what each ROW is (the thing being compared)
- * and what the COLUMNS are (what is measured or described for each row).
- * Used on the dataset page and the report builder so both say it the same way.
+ * Summarize the dataset's primary field and reportable columns.
  */
 import { h as createElement } from './dom.js';
 import { pluralize } from './report-details.js';
 import { fieldUnitLabel } from '/shared/field-groups.js';
 
-function withArticle(noun) {
-  return `${/^[aeiou]/i.test(noun) ? 'an' : 'a'} ${noun}`;
-}
-
-function joinWords(words, conjunction = 'and') {
+function joinWords(words) {
   if (words.length <= 1) return words[0] ?? '';
-  return `${words.slice(0, -1).join(', ')} ${conjunction} ${words.at(-1)}`;
+  return `${words.slice(0, -1).join(', ')} and ${words.at(-1)}`;
 }
 
-/** The things rows can be, without the statewide benchmark, e.g. ["town", "county"]. */
-function rowKinds(shape) {
-  return shape.kinds.filter((kind) => kind.type !== 'state');
-}
-
-/** "141 towns and 8 counties", "12 Program values". */
-export function describeRowCounts(shape) {
-  return joinWords(rowKinds(shape).map((kind) => {
-    const noun = kind.type === 'row' ? `${kind.noun} ${kind.count === 1 ? 'value' : 'values'}` : pluralize(kind.noun);
-    return `${kind.count.toLocaleString('en-US')} ${kind.count === 1 && kind.type !== 'row' ? kind.noun : noun}`;
+function describeRowCounts(shape) {
+  return joinWords(shape.kinds.filter((kind) => kind.type !== 'state').map((kind) => {
+    const noun = kind.type === 'row' ? 'distinct value' : kind.noun;
+    return `${kind.count.toLocaleString('en-US')} ${kind.count === 1 ? noun : pluralize(noun)}`;
   }));
-}
-
-/** "a town or county", "a Program". */
-export function describeRowNoun(shape) {
-  const nouns = rowKinds(shape).map((kind) => kind.noun);
-  if (!nouns.length) return 'a row';
-  return `${withArticle(nouns[0])}${nouns.length > 1 ? ` or ${joinWords(nouns.slice(1), 'or')}` : ''}`;
 }
 
 /**
@@ -44,20 +25,18 @@ export function describeRowNoun(shape) {
 export function renderShapePanel(container, { shape, fields, emptyFieldsText }) {
   const rows = createElement('section', { class: 'shape-card', 'aria-labelledby': 'shape-rows-title' });
   rows.append(
-    createElement('span', { class: 'shape-kicker' }, 'Rows · what is compared'),
-    createElement('p', { class: 'shape-headline', id: 'shape-rows-title' }, 'Each row is ', createElement('strong', {}, describeRowNoun(shape))),
+    createElement('span', { class: 'shape-kicker' }, 'Primary field'),
+    createElement('p', { class: 'shape-headline', id: 'shape-rows-title' }, createElement('strong', {}, shape.rowColumn?.label ?? 'Spreadsheet row number')),
   );
   const details = [describeRowCounts(shape)];
-  if (shape.rowColumn?.label) {
-    details.push(`named by the “${shape.rowColumn.label}” column`);
-  }
   if (shape.kinds.some((kind) => kind.type === 'state')) {
-    details.push('plus a Connecticut statewide total');
+    details.push('Connecticut statewide total');
   }
-  rows.append(createElement('p', { class: 'shape-detail' }, details.filter(Boolean).join(' · ')));
+  if (details.some(Boolean)) {
+    rows.append(createElement('p', { class: 'shape-detail' }, details.filter(Boolean).join(' · ')));
+  }
   if (shape.repeated) {
-    rows.append(createElement('p', { class: 'shape-note' },
-      `Some appear on more than one row (${shape.totalRows.toLocaleString('en-US')} rows in all). Every row is kept; nothing is added together.`));
+    rows.append(createElement('p', { class: 'shape-note' }, 'Some values appear on multiple rows. Reports keep those rows separate.'));
   }
 
   const columns = createElement('section', { class: 'shape-card', 'aria-labelledby': 'shape-columns-title' });

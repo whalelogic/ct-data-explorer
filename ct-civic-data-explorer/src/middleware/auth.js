@@ -3,25 +3,31 @@ import { HttpError } from '../lib/http-error.js';
 import * as users from '../repositories/users.js';
 
 /**
- * Require a signed-in, active user. The user is loaded fresh on every request so
+ * Load the active user when a request has an account session. Load it fresh so
  * role changes and deactivation take effect immediately. Enforces the 8-hour
  * absolute session lifetime; the 30-minute idle timeout is the rolling cookie maxAge.
  */
-export async function requireAuth(req, _res, next) {
+export async function optionalAuth(req, _res, next) {
   const { session } = req;
-  if (!session?.userId) throw new HttpError(401, 'Please sign in');
-
-  if (Date.now() - (session.createdAt ?? 0) > config.session.absoluteTimeoutMs) {
-    await destroySession(req);
-    throw new HttpError(401, 'Your session has expired. Please sign in again.');
+  req.user = null;
+  if (session?.userId) {
+    const expired = Date.now() - (session.createdAt ?? 0) > config.session.absoluteTimeoutMs;
+    const user = expired ? null : await users.findById(session.userId);
+    if (user?.is_active) {
+      req.user = user;
+    } else {
+      await regenerateSession(req);
+      req.sessionExpired = expired;
+    }
   }
+  next();
+}
 
-  const user = await users.findById(session.userId);
-  if (!user?.is_active) {
-    await destroySession(req);
-    throw new HttpError(401, 'Please sign in');
+export function requireSignedIn(req, _res, next) {
+  if (!req.user) {
+    const message = req.sessionExpired ? 'Your session has expired. Please sign in again.' : 'Please sign in';
+    return next(new HttpError(401, message));
   }
-  req.user = user;
   next();
 }
 

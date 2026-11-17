@@ -4,7 +4,8 @@ import { z } from 'zod';
 import { config } from '../config.js';
 import { HttpError } from '../lib/http-error.js';
 import { idParams } from '../lib/schemas.js';
-import { requireRole } from '../middleware/auth.js';
+import { requireRole, requireSignedIn } from '../middleware/auth.js';
+import { csrfProtection } from '../middleware/csrf.js';
 import { validate } from '../middleware/validate.js';
 import {
   getDatasetCuration,
@@ -48,6 +49,8 @@ const rowLabelFields = z.object({
   rowLabelKey: z.string().regex(/^c\d{1,3}$/, 'Choose a column from this dataset'),
 });
 
+const reportOptionsQuery = z.object({ compareBy: rowLabelFields.shape.rowLabelKey.optional() });
+
 const previewQuery = z.object({
   offset: z.coerce.number().int().min(0).max(1000000).default(0),
   limit: z.coerce.number().int().min(1).max(100).default(25),
@@ -68,12 +71,13 @@ export const datasetsRouter = Router();
 /** Administrators also see public drafts. Private uploads belong to the current user. */
 datasetsRouter.get('/', validate(listQuery, 'query'), async (request, response) => {
   const user = request.user;
+  if (!user && request.valid.query.scope === 'private') throw new HttpError(401, 'Please sign in');
   const datasets = await listDatasets({
-    activeOnly: user.role !== 'admin',
+    activeOnly: user?.role !== 'admin',
     scope: request.valid.query.scope,
     user,
   });
-  response.json(datasets.map(presentDataset));
+  response.json(datasets.map((dataset) => presentDataset(dataset, { includeUploadDetails: Boolean(user) })));
 });
 
 datasetsRouter.get(
@@ -90,12 +94,15 @@ datasetsRouter.get(
 datasetsRouter.get(
   '/:id/report-options',
   validate(idParams, 'params'),
+  validate(reportOptionsQuery, 'query'),
   async (request, response) => {
-    const options = await getReportOptions(request.valid.params.id, request.user);
+    const options = await getReportOptions(request.valid.params.id, request.user, request.valid.query);
     await trackDatasetUsage('access', request.valid.params.id);
     response.json(options);
   },
 );
+
+datasetsRouter.use(requireSignedIn, csrfProtection);
 
 datasetsRouter.get(
   '/:id/curation',

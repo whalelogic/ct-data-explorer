@@ -12,13 +12,9 @@
     <a class="skip-link" href="#main">Skip to content</a>
     <header class="site"><a class="brand" href="/">CT Civic Data Explorer</a></header>
     <main id="main" class="builder-main">
-      <!-- The report bar keeps naming, saving and export visible from every step. -->
-      <div class="builder-bar">
-        <div class="builder-bar-title">
-          <p class="eyebrow"><a href="/explore">Reports</a> / Builder</p>
-          <h1 id="builder-heading">New report</h1>
-        </div>
-        <div class="builder-bar-actions">
+      <header class="builder-bar">
+        <h1 id="builder-heading">New report</h1>
+        <div class="builder-report-name">
           <label for="report-name" class="sr-only">Report name</label>
           <input
             id="report-name"
@@ -27,38 +23,35 @@
             autocomplete="off"
             data-no-preview
           />
-          <span id="save-state" class="save-state" role="status" aria-live="polite"></span>
-          <a id="view-report" class="button secondary" hidden>View report</a>
-          <button type="button" id="save">Save report</button>
-          <button type="button" id="pdf" class="secondary">Export PDF</button>
         </div>
-      </div>
+        <div class="builder-bar-actions">
+          <span id="save-state" class="save-state" role="status" aria-live="polite"></span>
+          <a id="view-report" hidden>View report</a>
+          <button type="button" id="pdf" class="secondary">Export PDF</button>
+          <button type="button" id="save">Save report</button>
+        </div>
+      </header>
       <p id="page-status" class="status builder-page-status" role="alert" hidden></p>
       <p id="builder-status" class="status builder-page-status" role="status" aria-live="polite" hidden></p>
 
       <div class="builder-workspace">
         <form id="builder-form" class="builder-panel" novalidate>
-          <!-- Each step shows what has been chosen so far ("3 towns", "2 fields"). -->
+          <!-- Each step shows what has been chosen so far. -->
           <div class="builder-tabs" role="tablist" aria-label="Report steps">
             <button type="button" role="tab" id="tab-data" aria-controls="panel-data" aria-selected="true" data-tab="data">
-              <span class="builder-tab-step" aria-hidden="true">1</span>
               <span class="builder-tab-text">Compare</span>
               <span id="tab-data-summary" class="builder-tab-summary"></span>
             </button>
             <button type="button" role="tab" id="tab-fields" aria-controls="panel-fields" aria-selected="false" tabindex="-1" data-tab="fields">
-              <span class="builder-tab-step" aria-hidden="true">2</span>
-              <span class="builder-tab-text">Show</span>
+              <span class="builder-tab-text">Fields</span>
               <span id="tab-fields-summary" class="builder-tab-summary"></span>
             </button>
             <button type="button" role="tab" id="tab-content" aria-controls="panel-content" aria-selected="false" tabindex="-1" data-tab="content">
-              <span class="builder-tab-step" aria-hidden="true">3</span>
               <span class="builder-tab-text">Layout</span>
               <span id="tab-content-summary" class="builder-tab-summary"></span>
             </button>
             <button type="button" role="tab" id="tab-style" aria-controls="panel-style" aria-selected="false" tabindex="-1" data-tab="style">
-              <span class="builder-tab-step" aria-hidden="true">4</span>
               <span class="builder-tab-text">Finish</span>
-              <span id="tab-style-summary" class="builder-tab-summary"></span>
             </button>
           </div>
 
@@ -69,7 +62,7 @@
             <p id="dataset-caption" class="muted small builder-hint"></p>
             <label class="check builder-check" data-no-preview>
               <input type="checkbox" id="comparison-mode" aria-controls="comparison-datasets" disabled />
-              <span>Compare datasets or aggregate by geography</span>
+              <span>Compare datasets or aggregate rows</span>
             </label>
             <div id="comparison-datasets" class="builder-subsection" data-no-preview hidden>
               <label for="comparison-dataset">Add a dataset (optional)</label>
@@ -78,40 +71,47 @@
               <p id="comparison-status" class="status small" role="status" hidden></p>
             </div>
 
-            <!-- 1a. What the report compares: towns, counties, or a column such as Program. -->
-            <fieldset id="compare-section" class="builder-subsection compare-section" data-no-preview>
-              <legend class="builder-subhead">What do you want to compare?</legend>
-              <div id="compare-options" class="compare-options"></div>
-              <p id="compare-single" class="muted small" hidden></p>
-            </fieldset>
+            <div id="compare-section" class="builder-subsection" data-no-preview hidden>
+              <label for="compare-by">Compare by</label>
+              <select id="compare-by" aria-describedby="compare-examples"></select>
+              <p id="compare-examples" class="muted small builder-hint" hidden></p>
+              <fieldset id="comparison-match-fields" class="compare-section" aria-label="Fields to match" hidden>
+                <p class="muted small builder-hint">Use each dataset’s primary field or select a different one. The report lists values shared by every dataset.</p>
+                <div id="comparison-match-selects"></div>
+                <button id="reset-comparison-match-fields" class="link" type="button">Use dataset defaults</button>
+                <p id="comparison-match-status" class="status small" role="status" hidden></p>
+              </fieldset>
+            </div>
 
             <!-- 1b. Which of those to include, picked from a list. -->
             <fieldset id="row-section" class="builder-subsection" data-no-preview>
-              <legend class="builder-subhead" id="rows-heading">Which ones?</legend>
+              <legend class="builder-subhead" id="rows-heading">Which values?</legend>
               <div class="row-picker-tools">
                 <button id="select-all-rows" type="button" class="link">Select all</button>
-                <button id="clear-towns" type="button" class="link">Clear</button>
-                <span id="builder-town-count" class="small muted" role="status" aria-live="polite"></span>
+                <button id="clear-rows" type="button" class="link">Clear</button>
+                <span id="builder-row-count" class="small muted" role="status" aria-live="polite"></span>
               </div>
               <label for="row-search" id="row-search-label" class="sr-only">Find in this list</label>
               <input id="row-search" type="search" placeholder="Find in this list" autocomplete="off" hidden />
               <div id="row-chips" class="row-chips" aria-label="Chosen so far"></div>
               <div id="row-checklist" class="row-checklist" aria-labelledby="rows-heading"></div>
+              <button id="show-more-rows" type="button" class="link" hidden>Show more values</button>
               <p id="row-empty" class="muted small" hidden>Nothing matches. Clear the search to see the full list.</p>
+              <p id="row-omitted" class="muted small" hidden></p>
             </fieldset>
 
             <label class="check builder-check" id="benchmark-option">
               <input type="checkbox" id="benchmark" />
               <span>
                 Add the Connecticut statewide figure
-                <span id="benchmark-help" class="field-label-unit">Shown beside the towns for comparison.</span>
+                <span class="field-label-unit">Shown beside the selected places for comparison.</span>
               </span>
             </label>
 
             <div id="record-filter-panel" class="builder-subsection" hidden>
               <h2 class="builder-subhead">Narrow down (optional)</h2>
               <p class="muted small">
-                Keep only rows in one category. Matching rows stay separate; nothing is added together.
+                Filter the rows by category. Each matching source row stays separate.
               </p>
               <div id="record-filters" class="builder-filter-grid"></div>
             </div>
@@ -148,13 +148,13 @@
                 <span></span>
                 <button id="add-ratio" type="button" class="link">+ New calculated field</button>
               </div>
-              <p class="muted small builder-hint">Work out one number for the whole report, such as the average, median or highest population across your towns, or divide one field by another for each row, such as people per household.</p>
+              <p class="muted small builder-hint">Calculate a summary across the selected rows, or divide one field by another for each row.</p>
               <div id="ratio-editor" class="ratio-editor" data-no-preview hidden>
                 <!-- Ask what to work out first; only the inputs that calculation needs are shown. -->
                 <label for="ratio-calculation">Calculate</label>
                 <select id="ratio-calculation">
                   <optgroup label="One value for the whole report">
-                    <option value="average" id="calc-average">Average per town</option>
+                    <option value="average" id="calc-average">Average per row</option>
                     <option value="median">Median</option>
                     <option value="highest">Highest</option>
                     <option value="lowest">Lowest</option>
@@ -179,7 +179,7 @@
                 <p id="ratio-kind-help" class="muted small" role="status"></p>
                 <label class="check builder-check" id="ratio-benchmark-field">
                   <input type="checkbox" id="ratio-benchmark" checked />
-                  <span id="ratio-benchmark-label">Also show the figure for all Connecticut towns</span>
+                  <span id="ratio-benchmark-label">Also show the figure for the whole dataset</span>
                 </label>
                 <label for="ratio-name">Name</label>
                 <input id="ratio-name" maxlength="120" />

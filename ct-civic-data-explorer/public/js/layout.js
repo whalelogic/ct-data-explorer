@@ -1,4 +1,4 @@
-/** Page header and UI helpers shared by signed-in pages. */
+/** Page header and UI helpers shared by site pages. */
 import { api } from './api.js';
 import { h as createElement } from './dom.js';
 import { clearPendingProposal } from './chat-proposal.js';
@@ -9,34 +9,26 @@ window.addEventListener('pageshow', (event) => {
 });
 
 export function renderHeader(user) {
-  const navigationLinks = [
-    ['/', 'Dashboard'],
-    ['/explore', 'Explore reports'],
-    ['/builder', 'Report builder'],
-    ['/chat', 'AI chat'],
-    ['/datasets/mine', 'My datasets'],
-  ];
-  if (user.role === 'admin') {
-    navigationLinks.push(['/admin', 'Datasets']);
-    navigationLinks.push(['/users', 'People']);
+  const navigation = createElement('nav', { 'aria-label': 'Main' },
+    navigationLink('/', 'Dashboard'),
+    renderReportsNavigation(),
+    user ? navigationLink('/datasets/mine', 'My datasets') : null,
+    navigationLink('/chat', 'AI chat'),
+  );
+  if (user?.role === 'admin') {
+    navigation.append(navigationLink('/admin', 'Admin'));
   }
 
-  const navigation = createElement('nav', { 'aria-label': 'Main' });
-  for (const [url, label] of navigationLinks) {
-    const link = createElement('a', {
-      href: url,
-      'aria-current': isCurrentPage(url) ? 'page' : null,
-    }, label);
-    navigation.append(link);
+  const account = createElement('div', { class: 'site-account' });
+  if (user) {
+    account.append(
+      createElement('span', { class: 'who' }, `${user.firstName} ${user.lastName}`),
+      createElement('button', { type: 'button', class: 'link', onClick: signOut }, 'Sign out'),
+    );
+  } else {
+    const next = encodeURIComponent(location.pathname + location.search);
+    account.append(createElement('a', { href: `/login?next=${next}` }, 'Sign in'));
   }
-
-  const userName = createElement('span', { class: 'who' }, `${user.firstName} ${user.lastName}`);
-  const signOutButton = createElement('button', {
-    type: 'button',
-    class: 'link',
-    onClick: signOut,
-  }, 'Sign out');
-  const account = createElement('div', { class: 'site-account' }, userName, signOutButton);
   const header = document.querySelector('header.site');
   const brandLink = header.querySelector('.brand');
   brandLink.replaceChildren(
@@ -47,7 +39,40 @@ export function renderHeader(user) {
   header.append(navigation, account);
 }
 
-/** Admin pages share one sub-navigation: datasets, adding one, and people. */
+function navigationLink(url, label) {
+  const current = isCurrentPage(url) ? (location.pathname === url ? 'page' : 'location') : null;
+  return createElement('a', { href: url, 'aria-current': current }, label);
+}
+
+function renderReportsNavigation() {
+  const reportLinks = [
+    ['/explore', 'Explore reports'],
+    ['/builder', 'Report builder'],
+  ];
+  const summary = createElement('summary', {
+    'data-current': reportLinks.some(([url]) => isCurrentPage(url)) ? 'true' : null,
+  }, 'Reports', createElement('span', { class: 'site-nav-caret', 'aria-hidden': 'true' }, '▾'));
+  const links = createElement('div', { class: 'site-nav-links' },
+    ...reportLinks.map(([url, label]) => navigationLink(url, label)),
+  );
+  const group = createElement('details', { class: 'site-nav-group' }, summary, links);
+  group.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && group.open) {
+      event.preventDefault();
+      group.open = false;
+      summary.focus();
+    }
+  });
+  group.addEventListener('focusout', (event) => {
+    if (!group.contains(event.relatedTarget)) group.open = false;
+  });
+  document.addEventListener('pointerdown', (event) => {
+    if (group.open && !group.contains(event.target)) group.open = false;
+  });
+  return group;
+}
+
+/** Administrator-only pages share a section navigation. */
 const ADMIN_LINKS = [
   ['/admin', 'Datasets'],
   ['/admin/datasets/new', 'Add dataset'],
@@ -114,7 +139,7 @@ function showPageSetupError(error) {
 
 function isCurrentPage(url) {
   if (url === '/datasets/mine' && location.pathname === '/datasets/new') return true;
-  if (url === '/admin' && location.pathname === '/ai-settings') return true;
+  if (url === '/admin' && ['/users', '/ai-settings'].includes(location.pathname)) return true;
   if (url === '/') {
     return location.pathname === '/';
   }
@@ -129,5 +154,5 @@ async function signOut() {
   } catch {
     // Return to the login page even if the session has already expired.
   }
-  location.assign('/login');
+  location.assign('/');
 }

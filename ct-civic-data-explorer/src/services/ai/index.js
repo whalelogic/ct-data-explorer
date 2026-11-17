@@ -34,7 +34,7 @@ export function summaryFacts(report) {
           ...(s.benchmark ? { comparison: { label: s.benchmark.label, value: s.benchmark.display, howCalculated: s.benchmark.explanation } } : {}),
         })) }
       : {}),
-    places: report.places.map((p) => ({ name: report.rowBased ? p.label : p.name, type: PLACE_TYPES[p.geoType] ?? 'town' })),
+    places: report.places.map((p) => ({ name: report.rowBased ? p.label : p.name, type: PLACE_TYPES[p.geoType] ?? 'row' })),
     indicators: report.indicators.map((row) => ({
       label: row.displayLabel,
       values: Object.fromEntries(row.cells.map((cell, i) => [report.rowBased ? report.places[i].label : report.places[i].name, cell.display])),

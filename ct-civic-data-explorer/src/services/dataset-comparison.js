@@ -1,4 +1,4 @@
-/** Align approved indicators by canonical Connecticut geography or compatible source labels. */
+/** Align approved indicators by Connecticut geography or values shared by the comparison fields. */
 import { HttpError } from '../lib/http-error.js';
 import * as records from '../repositories/dataset-records.js';
 import * as observations from '../repositories/observations.js';
@@ -9,18 +9,19 @@ import { availableFields, requireAccessibleDataset } from './datasets.service.js
 import { approvedDefinitions } from './field-curation.js';
 import { applyFieldPresentation } from './presentation.js';
 import { presentDataset, presentPlace } from './presenters.js';
-import { PLACE_GROUPS, rowLabelColumn } from './row-labels.js';
-import { comparisonIndicatorKey } from './selection.js';
+import { PLACE_GROUPS, rowLabelCandidates, rowLabelColumn, rowNoun } from './row-labels.js';
+import { comparisonIndicatorKey, MAX_ROW_NAME_LENGTH } from './selection.js';
 import { formatDatasetCell } from './tabular-data.js';
 import { townMembership } from './town-membership.js';
 
-const GROUP_LABELS = { town: 'Towns', county: 'Counties', region: 'Planning regions', state: 'State', label: 'Rows' };
+const GEOGRAPHY_LABELS = { town: 'Towns', county: 'Counties', region: 'Planning regions', state: 'State' };
+const GROUP_LABELS = { ...GEOGRAPHY_LABELS, label: 'Rows', fields: 'Match fields' };
 const ROLLUP_ORDER = ['town', 'region', 'county'];
 const SUM_UNITS = new Set(['count', 'area', 'number']);
 const normalize = (value) => String(value ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
 
 /** Resolve every source before reading any of its records or fields. */
-async function loadDatasets(ids, user, selectedFields = new Map()) {
+async function loadDatasets(ids, user, { selectedFields = new Map(), matchFields } = {}) {
   const authorized = await Promise.all([...new Set(ids)].map((id) => requireAccessibleDataset(id, user, { activeOnly: true })));
   return Promise.all(authorized.map(async (dataset) => {
     const rowBased = dataset.data_format === 'records';
@@ -30,29 +31,62 @@ async function loadDatasets(ids, user, selectedFields = new Map()) {
     const invalid = keys.find((key) => !approved.some((field) => field.key === key));
     if (invalid) throw new HttpError(400, `Indicator “${invalid}” is unavailable for comparison`);
     const labelColumn = rowBased ? rowLabelColumn(dataset) : null;
-    const cellKeys = labelColumn && labelColumn.role !== 'town' ? [labelColumn.key, ...keys] : keys;
+    const requestedField = matchFields?.[dataset.id];
+    const recordMatchFields = rowBased && matchFields ? applyFieldPresentation(rowLabelCandidates(dataset), dataset.presentation) : [];
+    const recordMatchField = recordMatchFields.find(({ key }) => key === (requestedField ?? labelColumn?.key));
+    const cellKeys = new Set(keys);
+    for (const column of [labelColumn, recordMatchField]) {
+      if (column && column.role !== 'town') cellKeys.add(column.key);
+    }
     const rows = rowBased
-      ? await records.list(dataset.id, { cellKeys })
+      ? await records.list(dataset.id, { cellKeys: [...cellKeys] })
       : await observations.previewPlaces(dataset.id, { offset: 0, limit: 10000 });
+    const candidates = rowBased ? recordMatchFields : matchFields ? geographyMatchFields(rows) : [];
+    const defaultMatchField = (rowBased ? labelColumn?.key : candidates[0]?.key) ?? null;
+    const matchField = rowBased ? recordMatchField : candidates.find(({ key }) => key === (requestedField ?? defaultMatchField));
+    if (requestedField !== undefined && !matchField) {
+      throw new HttpError(400, 'A selected matching field is unavailable. Choose an available field for each dataset.');
+    }
     return {
       dataset,
       rows,
       rowBased,
       fields: applyFieldPresentation(approved, dataset.presentation),
+      sourceFieldLabels: new Map(approved.map((field) => [field.key, field.label])),
       labelColumn,
+      matchField,
+      matchFields: candidates,
+      defaultMatchField,
     };
   }));
 }
 
-export async function getComparisonOptions(datasetIds, user) {
-  const [sources, places] = await Promise.all([loadDatasets(datasetIds, user), towns.list()]);
-  const groupBy = Object.keys(GROUP_LABELS).flatMap((group) => {
+function geographyMatchFields(rows) {
+  const present = new Set(rows.map((row) => row.geo_type));
+  return Object.entries(GEOGRAPHY_LABELS)
+    .filter(([key]) => present.has(key))
+    .map(([key, label]) => ({ key, label }));
+}
+
+export async function getComparisonOptions(datasetIds, user, { matchFields = {}, includeFieldMatching = true } = {}) {
+  const [sources, places] = await Promise.all([
+    loadDatasets(datasetIds, user, { matchFields: includeFieldMatching ? matchFields : undefined }),
+    towns.list(),
+  ]);
+  const groups = Object.keys(GROUP_LABELS).flatMap((group) => {
+    if (group === 'fields' && !includeFieldMatching) return [];
     const grouped = groupDatasets(group, sources, places);
     if (!grouped) return [];
+    const values = grouped.places.map(({ name }) => name).filter((name) => name.length <= MAX_ROW_NAME_LENGTH);
     return [{
       id: group,
+      kind: group === 'label' || group === 'fields' ? 'column' : 'place',
       label: grouped.label,
-      values: grouped.places.map((place) => place.name),
+      noun: grouped.noun,
+      values,
+      totalValues: grouped.places.length,
+      omittedValues: grouped.places.length - values.length,
+      ...(grouped.matchFields ? { matchFields: grouped.matchFields } : {}),
       datasets: grouped.groups.map((byPlace, index) => ({
         id: sources[index].dataset.id,
         hasSource: grouped.places.some(({ id }) => byPlace.get(id)?.direct.length),
@@ -60,30 +94,47 @@ export async function getComparisonOptions(datasetIds, user) {
       })),
     }];
   });
-  return { groupBy, datasets: sources.map(({ dataset, fields }) => ({ id: dataset.id, columns: fields })) };
+  const defaultCompare = groups.find(({ id }) => id === 'label')?.id
+    ?? groups.find(({ id, datasets }) => id !== 'state' && id !== 'fields' && datasets[0]?.hasSource)?.id
+    ?? groups.find(({ id }) => id !== 'fields')?.id
+    ?? groups[0]?.id;
+  const datasets = sources.map((source) => ({
+    id: source.dataset.id,
+    columns: source.fields,
+    ...(includeFieldMatching ? {
+      matchFields: source.matchFields.map(({ key, label }) => ({ key, label })),
+      defaultMatchField: source.defaultMatchField,
+    } : {}),
+  }));
+  return { groupBy: groups, defaultCompare, datasets };
 }
 
 export async function compareDatasets(selection, user) {
-  const { groupBy, sources: selections } = selection.comparison;
+  const { groupBy, matchFields, sources: selections } = selection.comparison;
+  const matching = groupBy === 'fields';
   const selectedFields = new Map();
   for (const { datasetId, indicator } of selections) {
     if (!selectedFields.has(datasetId)) selectedFields.set(datasetId, []);
     selectedFields.get(datasetId).push(indicator);
   }
   const [sources, catalog] = await Promise.all([
-    loadDatasets([...selectedFields.keys()], user, selectedFields),
+    loadDatasets([...selectedFields.keys()], user, { selectedFields, matchFields: matching ? matchFields ?? {} : undefined }),
     towns.list(),
   ]);
-  const datasets = sources.map((source) => presentDataset(source.dataset));
+  const datasets = sources.map((source) => presentDataset(source.dataset, { includeUploadDetails: Boolean(user) }));
   const anchor = datasets.find(({ id, name, vintage }) => (!selection.dataset.id || id === selection.dataset.id)
     && selection.dataset.name === name && selection.dataset.vintage === vintage);
   if (!anchor) throw new HttpError(400, 'Choose a dataset used in this comparison');
-  const grouped = groupDatasets(groupBy, sources, catalog);
+  const grouped = groupDatasets(groupBy, sources, catalog, sources.find(({ dataset }) => dataset.id === anchor.id));
+  if (matching && !grouped.places.length) {
+    throw new HttpError(400, 'The selected matching fields have no values in common. Choose another field.');
+  }
   if (!grouped) throw new HttpError(400, 'These datasets have no comparable rows at this level');
 
-  const placeByName = new Map(grouped.places.map((place) => [normalize(place.name), place]));
+  const rowKey = matching ? (name) => name : normalize;
+  const placeByName = new Map(grouped.places.map((place) => [rowKey(place.name), place]));
   const places = selection.allRows ? grouped.places : selection.rows.map((name) => {
-    const place = placeByName.get(normalize(name));
+    const place = placeByName.get(rowKey(name));
     if (!place) throw new HttpError(400, `“${name}” is unavailable for this comparison`);
     return place;
   });
@@ -131,6 +182,7 @@ export async function compareDatasets(selection, user) {
     rowNoun: grouped.noun,
     comparison: {
       groupBy,
+      ...(grouped.matchFields ? { matchFields: grouped.matchFields } : {}),
       sharedIndicators: sharedIndicators(sources),
       relationships: indicators.slice(1).map((indicator) => correlate(indicators[0], indicator)),
       notes: comparisonNotes(indicators),
@@ -138,8 +190,9 @@ export async function compareDatasets(selection, user) {
   };
 }
 
-function groupDatasets(group, sources, catalog) {
-  if (group === 'label') return groupLabels(sources);
+function groupDatasets(group, sources, catalog, anchor = sources[0]) {
+  if (group === 'label') return groupLabels(sources, anchor);
+  if (group === 'fields') return groupMatchingFields(sources, anchor);
   const placesByName = new Map(catalog.map((place) => [place.name, place]));
   const groups = sources.map((source) => groupGeography(source, group, placesByName));
   if (groups.some((set) => !set.size)) return null;
@@ -149,9 +202,9 @@ function groupDatasets(group, sources, catalog) {
   return { groups, places, label: GROUP_LABELS[group], noun: PLACE_GROUPS[group]?.noun ?? 'State' };
 }
 
-function groupLabels(sources) {
-  const label = sources[0]?.labelColumn?.label;
-  if (!label || sources.some(({ labelColumn }) => labelColumn?.role === 'town' || normalize(labelColumn?.label) !== normalize(label))) {
+function groupLabels(sources, anchor) {
+  const column = anchor?.labelColumn;
+  if (!column || sources.some(({ labelColumn }) => labelColumn?.role === 'town' || normalize(labelColumn?.label) !== normalize(column.label))) {
     return null;
   }
   const labels = new Map();
@@ -166,11 +219,46 @@ function groupLabels(sources) {
     }
     return byLabel;
   });
-  const places = [...labels.entries()]
-    .filter(([id]) => groups.every((group) => group.has(id)))
-    .map(([id, name]) => ({ id, name, label: name, geoType: 'row' }))
-    .sort((a, b) => a.name.localeCompare(b.name, 'en', { numeric: true }));
+  const places = sharedPlaces(groups, (id) => labels.get(id));
+  const label = rowNoun(anchor.dataset);
   return places.length ? { groups, places, label, noun: label } : null;
+}
+
+function groupMatchingFields(sources, anchor) {
+  const fields = {};
+  const groups = sources.map((source) => {
+    const { dataset, rows, matchField } = source;
+    const byValue = new Map();
+    if (!matchField) return byValue;
+    fields[dataset.id] = matchField.key;
+    for (const row of rows) {
+      const value = String(matchingValue(source, row) ?? '').trim();
+      if (value !== '') addRow(byValue, value, row);
+    }
+    return byValue;
+  });
+  return {
+    groups,
+    places: sharedPlaces(groups, (id) => id),
+    label: GROUP_LABELS.fields,
+    noun: anchor?.matchField?.label ?? 'Value',
+    matchFields: fields,
+  };
+}
+
+function matchingValue({ rowBased, matchField }, row) {
+  if (!rowBased) return row.geo_type === matchField.key ? row.name : null;
+  return matchField.role === 'town' ? row.town_name : row.cell_values[matchField.key];
+}
+
+function sharedPlaces(groups, nameFor) {
+  return [...(groups[0]?.keys() ?? [])]
+    .filter((id) => groups.every((group) => group.has(id)))
+    .map((id) => {
+      const name = nameFor(id);
+      return { id, name, label: name, geoType: 'row' };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name, 'en', { numeric: true }));
 }
 
 function groupGeography({ rows, rowBased }, group, placesByName) {
@@ -236,11 +324,11 @@ export function compareCell(group, method, read) {
 
 function sharedIndicators(sources) {
   const byIndicator = new Map();
-  for (const { dataset, fields } of sources) {
+  for (const { dataset, fields, sourceFieldLabels } of sources) {
     const seen = new Set();
     for (const field of fields) {
       // Match the label and unit. Record keys such as "c2" are positions, not identities.
-      const key = JSON.stringify([normalize(field.label), field.unit]);
+      const key = JSON.stringify([normalize(sourceFieldLabels.get(field.key)), field.unit]);
       if (seen.has(key)) continue;
       seen.add(key);
       if (!byIndicator.has(key)) byIndicator.set(key, { label: field.label, unit: field.unit, datasets: [] });
@@ -286,7 +374,7 @@ function comparisonNotes(indicators) {
     notes.push('Averages give each source row equal weight.');
   }
   if (indicators.some((series) => series.cells.some((cell) => cell.value == null))) {
-    notes.push('N/A marks a missing value or a place with multiple source rows.');
+    notes.push('N/A marks a missing value or a comparison value with multiple source rows.');
   }
   return notes;
 }

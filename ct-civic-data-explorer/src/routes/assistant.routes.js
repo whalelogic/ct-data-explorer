@@ -1,7 +1,8 @@
-/** The data assistant chat (services/ai/assistant.js). Signed-in users only; CSRF-protected. */
+/** The data assistant for published datasets and opted-in private uploads. */
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
+import { guestAiLimit } from '../middleware/guest-ai-limit.js';
 import { validate } from '../middleware/validate.js';
 import { askAssistant } from '../services/ai/assistant.js';
 
@@ -12,6 +13,7 @@ const MAX_TURN_LENGTH = 4000;
 const assistantLimiter = rateLimit({
   windowMs: 10 * 60 * 1000,
   limit: 40,
+  skip: (request) => !request.user,
   keyGenerator: (request) => `user:${request.user.id}`,
   standardHeaders: 'draft-8',
   legacyHeaders: false,
@@ -37,7 +39,7 @@ const chatSchema = z.object({
 
 export const assistantRouter = Router();
 
-assistantRouter.post('/', assistantLimiter, validate(chatSchema), async (request, response) => {
+assistantRouter.post('/', guestAiLimit, assistantLimiter, validate(chatSchema), async (request, response) => {
   const { messages, context } = request.valid.body;
   response.json(await askAssistant(messages, context, request.user));
 });

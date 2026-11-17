@@ -15,6 +15,7 @@ export const MAX_LAYOUT_BLOCKS = 30;
 export const MAX_TEXT_LENGTH = 4000;
 /** Listing more rows than this by name is what "all rows" is for; it keeps requests small. */
 export const MAX_NAMED_ROWS = 2000;
+export const MAX_ROW_NAME_LENGTH = 500;
 export const MAX_CUSTOM_INDICATORS = 10;
 /** A custom ratio's multiplier decides its unit, so a percentage is never charted beside a ratio. */
 export const RATIO_FORMATS = Object.freeze({
@@ -27,8 +28,19 @@ const requiredText = (label, max) => z.string().trim().min(1, `${label} is requi
 
 export const MAX_COMPARISON_SOURCES = 8;
 const datasetId = z.number().int().positive();
+const matchFieldsSchema = z.record(
+  z.string().regex(/^[1-9]\d*$/),
+  z.string().regex(/^(?:c\d{1,3}|town|county|region|state)$/, 'Choose an available matching field'),
+);
+
+function matchFieldsBelongToDatasets(matchFields, datasetIds) {
+  const ids = new Set(datasetIds.map(String));
+  return Object.keys(matchFields ?? {}).every((id) => ids.has(id));
+}
+
 const comparisonSchema = z.object({
-  groupBy: z.enum(['town', 'county', 'region', 'state', 'label']),
+  groupBy: z.enum(['town', 'county', 'region', 'state', 'label', 'fields']),
+  matchFields: matchFieldsSchema.optional(),
   sources: z.array(z.object({
     datasetId,
     indicator: requiredText('Indicator', 100),
@@ -38,6 +50,9 @@ const comparisonSchema = z.object({
 
 export const comparisonOptionsSchema = z.object({
   datasetIds: z.array(datasetId).min(1).max(MAX_COMPARISON_SOURCES),
+  matchFields: matchFieldsSchema.optional(),
+}).refine(({ matchFields, datasetIds }) => matchFieldsBelongToDatasets(matchFields, datasetIds), {
+  path: ['matchFields'], message: 'Choose matching fields from the datasets in this comparison',
 });
 
 export const comparisonIndicatorKey = ({ datasetId, indicator }) => `d${datasetId}:${indicator}`;
@@ -102,10 +117,9 @@ export const selectionSchema = z.preprocess(
         { error: 'Choose a dataset' },
       ),
       comparison: comparisonSchema.optional(),
-      // Row names: towns in town-keyed datasets, otherwise values of the row label column.
-      rows: z.array(requiredText('Row', 500)).max(MAX_NAMED_ROWS, `Name at most ${MAX_NAMED_ROWS} rows, or include all rows`).default([]),
+      rows: z.array(requiredText('Row', MAX_ROW_NAME_LENGTH)).max(MAX_NAMED_ROWS, `Name at most ${MAX_NAMED_ROWS} rows, or include all rows`).default([]),
       allRows: z.boolean().default(false),
-      // What the report compares: a place type (town, county, region) or a text column key.
+      // What the report compares: a geography type or a source column key.
       compareBy: z.string().regex(/^(?:town|county|region|c\d{1,3})$/, 'Choose what to compare').optional(),
       benchmark: z.boolean().default(true),
       indicators: z.array(requiredText('Indicator', 100)).min(1, 'Select at least one indicator for the report').max(25),
@@ -124,6 +138,12 @@ export const selectionSchema = z.preprocess(
     .superRefine((s, ctx) => {
       if (s.comparison) {
         const comparisonKeys = s.comparison.sources.map(comparisonIndicatorKey);
+        if (s.comparison.matchFields !== undefined && s.comparison.groupBy !== 'fields') {
+          ctx.addIssue({ code: 'custom', path: ['comparison', 'matchFields'], message: 'Select Match fields to choose the fields for this comparison' });
+        }
+        if (!matchFieldsBelongToDatasets(s.comparison.matchFields, s.comparison.sources.map(({ datasetId }) => datasetId))) {
+          ctx.addIssue({ code: 'custom', path: ['comparison', 'matchFields'], message: 'Choose matching fields from the datasets in this comparison' });
+        }
         if (s.dataset.id && !s.comparison.sources.some((source) => source.datasetId === s.dataset.id)) {
           ctx.addIssue({ code: 'custom', path: ['dataset'], message: 'Choose a dataset used in this comparison' });
         }
@@ -137,7 +157,8 @@ export const selectionSchema = z.preprocess(
       if (!s.allRows && s.rows.length === 0) {
         ctx.addIssue({ code: 'custom', path: ['rows'], message: 'Choose at least one row, or include all rows' });
       }
-      const rowNames = s.rows.map((row) => s.comparison ? row.replace(/\s+/g, ' ').toLowerCase() : row.toLowerCase());
+      const exactRows = s.comparison ? s.comparison.groupBy === 'fields' : /^c\d+$/.test(s.compareBy ?? '');
+      const rowNames = exactRows ? s.rows : s.rows.map((row) => (s.comparison ? row.replace(/\s+/g, ' ') : row).toLowerCase());
       const duplicateRow = findDuplicate(rowNames);
       if (duplicateRow) ctx.addIssue({ code: 'custom', path: ['rows'], message: `"${duplicateRow}" is selected more than once` });
 

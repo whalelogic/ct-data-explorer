@@ -31,7 +31,7 @@
               required
               aria-describedby="file-help"
             />
-            <p id="file-help" class="muted small">The first row must hold the column names. Rows may repeat, for example one row per town and industry.</p>
+            <p id="file-help" class="muted small">Use the first row for column names. A field may repeat across rows, for example when each program has several reporting periods.</p>
             <div id="worksheet-field" hidden>
               <label for="ds-worksheet">Worksheet (optional)</label>
               <input id="ds-worksheet" name="worksheet" maxlength="100" placeholder="Leave blank to use the first sheet" disabled />
@@ -59,21 +59,18 @@
             <p class="muted small">Uploading again with the same name and reporting period creates a new version.</p>
           </li>
 
-          <!-- Filled from the file: which column names each row. -->
+          <!-- Filled from the file so the user can inspect and choose a primary field. -->
           <li class="panel setup-step" id="row-label-field" hidden>
-            <div class="setup-step-head"><h2>What does each row describe?</h2></div>
-            <label for="ds-label-column">Each row is a</label>
-            <select id="ds-label-column" name="labelColumn"></select>
-            <p id="label-samples" class="muted small"></p>
-            <p class="muted small">The first rows of your file. The highlighted column names each row; every other column becomes something you can show for it.</p>
-            <div id="upload-preview" class="table-wrap" tabindex="0" role="region" aria-label="First rows of the file"></div>
-            <label class="check">
+            <div class="setup-step-head"><h2>Choose a primary field</h2></div>
+            <label for="ds-label-column">Default comparison field</label>
+            <select id="ds-label-column" name="labelColumn" aria-describedby="label-help label-samples"></select>
+            <p id="label-help" class="muted small">Choose an ID, a category, or a name to label the rows and start new reports. You can change this later in dataset settings.</p>
+            <p id="label-samples" class="muted small" aria-live="polite"></p>
+            <label id="geography-option" class="check small" hidden>
               <input type="checkbox" id="ds-label-is-town" />
-              <span>
-                These are Connecticut places (state, counties, planning regions or towns)
-                <span class="field-label-unit">Names are matched to the official list, which allows a statewide comparison. Leave unticked for industries, programs, people or other records.</span>
-              </span>
+              Enable Connecticut place comparisons
             </label>
+            <div id="upload-preview" class="table-wrap" tabindex="0" role="region" aria-label="First rows of the file"></div>
           </li>
         </ol>
 

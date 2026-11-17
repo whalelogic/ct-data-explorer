@@ -1,18 +1,53 @@
 /** HTTP tests that need no database: routing, auth boundary, validation and static assets. */
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import session from 'express-session';
 import request from 'supertest';
 
 process.env.NODE_ENV = 'test';
 const { createApp } = await import('../src/app.js');
+const { pool } = await import('../src/db/pool.js');
 const app = createApp({ sessionStore: new session.MemoryStore() });
+after(() => pool.end());
 
-test('API routes require a session', async () => {
-  for (const path of ['/api/reports', '/api/towns', '/api/users', '/api/ai-settings', '/api/admin/usage', '/api/not-a-route']) {
+test('account-only APIs require sign-in', async () => {
+  for (const path of ['/api/auth/me', '/api/reports', '/api/reports/1', '/api/reports/1/pdf',
+    '/api/reports/by-slug/saved-report', '/api/datasets?scope=private', '/api/datasets/1/curation',
+    '/api/datasets/1/presentation', '/api/datasets/1/row-label', '/api/indicators',
+    '/api/users', '/api/ai-settings', '/api/admin/usage', '/api/not-a-route']) {
     const res = await request(app).get(path).expect(401);
     assert.equal(res.body.error, 'Please sign in');
   }
+});
+
+test('guests need a CSRF token for report and chat requests', async () => {
+  for (const path of ['/api/reports/comparison-options', '/api/reports/preview', '/api/reports/pdf',
+    '/api/reports/summary', '/api/assistant']) {
+    const res = await request(app).post(path).send({}).expect(403);
+    assert.match(res.body.error, /Reload it and try again/);
+  }
+  for (const path of ['/api/datasets/private/inspect', '/api/datasets/private', '/api/reports',
+    '/api/reports/1/duplicate']) {
+    await request(app).post(path).send({}).expect(401);
+  }
+});
+
+test('guest chat and report summaries share a per-network request limit', {
+  skip: process.env.CT_CURATION_INTEGRATION !== '1',
+}, async () => {
+  const guest = request.agent(app);
+  const { body: session } = await guest.get('/api/auth/session').expect(200);
+  assert.equal(session.user, null);
+  assert.ok(session.csrfToken);
+  for (let i = 0; i < 10; i += 1) {
+    await guest.post('/api/assistant').set('X-CSRF-Token', session.csrfToken).send({}).expect(400);
+  }
+
+  const anotherGuest = request.agent(app);
+  const { body: secondSession } = await anotherGuest.get('/api/auth/session').expect(200);
+  const response = await anotherGuest.post('/api/reports/summary')
+    .set('X-CSRF-Token', secondSession.csrfToken).send({}).expect(429);
+  assert.match(response.body.error, /guest AI limit/);
 });
 
 test('sign-in validates input before touching the database', async () => {

@@ -5,7 +5,7 @@
 import { loadSession } from './api.js';
 import { h as createElement } from './dom.js';
 import { boot, debounce, formatDate, renderHeader, showStatus } from './layout.js';
-import { fetchReports, reportActionButtons, summarizeRows } from './report-library.js';
+import { fetchReports, reportActionButtons, reportBuilderUrl, reportIsMine, summarizeRows } from './report-library.js';
 
 let currentUser = null;
 let reports = [];
@@ -28,9 +28,13 @@ async function initializeExplore() {
     return;
   }
 
-  const session = await loadSession();
+  const session = await loadSession({ allowGuest: true });
   currentUser = session.user;
   renderHeader(currentUser);
+  if (!currentUser) {
+    getElement('gallery-intro').textContent = 'Reports you save as a guest are available in this browser.';
+    getElement('gallery-owner-filter').hidden = true;
+  }
 
   getElement('gallery-filters').addEventListener('submit', (event) => event.preventDefault());
   getElement('gallery-search').addEventListener('input', scheduleSearch);
@@ -44,7 +48,7 @@ async function loadReports() {
   const thisRequest = ++requestNumber;
   getElement('gallery').setAttribute('aria-busy', 'true');
   try {
-    const matching = await fetchReports(getElement('gallery-search').value.trim());
+    const matching = await fetchReports(getElement('gallery-search').value.trim(), { user: currentUser });
     if (thisRequest !== requestNumber) {
       return;
     }
@@ -82,7 +86,7 @@ function renderGallery() {
   const onlyMine = getElement('gallery-mine').checked;
   const sort = getElement('gallery-sort').value;
   const visible = reports.filter((report) => {
-    return (!datasetFilter || datasetLabel(report) === datasetFilter) && (!onlyMine || report.createdBy.id === currentUser.id);
+    return (!datasetFilter || datasetLabel(report) === datasetFilter) && (!onlyMine || reportIsMine(report, currentUser));
   });
   visible.sort((first, second) => {
     if (sort === 'title') {
@@ -105,25 +109,26 @@ function renderGallery() {
     const filtered = Boolean(getElement('gallery-search').value.trim() || datasetFilter || onlyMine);
     getElement('gallery-empty-title').textContent = filtered ? 'No reports match' : 'No reports yet';
     getElement('gallery-empty-text').textContent = filtered
-      ? 'Try another search, choose All datasets, or turn off Only my reports.'
+      ? (currentUser ? 'Try another search, choose All datasets, or turn off Only my reports.' : 'Try another search or choose All datasets.')
       : 'Build a report from a dataset, then save it to see it here.';
   }
 }
 
 function createCard(report) {
-  const viewUrl = report.viewUrl ?? `/builder?report=${report.id}`;
+  const editUrl = reportBuilderUrl(report);
+  const viewUrl = report.viewUrl ?? editUrl;
   const title = createElement('h2', { class: 'gallery-card-title' },
     createElement('a', { href: viewUrl, class: 'stretched-link' }, report.title));
   const dataset = createElement('p', { class: 'gallery-card-dataset' }, datasetLabel(report));
   const rows = createElement('p', { class: 'gallery-card-rows' }, summarizeRows(report));
-  const owner = report.createdBy.id === currentUser.id ? 'You' : report.createdBy.name;
+  const owner = reportIsMine(report, currentUser) ? 'You' : report.createdBy.name;
   const meta = createElement('p', { class: 'gallery-card-meta' },
-    `${owner} · `, createElement('time', { datetime: report.updatedAt }, formatDate(report.updatedAt)));
+    report.isLocal ? 'Updated ' : `${owner} · `, createElement('time', { datetime: report.updatedAt }, formatDate(report.updatedAt)));
 
   const actions = createElement('div', { class: 'gallery-card-actions' });
+  if (!report.isLocal) actions.append(createElement('a', { href: viewUrl, class: 'button' }, 'View'));
   actions.append(
-    createElement('a', { href: viewUrl, class: 'button' }, 'View'),
-    createElement('a', { href: `/builder?report=${report.id}`, class: 'button secondary' }, 'Edit'),
+    createElement('a', { href: editUrl, class: report.isLocal ? 'button' : 'button secondary' }, 'Edit'),
     ...reportActionButtons(report, {
       user: currentUser,
       status: getElement('report-action-status'),

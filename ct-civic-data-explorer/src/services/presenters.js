@@ -28,7 +28,7 @@ export function presentPlace(place) {
   };
 }
 
-export function presentDataset(dataset) {
+export function presentDataset(dataset, { includeUploadDetails = true } = {}) {
   return {
     id: dataset.id,
     name: dataset.name,
@@ -43,17 +43,19 @@ export function presentDataset(dataset) {
     rowCount: dataset.row_count,
     isActive: dataset.is_active,
     isPrivate: Boolean(dataset.is_private),
-    uploadedAt: dataset.uploaded_at,
-    uploadedBy: dataset.uploaded_by_name,
     dataFormat: dataset.data_format ?? 'indicators',
     columns: applyFieldPresentation(visibleDatasetColumns(dataset), dataset.presentation),
     rowLabelKey: rowLabelColumn(dataset)?.key ?? null,
     townKeyed: isTownKeyed(dataset),
     rowNoun: rowNoun(dataset),
-    importNotes: dataset.import_notes ?? [],
     approvedFields: dataset.approved_fields ?? null,
     curationReviewed: Boolean(dataset.curation_reviewed_at),
-    curationReviewedAt: dataset.curation_reviewed_at ?? null,
+    ...(includeUploadDetails && {
+      uploadedAt: dataset.uploaded_at,
+      uploadedBy: dataset.uploaded_by_name,
+      importNotes: dataset.import_notes ?? [],
+      curationReviewedAt: dataset.curation_reviewed_at ?? null,
+    }),
   };
 }
 

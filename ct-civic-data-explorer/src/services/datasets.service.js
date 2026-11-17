@@ -4,13 +4,14 @@ import { HttpError } from '../lib/http-error.js';
 import * as datasets from '../repositories/datasets.js';
 import * as indicators from '../repositories/indicators.js';
 import * as observations from '../repositories/observations.js';
+import * as reports from '../repositories/reports.js';
 import * as sources from '../repositories/sources.js';
 import * as towns from '../repositories/towns.js';
 import * as records from '../repositories/dataset-records.js';
 import { readDatasetRecords } from './dataset-file.js';
 import { inspectTabularColumns, prepareTabularDataset, formatDatasetCell } from './tabular-data.js';
-import { PLACE_GROUPS, isTownKeyed, recordRowName, rowLabelCandidates, rowLabelColumn } from './row-labels.js';
-import { MAX_NAMED_ROWS } from './selection.js';
+import { PLACE_GROUPS, isTownKeyed, recordRowName, rowLabelCandidates, rowLabelColumn, rowNoun } from './row-labels.js';
+import { MAX_NAMED_ROWS, MAX_ROW_NAME_LENGTH } from './selection.js';
 import { computeValue } from './compute.js';
 import { formatValue } from '../shared/format.js';
 import { presentDataset, presentIndicator, presentPlace } from './presenters.js';
@@ -44,14 +45,15 @@ export async function requireAccessibleDataset(datasetId, user, { activeOnly = f
 export async function getDatasetOverview(datasetId, { offset = 0, limit = 25 }, user) {
   const dataset = await requireAccessibleDataset(datasetId, user);
 
-  const previewApprovals = user.role === 'admin' ? null : dataset.approved_fields;
+  const previewApprovals = user?.role === 'admin' ? null : dataset.approved_fields;
+  const presentedDataset = presentDataset(dataset, { includeUploadDetails: Boolean(user) });
   if (dataset.data_format === 'records') {
-    return buildRecordOverview(dataset, previewApprovals, { offset, limit });
+    return buildRecordOverview(dataset, presentedDataset, previewApprovals, { offset, limit });
   }
-  return buildIndicatorOverview(dataset, previewApprovals, { offset, limit });
+  return buildIndicatorOverview(dataset, presentedDataset, previewApprovals, { offset, limit });
 }
 
-async function buildRecordOverview(dataset, approvedFields, { offset, limit }) {
+async function buildRecordOverview(dataset, presentedDataset, approvedFields, { offset, limit }) {
   const columns = applyFieldPresentation(approvedDefinitions(dataset.column_definitions ?? [], approvedFields, { includeTown: true }), dataset.presentation);
   const sourceRows = await records.list(dataset.id, { offset, limit });
   const previewRows = [];
@@ -66,7 +68,7 @@ async function buildRecordOverview(dataset, approvedFields, { offset, limit }) {
   }
 
   return {
-    dataset: presentDataset(dataset),
+    dataset: presentedDataset,
     shape: describeRecordShape(dataset, await records.list(dataset.id)),
     indicators: columns.filter((column) => !isRowIdentity(column)),
     preview: {
@@ -88,7 +90,7 @@ function describeRecordShape(dataset, sourceRows) {
   const labelColumn = rowLabelColumn(dataset);
   const townKeyed = isTownKeyed(dataset);
   const names = sourceRows.map((row) => [recordRowName(row, labelColumn, townKeyed), townKeyed ? row.geo_type : 'row']);
-  return describeShape({ rowColumn: labelColumn && { key: labelColumn.key, label: labelColumn.label }, townKeyed, names });
+  return describeShape({ rowColumn: labelColumn && { key: labelColumn.key, label: rowNoun(dataset) }, townKeyed, names });
 }
 
 function describeShape({ rowColumn, townKeyed, names }) {
@@ -112,7 +114,7 @@ function describeShape({ rowColumn, townKeyed, names }) {
   return { rowColumn, townKeyed, kinds, totalRows: names.length, distinctRows, repeated: distinctRows < names.length };
 }
 
-async function buildIndicatorOverview(dataset, approvedFields, { offset, limit }) {
+async function buildIndicatorOverview(dataset, presentedDataset, approvedFields, { offset, limit }) {
   const [definitions, storedKeys, places, totalPlaces] = await Promise.all([
     indicators.list(),
     observations.indicatorKeys(dataset.id),
@@ -136,7 +138,7 @@ async function buildIndicatorOverview(dataset, approvedFields, { offset, limit }
 
   const allPlaces = await observations.previewPlaces(dataset.id, { offset: 0, limit: 10000 });
   return {
-    dataset: presentDataset(dataset),
+    dataset: presentedDataset,
     shape: describeShape({ rowColumn: { key: null, label: 'Town' }, townKeyed: true, names: allPlaces.map((place) => [place.name, place.geo_type]) }),
     indicators: approvedIndicators.map(presentIndicator),
     preview: {
@@ -210,6 +212,14 @@ export async function updateDatasetCuration(datasetId, approvedFields, user) {
 
     const fields = await availableFields(dataset, client);
     const validatedFields = validateApprovedFields(fields, approvedFields);
+    if (dataset.data_format === 'records' && dataset.row_label_key) {
+      const previousKey = rowLabelColumn(dataset)?.key;
+      const fallbackKey = rowLabelColumn({ ...dataset, approved_fields: validatedFields })?.key ?? null;
+      if (fallbackKey !== dataset.row_label_key) {
+        if (previousKey) await reports.pinRecordCompareColumn(datasetId, previousKey, client);
+        await datasets.setRowLabelKey(datasetId, fallbackKey, client);
+      }
+    }
     await datasets.setCuration(datasetId, validatedFields, user.id, client);
     if (approvedFields.length === 0 && dataset.is_active) {
       await datasets.setActive(datasetId, false, client);
@@ -275,14 +285,16 @@ export async function uploadDataset({ file, filename, worksheet, name, source, v
   });
 }
 
-export async function getReportOptions(datasetId, user) {
+export async function getReportOptions(datasetId, user, { compareBy } = {}) {
   const dataset = await requireAccessibleDataset(datasetId, user);
+  const labelColumn = rowLabelColumn(dataset);
 
   const fields = await availableFields(dataset);
   const approvedFields = applyFieldPresentation(approvedDefinitions(fields, dataset.approved_fields), dataset.presentation);
   const sharedOptions = {
     dataFormat: dataset.data_format ?? 'indicators',
     defaultChartType: dataset.presentation?.defaultChartType || 'grouped_bar',
+    rowLabelKey: labelColumn?.key ?? null,
     curationReviewed: Boolean(dataset.curation_reviewed_at),
     columns: addDisplayLabels(approvedFields),
   };
@@ -305,7 +317,7 @@ export async function getReportOptions(datasetId, user) {
 
   const sourceRows = await records.list(datasetId);
   const townKeyed = isTownKeyed(dataset);
-  const labelColumn = rowLabelColumn(dataset);
+  const geographyColumn = rowLabelCandidates(dataset).find((column) => column.role === 'town');
   const placesByName = new Map();
   for (const row of sourceRows) {
     const name = recordRowName(row, labelColumn, townKeyed);
@@ -323,20 +335,21 @@ export async function getReportOptions(datasetId, user) {
   places.sort((firstPlace, secondPlace) => firstPlace.name.localeCompare(secondPlace.name, 'en', { numeric: true }));
 
   const compareOptions = [
-    ...(townKeyed ? placeCompareOptions(sourceRows) : []),
-    ...columnCompareOptions(dataset, approvedFields, sourceRows),
+    ...(geographyColumn ? placeCompareOptions(sourceRows) : []),
+    ...columnCompareOptions(dataset, sourceRows, { primaryKey: labelColumn?.key, compareBy }),
   ];
   const defaultCompare = townKeyed ? compareOptions[0]?.id : labelColumn?.key;
   return {
     ...sharedOptions,
+    geographyKey: geographyColumn?.key ?? null,
     compareOptions,
     defaultCompare: compareOptions.some((option) => option.id === defaultCompare) ? defaultCompare : compareOptions[0]?.id ?? null,
     rowKind: townKeyed ? 'town' : 'label',
-    rowNoun: townKeyed ? 'Town' : labelColumn?.label ?? 'Row',
-    hasState: townKeyed && sourceRows.some((row) => row.geo_type === 'state'),
+    rowNoun: rowNoun(dataset),
+    hasState: Boolean(geographyColumn) && sourceRows.some((row) => row.geo_type === 'state'),
     repeatedRows,
     places: places.map((place) => (place.geo_type === 'row' ? { ...place, geoType: 'row', label: place.name } : presentPlace(place))),
-    filters: buildCategoryFilters(approvedFields, sourceRows, labelColumn),
+    filters: buildCategoryFilters(approvedFields, sourceRows),
   };
 }
 
@@ -358,32 +371,39 @@ function placeCompareOptions(places) {
 }
 
 /**
- * Text columns people can compare by (Program, Sector…): the upload's label column and
- * approved text fields with between 2 and MAX_NAMED_ROWS distinct values. The town column
- * is covered by the place options.
+ * The primary field and the one used in an existing report are always choices when visible.
+ * Other fields are offered when the number of values fits the report's named selection limit.
  */
-function columnCompareOptions(dataset, approvedFields, sourceRows) {
-  const presented = new Map(approvedFields.map((field) => [field.key, field]));
+function columnCompareOptions(dataset, sourceRows, { primaryKey, compareBy }) {
   const options = [];
-  for (const column of rowLabelCandidates(dataset)) {
+  const columns = applyFieldPresentation(rowLabelCandidates(dataset), dataset.presentation);
+  for (const column of columns) {
     if (column.role === 'town') {
       continue;
     }
-    const values = new Set(sourceRows.map((row) => recordRowName(row, column, false)));
-    if (values.size < 2 || values.size > MAX_NAMED_ROWS) {
+    const keepAvailable = column.key === primaryKey || column.key === compareBy;
+    const names = new Set();
+    for (const row of sourceRows) {
+      names.add(recordRowName(row, column, false));
+      if (!keepAvailable && names.size > MAX_NAMED_ROWS) break;
+    }
+    if (!keepAvailable && (names.size < 2 || names.size > MAX_NAMED_ROWS)) {
       continue;
     }
-    const label = presented.get(column.key)?.label ?? column.label;
-    options.push({ id: column.key, kind: 'column', label, noun: label, values: [...values].sort(byName) });
+    const values = [...names].filter((name) => name.length <= MAX_ROW_NAME_LENGTH).sort(byName);
+    options.push({
+      id: column.key, kind: 'column', label: column.label, noun: column.label, values,
+      totalValues: names.size, omittedValues: names.size - values.length,
+    });
   }
   return options;
 }
 
 /** Text fields with a manageable number of values can narrow a report to one category. */
-function buildCategoryFilters(fields, sourceRows, labelColumn) {
+function buildCategoryFilters(fields, sourceRows) {
   const filters = [];
   for (const field of fields) {
-    if (field.type !== 'text' || field.role !== 'dimension' || field.key === labelColumn?.key) {
+    if (field.type !== 'text' || field.role !== 'dimension') {
       continue;
     }
 
@@ -406,25 +426,22 @@ function buildCategoryFilters(fields, sourceRows, labelColumn) {
 }
 
 /**
- * Choose which column labels a source-row dataset's rows. Staff may change it for
- * published datasets; administrators for any version. Choosing the town column makes the
- * dataset town-keyed again. Only identifier columns and approved text fields qualify, so
- * this never reveals an unapproved column.
+ * Choose a visible source field as the dataset's default comparison field.
  */
 export async function setDatasetRowLabel(datasetId, rowLabelKey, user) {
   return withTransaction(async (client) => {
     await client.lock(`dataset-curation:${datasetId}`);
     const dataset = await requireAccessibleDataset(datasetId, user, { database: client });
     if (dataset.data_format !== 'records') {
-      throw new HttpError(400, 'This dataset stores one row per town, so its rows are always labeled by town.');
+      throw new HttpError(400, 'This indicator dataset uses its stored geography as the primary field.');
     }
     const candidate = rowLabelCandidates(dataset).find((column) => column.key === rowLabelKey);
     if (!candidate) {
-      throw new HttpError(400, 'Choose the town column, the upload’s label column or an approved text field.');
+      throw new HttpError(400, 'Choose an available source field as the primary field.');
     }
-    if (candidate.role === 'town' && dataset.column_definitions.every((column) => column.role !== 'town')) {
-      throw new HttpError(400, 'This dataset has no matched town column.');
-    }
+    const previousKey = rowLabelColumn(dataset)?.key;
+    if (previousKey === rowLabelKey) return presentRowLabelSettings(dataset);
+    if (previousKey) await reports.pinRecordCompareColumn(datasetId, previousKey, client);
     await datasets.setRowLabelKey(datasetId, rowLabelKey, client);
     return presentRowLabelSettings(await datasets.findById(datasetId, client));
   });
@@ -443,7 +460,13 @@ function presentRowLabelSettings(dataset) {
     rowLabelKey: current?.key ?? null,
     townKeyed: isTownKeyed(dataset),
     candidates: canChange
-      ? rowLabelCandidates(dataset).map((column) => ({ key: column.key, label: column.label, isTown: column.role === 'town' }))
+      ? rowLabelCandidates(dataset).map((column) => ({
+        key: column.key,
+        label: dataset.presentation?.fields?.[column.key]?.label || column.label,
+        sourceLabel: column.label,
+        isTown: column.role === 'town',
+        type: column.type,
+      }))
       : [],
   };
 }
@@ -471,8 +494,8 @@ export async function setDatasetActive(datasetId, isActive) {
 
 async function presentationAccess(datasetId, user, database) {
   const dataset = await requireAccessibleDataset(datasetId, user, { database });
-  const fields = await availableFields(dataset, database);
-  return { dataset, fields: user.role === 'admin' ? fields : approvedDefinitions(fields, dataset.approved_fields) };
+  const fields = dataset.data_format === 'records' ? dataset.column_definitions ?? [] : await availableFields(dataset, database);
+  return { dataset, fields: user.role === 'admin' ? fields : approvedDefinitions(fields, dataset.approved_fields, { includeTown: true }) };
 }
 
 function presentSettings(dataset, fields) {

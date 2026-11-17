@@ -1,23 +1,31 @@
 # CT Civic Data Explorer
 
-An authenticated civic data explorer for CTData Collaborative. Administrators upload datasets (organized by town or by any other row label), approve the fields users may access, then publish. Users build reports from approved fields in the report builder, then open them as interactive pages at `/explore/<report-name>.html` or export PDFs. Every view retains its dataset name, period and source.
+A civic data explorer for CTData Collaborative. Administrators upload datasets (organized by town or by any other row label), approve the fields users may access, then publish. Users build reports from approved fields in the report builder, then open them as interactive pages at `/explore/<report-name>.html` or export PDFs. Every view retains its dataset name, period and source.
 
-The interactive workflow advances the dynamic reporting direction in `SRS.docx` (draft v1.1). Public report publishing remains outstanding; this release requires sign-in. Jill Walsh's October 6 email and attached August 2025 brand guide define the palette and Poppins typography. Her September 30 data email asks for periods matching the existing town and housing profiles, rather than automatically selecting the newest data. Uploaded source data retains its declared period; this change does not silently replace datasets or fetch a newer vintage.
+The interactive workflow advances the dynamic reporting direction in `SRS.docx` (draft v1.1). Guests can build and export reports from published datasets and ask the data assistant. Sign in to save reports to your account and share them with other signed-in users. Jill Walsh's October 6 email and attached August 2025 brand guide define the palette and Poppins typography. Her September 30 data email asks for periods matching the existing town and housing profiles, rather than automatically selecting the newest data. Uploaded source data retains its declared period; this change does not silently replace datasets or fetch a newer vintage.
 
 ## Curate, build, explore
 
-1. An administrator opens **Datasets** (`/admin`, searchable, sortable and filterable by reporting period, status and field review) and selects **+ Add dataset** (`/admin/datasets/new`). The upload page asks three things in order: the file, its name/source/reporting period, and what each row describes. The row column is suggested from the file (a `Town` column, the column that best matches Connecticut places, otherwise the first text column). Tick **These are Connecticut places** only when they are; names are then matched to the official list and a statewide comparison becomes available. Industries, programs or record IDs work too.
-2. The upload opens the dataset page on its **Settings** tab, a numbered checklist: **Choose the fields people can use** (tick cards, then save), **Default comparison**, **Names and display** (optional) and **Publish**, which stays disabled, with the reason shown, until fields are chosen and saved. An empty approval unpublishes the dataset. The **Data** tab (default for everyone) previews the rows and the **Fields** tab lists what reports can use. Tabs are linkable as `#data`, `#fields` and `#settings`.
-3. In the **Report builder**, work through four steps: **Compare** (pick towns, counties, planning regions or an approved text column such as Program, then tick which ones from a list; nothing is typed), **Show** (tick the fields as cards, then order or rename them; calculated ratios are optional), **Charts & tables** (starts with a chart and a table) and **Finish** (title, optional colors, **Save report** and **Export PDF**). The statewide figure is off by default. Source rows are never implicitly summed.
-4. **Save** gives the report a readable address, `/explore/<report-name>.html`. **Explore reports** lists saved reports; each opens as an interactive page with its charts, tables and a ranking of its rows. PDF export is available from the builder and the viewer.
+1. An administrator opens **Admin → Datasets** (`/admin`) and selects **+ Add dataset** (`/admin/datasets/new`). Upload a CSV or Excel workbook, enter its name, source and reporting period, then choose the field that identifies a row. A field can identify a program, product, reporting period, region or record ID. Connecticut place matching is available when the field contains names from the official list.
+2. On the dataset's **Settings** tab, approve the fields people can use, choose the primary field that new reports will compare by, and set any display names. Display names appear in the dataset and report builder while the original column headers and values are retained. Approve at least one report field before publishing. The **Data** and **Fields** tabs show the source rows and the available report fields.
+3. Open **Reports → Report builder**, review **Compare by** and choose which values to include. Use **Fields** to select fields and add calculations, **Layout** to arrange the results, and **Finish** to save the report or export a PDF. A selection with repeated primary values keeps the matching source rows separate. Connecticut benchmarks are available for supported geographic comparisons.
+4. **Save** stores a guest report in the current browser or saves a signed-in report to the account at `/explore/<report-name>.html`. Reopen saved work from **Reports → Explore reports**. PDF export is available in the builder and the account report viewer.
 
 Older links to `/explore?dataset=…` open the builder with that dataset. Saved reports that stored `towns` are read as `rows`, so they keep working.
 
+### Match fields across datasets
+
+Enable **Compare datasets or aggregate rows**, add the datasets, then choose **Match fields** under **Compare by**. Each dataset starts with its primary field. Pick another field in any dataset when its values match the values in the other datasets. The builder lists values shared by every dataset. If a value appears on several rows in one dataset, choose how to summarize those rows for each indicator.
+
+### Planning region example
+
+For `ACSDT5Y2024.B25003-Data_PlanningRegion.csv`, choose `Geographic Area Name` as the primary field and give it the display name **Planning region**. The CSV has nine region names and nine distinct `GeographyID` values. Use `GeographyID` as the primary field when a report should use Census identifiers. Approve `Total Occupied Housing Units`, give it the display name **Housing units**, and leave the margin-of-error fields unchecked if the report only needs estimates. A report on `Capitol Planning Region, Connecticut` shows **391,113** housing units, including **257,054** owner-occupied and **134,059** renter-occupied units when those fields are included.
+
 ### Data assistant
 
-Open **AI chat** and ask a question. The assistant finds relevant published datasets and can compare their indicators. Staff and administrators can open a proposed report in the builder.
+Open **AI chat** and ask a question. The assistant finds relevant published datasets and can compare their indicators. Answers with data link to the dataset versions the assistant used and show their sources, reporting periods and places when available. A publisher's link appears when its URL is known. Guests and signed-in users can open a proposed report in the builder.
 
-The assistant uses the signed-in account's dataset permissions for every lookup. Owners can allow the configured AI provider to use their private uploads for the current chat. Chat history stays in the browser tab and requests are limited to 40 per account per 10 minutes.
+The assistant looks up published data. Signed-in owners can allow the configured AI provider to access their private uploads for the current chat. Chat history stays in the browser tab. Guests share 10 AI requests per network per 10 minutes across chat and report summaries. Signed-in chat allows 40 requests per account per 10 minutes.
 
 ### AI settings
 
@@ -48,7 +56,7 @@ Ratios and averages can be shown as a number, a percentage (× 100) or per 1,000
 
 Migration `008_dataset_row_labels.sql` lets source rows have no town and records each dataset's row label column; `009_report_slugs.sql` adds unique report addresses, giving existing reports one made from their title and ID. Both are safe to apply to databases that already have a `reports.slug` column. `010_row_label_backfill.sql` records the Town column as the row label of source-row datasets uploaded before 008, adds a check that only those datasets carry a row label key, and rewrites saved report selections from `towns` to `rows` (the app still reads `towns`, so restored backups keep working).
 
-Datasets do not need a town column. At upload, staff pick the column that identifies each row (an industry, program or record ID); a `Town` column is pre-selected when present and must then match Connecticut towns. Reports on such datasets select rows by that column's values, and town-only options (statewide benchmark) are hidden. Staff can change the label column later in the dataset page's **Row labels** panel; saved reports that named rows by the old column then ask for rows to be chosen again.
+Source-row datasets support a configurable primary field. It starts with the field chosen at upload and can be changed in **Settings**. A saved single-dataset report keeps its comparison field when the dataset default changes, provided that field remains available. Observation-format datasets use their stored geography as their comparison field.
 
 A Town column may also hold Connecticut's 8 counties (e.g. "Fairfield County") and 9 planning regions (e.g. "Capitol Planning Region"), added by `011_county_region_geographies.sql`. Those rows are kept as their own rows, never added to towns, and in the ranking view are shown for reference rather than ranked against the towns they contain. Any other unmatched name still rejects the upload.
 
@@ -100,7 +108,7 @@ Excel uploads import the first worksheet by default; enter a worksheet name to i
 
 For example, Industry Jobs retains five industry rows for each town; its repeated Total Jobs value is never summed. Key Employers retains the employer names and Bridgewater's note explaining its blank entries. Population Within 45 Minutes detects the numeric population column despite its descriptive heading. A header explicitly indicating a decimal-format percentage is displayed as a percentage without changing its stored fraction.
 
-Reports over source rows offer category filters and select columns from that dataset. Charts use numeric columns; text-only datasets render as tables. Browser charts show 20 locations per page, indicator tables show 10 locations, and source tables show 50 rows. Page controls reach the complete selection. PDFs include all selected locations in readable chart and table sections, with source details on every page. No implicit sums, averages or cross-dataset joins are performed.
+Reports over source rows offer category filters and select columns from that dataset. Charts use numeric columns; text-only datasets render as tables. Browser charts show 20 locations per page, indicator tables show 10 locations, and source tables show 50 rows. Page controls reach the complete selection. PDFs include all selected locations in readable chart and table sections, with source details on every page. The builder sums or averages source rows when you select that calculation.
 
 ## Commands
 
@@ -152,7 +160,7 @@ Use descriptive camelCase names for variables and functions, and UPPER_SNAKE_CAS
 **Accounts and security.**
 - Accounts are invite-only; there is no self-registration. Passwords are hashed with bcrypt (cost 12, 12 characters to 72 bytes).
 - Invite and reset links are single-use. Only their hash is stored, and the token travels in the URL fragment so it never reaches server logs.
-- Sessions are stored server-side in MySQL (`src/db/session-store.js`) behind an HttpOnly cookie. They expire after 30 minutes idle or 8 hours total.
+- Sessions are stored server-side in MySQL (`src/db/session-store.js`) behind an HttpOnly cookie. Guest and account sessions expire after 30 minutes idle. Account sessions also expire after 8 hours.
 - Five failed sign-ins in 15 minutes lock the account for 15 minutes, and there is a per-IP rate limit on credential endpoints.
 - State-changing requests need a synchronizer CSRF token in `X-CSRF-Token`.
 - Chart.js is served from `node_modules`, not a CDN, so pages make no third-party requests.

@@ -3,7 +3,7 @@ import { h } from './dom.js';
 import { boot, renderHeader } from './layout.js';
 
 boot(async () => {
-  const { user } = await loadSession();
+  const { user } = await loadSession({ allowGuest: true });
   renderHeader(user);
 
   const id = new URLSearchParams(location.search).get('id');

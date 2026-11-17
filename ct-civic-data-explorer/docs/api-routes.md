@@ -2,19 +2,19 @@
 
 **Access:** Public = no sign-in needed · Signed in = any staff or admin account · Admin = admin accounts only
 
-**CSRF:** every `/api` request that changes data (POST, PUT, PATCH, DELETE) must send the `X-CSRF-Token` header, except `login`, `token` and `set-password`, which run before anyone is signed in.
+**CSRF:** every POST, PUT, PATCH or DELETE request to `/api` must send the `X-CSRF-Token` header, except `login`, `token` and `set-password`, which run before anyone is signed in.
 
 ## Pages and static files
 
 | Method | Path | Access | What it does |
 | --- | --- | --- | --- |
-| GET | `/` (`index.html`) | Public file | Dashboard page (its API calls require sign-in) |
+| GET | `/` (`index.html`) | Public | Dashboard with published datasets and report tools |
 | GET | `/login` | Public | Sign-in page |
 | GET | `/set-password` | Public | Set a password from an invite or reset link |
-| GET | `/explore` | Public file | Saved report gallery (data requires sign-in); old `?dataset=` links redirect to the builder |
+| GET | `/explore` | Public | Reports saved in the guest browser or the signed-in account. Old `?dataset=` links redirect to the builder. |
 | GET | `/explore/:slug.html` | Public file | Interactive report viewer (data requires sign-in); `?embed=1` hides site chrome for same-origin embedding |
-| GET | `/builder` | Public file | Report builder page |
-| GET | `/chat` | Public file | AI chat (requires sign-in) |
+| GET | `/builder` | Public | Build, preview and export reports |
+| GET | `/chat` | Public | AI chat with published datasets |
 | GET | `/dataset` | Public file | Dataset detail page |
 | GET | `/datasets/mine` | Public file | Private datasets for the signed-in account |
 | GET | `/datasets/new` | Public file | Private upload form |
@@ -36,6 +36,7 @@
 | POST | `/api/auth/login` | Public (rate-limited) | Sign in with email and password |
 | POST | `/api/auth/logout` | Signed in | Sign out and end the session |
 | GET | `/api/auth/me` | Signed in | Current user, CSRF token and enabled features |
+| GET | `/api/auth/session` | Public | Current user (or `null`), a session cookie, CSRF token and enabled features |
 | POST | `/api/auth/token` | Public (rate-limited) | Check an invite or reset link token |
 | POST | `/api/auth/set-password` | Public (rate-limited) | Set a password using a link token |
 
@@ -43,8 +44,8 @@
 
 | Method | Path | Access | What it does |
 | --- | --- | --- | --- |
-| GET | `/api/towns` | Signed in | List towns |
-| GET | `/api/towns/:id` | Signed in | One town's profile |
+| GET | `/api/towns` | Public | List towns |
+| GET | `/api/towns/:id` | Public | One town's profile |
 
 ## Indicators: `/api/indicators`
 
@@ -55,17 +56,17 @@
 
 ## Datasets: `/api/datasets`
 
-Private datasets are available only to the uploader, including when the signed-in account is an administrator. Private versions are ready to use after upload.
+Visitors can browse published datasets and their approved fields. Private versions are ready to use after upload and are available only to their uploader.
 
 | Method | Path | Access | What it does |
 | --- | --- | --- | --- |
-| GET | `/api/datasets` | Signed in | List available datasets. Filter with `?scope=public` or `?scope=private`. Admins also see public drafts. |
-| GET | `/api/datasets/:id` | Signed in | Dataset overview with paged rows (`?offset=&limit=`, limit max 100) |
-| GET | `/api/datasets/:id/report-options` | Signed in | Rows (towns or row labels), `rowKind`, `rowNoun`, approved fields and filters available for reports |
-| GET | `/api/datasets/:id/row-label` | Signed in | Which column labels rows, and the columns that may (staff: published datasets) |
-| PUT | `/api/datasets/:id/row-label` | Signed in | Choose the row label column (`{"rowLabelKey": "c3"}`): the town column, the upload's label column or an approved text field |
-| GET | `/api/datasets/:id/presentation` | Signed in | Shared display settings, revision and editable fields; staff see approved fields of published datasets |
-| PUT | `/api/datasets/:id/presentation` | Signed in | Save display settings and optional style with the current revision; stale revisions return 409; approval and source data stay unchanged |
+| GET | `/api/datasets` | Public | List available datasets. Filter with `?scope=public` or sign in to use `?scope=private`. Admins also see public drafts. |
+| GET | `/api/datasets/:id` | Public | Dataset overview with paged rows (`?offset=&limit=`, limit max 100) |
+| GET | `/api/datasets/:id/report-options` | Public | Comparison fields and values, `defaultCompare`, approved fields and filters. Pass `?compareBy=cN` to include an available field used by a saved report. |
+| GET | `/api/datasets/:id/row-label` | Signed in | Current primary field and eligible columns for a source-row dataset |
+| PUT | `/api/datasets/:id/row-label` | Signed in | Choose the primary field (`{"rowLabelKey": "c3"}`) from the upload's identifier and approved source fields |
+| GET | `/api/datasets/:id/presentation` | Signed in | Shared display settings, revision and editable fields, including the upload identifier |
+| PUT | `/api/datasets/:id/presentation` | Signed in | Save field display names and other presentation settings with the current revision. Stale revisions return 409. |
 | GET | `/api/datasets/:id/curation` | Admin | Available fields and approval status for a curated dataset |
 | PUT | `/api/datasets/:id/curation` | Admin | Save `approvedFields`. Empty approval unpublishes the dataset. |
 | POST | `/api/datasets/inspect` | Admin | Read an uploaded file's columns and suggest the row label column; nothing is saved |
@@ -78,14 +79,14 @@ Uploads take `file`, `name`, `source`, and `vintage`. Use `labelColumn` for the 
 
 ## Reports: `/api/reports`
 
-Saved reports that use any private dataset are visible only to their creator. Use `dataset.id` to select an exact version. For comparisons, send `comparison.groupBy` and ordered `comparison.sources` with each source's `datasetId`, `indicator`, and optional `aggregation` (`source`, `sum`, or `average`). The first source is the primary indicator.
+Guests can build reports with published datasets and save them in their browser. The server-side report library requires an account. Reports that use a private dataset are visible only to their creator. Use `dataset.id` to select an exact version. For comparisons, send `comparison.groupBy` and ordered `comparison.sources` with each source's `datasetId`, `indicator`, and optional `aggregation` (`source`, `sum`, or `average`). The first source is the primary indicator. With `comparison.groupBy: 'fields'`, `comparison.matchFields` maps each dataset ID to the field used to align its rows. A field can be an available source column key such as `c2` or a geography level stored in an indicator dataset. The dataset primary fields supply the defaults.
 
 | Method | Path | Access | What it does |
 | --- | --- | --- | --- |
-| POST | `/api/reports/comparison-options` | Signed in | Get compatible geography levels or row labels for `{ datasetIds }` |
-| POST | `/api/reports/preview` | Signed in | Build an unsaved report for preview |
-| POST | `/api/reports/pdf` | Signed in | Download an unsaved report as PDF |
-| POST | `/api/reports/summary` | Signed in | AI-drafted summary from public geographic indicators |
+| POST | `/api/reports/comparison-options` | Public (CSRF) | Get available geography levels and matching fields for `{ datasetIds, matchFields? }`, including shared field values and `defaultCompare` |
+| POST | `/api/reports/preview` | Public (CSRF) | Build an unsaved report for preview |
+| POST | `/api/reports/pdf` | Public (CSRF) | Download an unsaved report as PDF |
+| POST | `/api/reports/summary` | Public (CSRF, guest rate limit) | AI-drafted summary from public geographic indicators |
 | GET | `/api/reports` | Signed in | List saved reports (`?q=` to search) |
 | POST | `/api/reports` | Signed in | Save a new report |
 | GET | `/api/reports/:id` | Signed in | Get a saved report (includes `slug` and `viewUrl`) |
@@ -97,9 +98,13 @@ Saved reports that use any private dataset are visible only to their creator. Us
 
 ## Assistant: `/api/assistant`
 
+Guests share a limit of 10 AI requests per network per 10 minutes across chat and report summaries. Signed-in chat allows 40 requests per account per 10 minutes.
+
 | Method | Path | Access | Purpose |
 | --- | --- | --- | --- |
-| POST | `/api/assistant` | Signed in (CSRF) | Send `{ messages: [{ role, content }], context?: { datasetId, includePrivate } }`. The assistant discovers published datasets. `datasetId` gives optional page context. Set `includePrivate` only with the owner's consent. Returns `{ reply, proposal }` with `{ datasetId, selection }` in a proposal. |
+| POST | `/api/assistant` | Public (CSRF, rate-limited) | Send `{ messages: [{ role, content }], context?: { datasetId, includePrivate } }`. The assistant discovers published datasets. `datasetId` gives optional page context. The signed-in owner can consent to private dataset lookups with `includePrivate`. Returns `{ reply, proposal, citations }` with `{ datasetId, selection }` in a proposal. |
+
+Each citation identifies an accessible dataset version by `datasetId`, `name`, `vintage` and `version`. It includes a dataset `url`, recorded `source` and optional publisher `sourceUrl`. The `fields` and `locations` arrays identify the indicators and places from a data lookup when available. Use `fieldCount` and `locationCount` for totals when those arrays are shortened.
 
 ## AI settings
 

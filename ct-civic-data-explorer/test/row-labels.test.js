@@ -54,6 +54,22 @@ test('a dataset without towns uploads when its label column is chosen', () => {
   assert.ok(prepared.notes.some((note) => note.includes('1 rows have no Program')));
 });
 
+test('inspection prefers an area name over an identifier and preserves alternate ID values', () => {
+  const file = records([
+    ['GeographyID', 'Geographic Area Name', 'Legacy identifier', 'Occupied housing'],
+    ['0500000US09110', 'Capitol Planning Region, Connecticut', '00117', 391113],
+    ['0500000US09120', 'Greater Bridgeport Planning Region, Connecticut', '9007199254740993', 119633],
+  ]);
+  const inspection = inspectTabularColumns(file, known);
+  assert.deepEqual(inspection.suggested, { label: 'Geographic Area Name', isTown: false });
+  const prepared = prepareTabularDataset(file, known, { labelColumn: inspection.suggested.label });
+  assert.equal(prepared.problemCount, 0);
+  assert.equal(prepared.dataFormat, 'records');
+  assert.equal(prepared.rowLabelKey, 'c1');
+  assert.deepEqual(prepared.columns.map((column) => column.type), ['text', 'text', 'text', 'number']);
+  assert.deepEqual(prepared.rows.map((row) => row.cells.c2), ['00117', '9007199254740993']);
+});
+
 test('a town label column still rejects names that are not Connecticut towns', () => {
   const prepared = prepareTabularDataset(programs, known, { labelColumn: 'Program', labelIsTown: true });
   assert.match(prepared.problems[0], /does not match a Connecticut town/);
@@ -85,6 +101,42 @@ test('reports over labeled rows select by label, keep repeats separate and compu
   const table = report.blocks.find((block) => block.type === 'records');
   assert.deepEqual(table.columns.map((column) => column.label), ['Program', 'Region', 'Clients', 'Clients per staff member']);
   assert.match((await renderReportPdf(report)).toString('ascii', 0, 8), /^%PDF-/);
+});
+
+test('a report using an ordinary field includes previously matched geography rows in its summaries', () => {
+  const knownPlaces = { ...known, towns: [...known.towns, { id: 3, name: 'Connecticut' }] };
+  const file = records([['Town', 'Identifier', 'Jobs'], ['Andover', 'Region A', 5], ['Connecticut', 'Region B', 7]]);
+  const prepared = prepareTabularDataset(file, knownPlaces, { labelColumn: 'Town', labelIsTown: true });
+  const { dataset, rows } = reportInput(prepared, { townKeyed: true });
+  dataset.columns[1].label = 'Service area';
+  rows[0].geo_type = 'town';
+  rows[1].geo_type = 'state';
+  rows[1].town_name = 'Connecticut';
+  const selection = selectionSchema.parse({
+    dataset,
+    allRows: true,
+    compareBy: 'c1',
+    indicators: ['c2', 'ratio_1'],
+    customIndicators: [{ key: 'ratio_1', label: 'Total jobs', numerator: 'c2', calculation: 'total', decimals: 0 }],
+  });
+
+  const report = renderRecordReport(selection, dataset, rows);
+  assert.equal(report.rowNoun, 'Service area');
+  assert.deepEqual(report.places.map(({ label, geoType }) => [label, geoType]), [['Region A', 'row'], ['Region B', 'row']]);
+  assert.equal(report.summaries[0].value, 12);
+  assert.equal(report.blocks.find((block) => block.type === 'chart').chart.benchmarkIndex, -1);
+  assert.equal(report.blocks.find((block) => block.type === 'records').columns[0].label, 'Service area');
+});
+
+test('reports keyed by a region code retain the uploaded region names in their tables', () => {
+  const file = records([['Region code', 'Region name', 'Jobs'], ['R01', 'North', 5], ['R02', 'South', 7]]);
+  const prepared = prepareTabularDataset(file, known, { labelColumn: 'Region name', labelIsTown: false });
+  const { dataset, rows } = reportInput(prepared, { townKeyed: false });
+  const selection = selectionSchema.parse({ dataset, allRows: true, compareBy: 'c0', indicators: ['c2'] });
+  const report = renderRecordReport(selection, dataset, rows);
+  const table = report.blocks.find((block) => block.type === 'records');
+  assert.deepEqual(table.columns.map((column) => column.label), ['Region code', 'Region name', 'Jobs']);
+  assert.deepEqual(table.records[0].values, ['R01', 'North', '5']);
 });
 
 test('custom ratios refuse unapproved or text fields', () => {

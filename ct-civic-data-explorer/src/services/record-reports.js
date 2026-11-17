@@ -18,54 +18,71 @@ import {
   buildCustomFields, computeRatio, computeSummaries, customIndicatorKeys, isSummaryIndicator, withoutCustomIndicators,
   withoutSummaryIndicators,
 } from './custom-indicators.js';
-import { PLACE_GROUPS, benchmarkWording, describePlaces, recordRowName, reportRowLabel } from './row-labels.js';
+import { PLACE_GROUPS, benchmarkWording, describePlaces, recordRowName, reportGeography, reportRowLabel } from './row-labels.js';
 
-export async function buildRecordReport(selection, dataset, now) {
-  const presented = presentDataset(dataset);
+export async function buildRecordReport(selection, dataset, now, { includeUploadDetails = true } = {}) {
+  const presented = presentDataset(dataset, { includeUploadDetails });
   const sourceRows = await loadSelectedRows(selection, dataset, presented);
-  // Summary benchmarks (e.g. the average for every town) need the dataset's other rows too.
+  // Summary benchmarks also read the dataset's other comparable rows.
   const wantsBenchmark = (selection.customIndicators ?? []).some((custom) => isSummaryIndicator(custom)
     && custom.benchmark !== false && selection.indicators.includes(custom.key));
-  const datasetRows = wantsBenchmark ? await datasetRecords.list(dataset.id) : null;
+  const datasetRows = wantsBenchmark && !selection.allRows ? await datasetRecords.list(dataset.id) : null;
   return renderRecordReport(selection, presented, sourceRows, now, { datasetRows });
 }
 
-/** Town-keyed rows are narrowed in SQL; rows labeled by another column are narrowed by label. */
+/** Use the place catalog only when the selected field is linked to Connecticut geography. */
 async function loadSelectedRows(selection, dataset, presented) {
   const { labelColumn, townKeyed } = reportRowLabel(presented, selection.compareBy);
   if (townKeyed) {
+    const geography = reportGeography(selection.compareBy);
     if (selection.allRows) {
       const allRows = await datasetRecords.list(dataset.id);
-      return selection.benchmark ? allRows : allRows.filter((row) => row.geo_type !== 'state');
+      return allRows.filter(({ geo_type: type }) => type === 'state' ? selection.benchmark : !geography || type === geography);
     }
     const places = await towns.findByNames(selection.rows);
-    const townIds = places.filter((place) => place.geo_type !== 'state').map((place) => place.id);
+    const eligible = places.filter(({ geo_type: type }) => type !== 'state' && (!geography || type === geography));
+    const townIds = eligible.map((place) => place.id);
     if (selection.benchmark) {
       const state = await towns.findState();
       if (state) {
         townIds.push(state.id);
       }
     }
-    return datasetRecords.list(dataset.id, { townIds });
+    const sourceRows = await datasetRecords.list(dataset.id, { townIds });
+    if (geography) {
+      const names = new Set(sourceRows.filter((row) => row.geo_type === geography).map((row) => row.town_name.toLowerCase()));
+      const unavailable = selection.rows.find((name) => !names.has(name.toLowerCase()));
+      if (unavailable) throw new HttpError(400, `Choose a ${PLACE_GROUPS[geography].noun} in this dataset. “${unavailable}” is unavailable.`);
+    }
+    return sourceRows;
   }
 
   const allRows = await datasetRecords.list(dataset.id);
   if (selection.allRows) {
     return allRows;
   }
-  const wanted = new Set(selection.rows.map((name) => name.toLowerCase()));
-  const selectedRows = allRows.filter((row) => wanted.has(recordRowName(row, labelColumn, false).toLowerCase()));
-
-  // A name can stop matching when staff change the label column; say so rather than render a gap.
-  const found = new Set(selectedRows.map((row) => recordRowName(row, labelColumn, false).toLowerCase()));
-  const missing = selection.rows.filter((name) => !found.has(name.toLowerCase()));
-  if (missing.length) {
-    const noun = labelColumn?.label ?? 'row';
-    const names = missing.slice(0, 3).map((name) => `"${name}"`).join(', ');
-    const more = missing.length > 3 ? ` and ${missing.length - 3} more` : '';
-    throw new HttpError(400, `${names}${more} ${missing.length === 1 ? 'is' : 'are'} not a ${noun} in this dataset. Choose rows again.`);
+  const labels = allRows.map((row) => recordRowName(row, labelColumn, false));
+  const exact = new Set(labels);
+  const folded = new Map();
+  for (const label of exact) {
+    const lower = label.toLowerCase();
+    folded.set(lower, folded.has(lower) ? null : label);
   }
-  return selectedRows;
+  // Older requests were case-insensitive. An exact match takes priority when codes differ only by case.
+  const wanted = new Set();
+  const missing = [];
+  for (const name of selection.rows) {
+    const match = exact.has(name) ? name : folded.get(name.toLowerCase());
+    if (match) wanted.add(match);
+    else missing.push(name);
+  }
+  if (missing.length) {
+    const field = labelColumn?.label ?? 'row';
+    const names = missing.slice(0, 3).map((name) => `“${name}”`).join(', ');
+    const more = missing.length > 3 ? ` and ${missing.length - 3} more` : '';
+    throw new HttpError(400, `Choose available ${field} values. ${names}${more} ${missing.length === 1 ? 'is' : 'are'} unavailable in this dataset.`);
+  }
+  return allRows.filter((_, index) => wanted.has(labels[index]));
 }
 
 /**
@@ -73,7 +90,7 @@ async function loadSelectedRows(selection, dataset, presented) {
  *   benchmarks; without it summaries show the report's figure only
  */
 export function renderRecordReport(fullSelection, dataset, sourceRows, now = new Date(), { datasetRows = null } = {}) {
-  // Summary fields (e.g. average per town) are one value for the report, not a column.
+  // Summary fields provide one value for the whole report.
   const selection = withoutSummaryIndicators(fullSelection);
   const fieldSelection = withoutCustomIndicators(selection);
   const columns = applyFieldPresentation(
@@ -81,7 +98,7 @@ export function renderRecordReport(fullSelection, dataset, sourceRows, now = new
     {},
     fieldSelection.fieldOverrides,
   );
-  const chosen = reportRowLabel({ ...dataset, townKeyed: dataset.townKeyed ?? true }, selection.compareBy);
+  const chosen = reportRowLabel(dataset, selection.compareBy);
   const townKeyed = chosen.townKeyed;
   // Use the presented column so report-specific names apply to the row heading too.
   const labelColumn = columns.find((column) => column.key === chosen.labelColumn?.key) ?? chosen.labelColumn;
@@ -92,9 +109,12 @@ export function renderRecordReport(fullSelection, dataset, sourceRows, now = new
   const selectedColumns = findSelectedColumns(selection, dataColumns, customFields);
   const filteredRecords = filterRecords(sourceRows, selection.recordFilters ?? {}, columns);
   const primaryDimension = columns.find((column) => column.role === 'dimension' && column.key !== labelColumn?.key);
-  const { places, hasRepeatedRows } = buildRecordPlaces(filteredRecords, primaryDimension, labelColumn, townKeyed);
+  const sourceIdentity = columns.find((column) => isRowIdentity(column) && column.key !== labelColumn?.key);
+  const { places, hasRepeatedRows } = buildRecordPlaces(filteredRecords, primaryDimension ?? sourceIdentity, labelColumn, townKeyed);
   const indicatorRows = buildIndicatorRows(selectedColumns, filteredRecords);
-  const comparedRecords = filteredRecords.filter((record) => record.geo_type !== 'state');
+  const comparedRecords = townKeyed ? filteredRecords.filter((record) => record.geo_type !== 'state') : filteredRecords;
+  const summaryNoun = summaryRowNoun(comparedRecords, townKeyed, hasRepeatedRows);
+  const placeLabels = new Map(places.map(({ id, label }) => [id, label]));
   const summaries = computeSummaries(
     fullSelection,
     dataColumns,
@@ -102,17 +122,17 @@ export function renderRecordReport(fullSelection, dataset, sourceRows, now = new
     {
       readValue: (record, field) => (field.type === 'number' ? numericCell(record, field) : record.cell_values[field.key]),
       // The report's own row labels, which tell repeated rows apart ("Food pantry — North").
-      nameOf: (record) => places.find((place) => place.id === record.id)?.label ?? recordRowName(record, labelColumn, townKeyed),
-      rowNoun: summaryRowNoun(comparedRecords, townKeyed, hasRepeatedRows),
+      nameOf: (record) => placeLabels.get(record.id) ?? recordRowName(record, labelColumn, townKeyed),
+      rowNoun: summaryNoun,
     },
     recordBenchmark(datasetRows, comparedRecords, { townKeyed, labelColumn, columns, filters: selection.recordFilters ?? {} }),
   );
   const tableData = {
-    columns,
     selectedColumns,
     primaryDimension,
     labelColumn,
     townKeyed,
+    sourceIdentity,
     hasRepeatedRows,
     records: filteredRecords,
   };
@@ -143,10 +163,12 @@ export function renderRecordReport(fullSelection, dataset, sourceRows, now = new
   appendFieldNotes(blocks, indicatorRows);
 
   const generatedOn = now.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+  const placeLabel = PLACE_GROUPS[selection.compareBy]?.noun ?? summaryNoun;
   return {
     style: resolveReportStyle(dataset.reportStyle, selection.styleOverrides),
     rowBased: true,
-    rowNoun: townKeyed ? 'Town' : labelColumn?.label ?? 'Row',
+    rowLabelKey: labelColumn?.key ?? null,
+    rowNoun: townKeyed ? placeLabel[0].toUpperCase() + placeLabel.slice(1) : labelColumn?.label ?? 'Row',
     title: selection.title || (townKeyed ? describePlaces(places, selection.allRows) : dataset.displayName || dataset.name),
     subtitle: selection.subtitle || `${dataset.displayName || dataset.name}, ${dataset.vintage}`,
     showTitle: selection.showTitle,
@@ -219,7 +241,8 @@ function buildRecordPlaces(records, primaryDimension, labelColumn, townKeyed) {
   let hasRepeatedRows = false;
   for (const [index, record] of records.entries()) {
     const name = names[index];
-    let label = record.geo_type === 'state' ? `${name} (statewide)` : name;
+    const geoType = townKeyed ? record.geo_type : 'row';
+    let label = geoType === 'state' ? `${name} (statewide)` : name;
     if (rowCountsByName.get(name) > 1) {
       hasRepeatedRows = true;
       const category = primaryDimension && record.cell_values[primaryDimension.key];
@@ -232,7 +255,7 @@ function buildRecordPlaces(records, primaryDimension, labelColumn, townKeyed) {
     places.push({
       id: record.id,
       name,
-      geoType: record.geo_type,
+      geoType,
       label,
     });
   }
@@ -248,7 +271,8 @@ function recordBenchmark(datasetRows, comparedRecords, { townKeyed, labelColumn,
     return null;
   }
   const types = new Set(comparedRecords.map((record) => record.geo_type));
-  const rows = filterRecords(datasetRows, filters, columns).filter((record) => record.geo_type !== 'state' && types.has(record.geo_type));
+  const rows = filterRecords(datasetRows, filters, columns)
+    .filter((record) => !townKeyed || (record.geo_type !== 'state' && types.has(record.geo_type)));
   const names = new Set(rows.map((record) => recordRowName(record, labelColumn, townKeyed)));
   const repeated = names.size < rows.length;
   const noun = summaryRowNoun(rows, townKeyed, repeated);
@@ -304,7 +328,7 @@ function buildIndicatorRows(columns, records) {
 }
 
 function buildRecordTable(selectedKeys, tableData) {
-  const { selectedColumns, primaryDimension, labelColumn, townKeyed, hasRepeatedRows, records } = tableData;
+  const { selectedColumns, primaryDimension, labelColumn, townKeyed, sourceIdentity, hasRepeatedRows, records } = tableData;
   let chosenColumns = selectedColumns;
   if (selectedKeys.length > 0) {
     chosenColumns = selectedColumns.filter((column) => selectedKeys.includes(column.key));
@@ -314,10 +338,8 @@ function buildRecordTable(selectedKeys, tableData) {
   if (labelColumn) {
     tableColumns.push(labelColumn);
   }
-  // A town column that no longer labels the rows is still useful context.
-  const townColumn = tableData.columns.find((column) => column.role === 'town');
-  if (!townKeyed && townColumn && townColumn !== labelColumn) {
-    tableColumns.push(townColumn);
+  if (sourceIdentity) {
+    tableColumns.push(sourceIdentity);
   }
   const identityCount = tableColumns.length;
   if (primaryDimension && hasRepeatedRows && !chosenColumns.includes(primaryDimension)) {

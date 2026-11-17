@@ -14,7 +14,7 @@ export function listTowns() {
   return towns.list();
 }
 
-export async function getTownProfile(townId) {
+export async function getTownProfile(townId, datasetPresentationOptions) {
   const town = await towns.findById(townId);
   if (!town) {
     throw new HttpError(404, 'Town not found');
@@ -30,7 +30,7 @@ export async function getTownProfile(townId) {
   const sectionPromises = [];
   for (const dataset of activeDatasets) {
     if (dataset.data_format !== 'records') {
-      sectionPromises.push(buildDatasetSection(dataset, allIndicators, town, comparisonState));
+      sectionPromises.push(buildDatasetSection(dataset, allIndicators, town, comparisonState, datasetPresentationOptions));
     }
   }
   const sections = await Promise.all(sectionPromises);
@@ -42,7 +42,7 @@ export async function getTownProfile(townId) {
   };
 }
 
-async function buildDatasetSection(dataset, allIndicators, town, comparisonState) {
+async function buildDatasetSection(dataset, allIndicators, town, comparisonState, datasetPresentationOptions) {
   const placeIds = comparisonState ? [town.id, comparisonState.id] : [town.id];
   const [valuesByPlace, indicatorKeys] = await Promise.all([
     observations.valuesByTown(dataset.id, placeIds),
@@ -70,5 +70,5 @@ async function buildDatasetSection(dataset, allIndicators, town, comparisonState
     });
   }
 
-  return { dataset: presentDataset(dataset), indicators: rows };
+  return { dataset: presentDataset(dataset, datasetPresentationOptions), indicators: rows };
 }

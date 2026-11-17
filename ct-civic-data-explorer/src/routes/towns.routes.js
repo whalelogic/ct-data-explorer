@@ -11,5 +11,5 @@ townsRouter.get('/', async (_req, res) => {
 });
 
 townsRouter.get('/:id', validate(idParams, 'params'), async (req, res) => {
-  res.json(await getTownProfile(req.valid.params.id));
+  res.json(await getTownProfile(req.valid.params.id, { includeUploadDetails: Boolean(req.user) }));
 });

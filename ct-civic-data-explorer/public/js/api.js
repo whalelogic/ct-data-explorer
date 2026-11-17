@@ -46,10 +46,10 @@ export async function api(path, { method = 'GET', json, form, expect = 'json' } 
   return res.status === 204 ? null : res.json();
 }
 
-/** Load the signed-in user, feature flags and CSRF token; sends the browser to sign-in if there is no session. */
-export async function loadSession() {
+/** Load the account or guest session and its CSRF token. Account pages require sign-in. */
+export async function loadSession({ allowGuest = false } = {}) {
   try {
-    const session = await api('/auth/me');
+    const session = await api(allowGuest ? '/auth/session' : '/auth/me');
     setCsrfToken(session.csrfToken);
     return session;
   } catch (err) {

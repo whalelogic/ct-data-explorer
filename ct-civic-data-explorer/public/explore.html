@@ -15,7 +15,7 @@
         <div>
           <p class="section-kicker">Explore</p>
           <h1>Reports</h1>
-          <p class="page-intro">Open a saved report to explore its charts and tables, compare its rows, or export it as a PDF.</p>
+          <p id="gallery-intro" class="page-intro">Open a saved report to explore its charts and tables, compare its rows, or export it as a PDF.</p>
         </div>
         <a class="button" href="/builder">New report</a>
       </div>
@@ -40,7 +40,7 @@
             <option value="oldest">Oldest first</option>
           </select>
         </div>
-        <label class="check gallery-mine"><input id="gallery-mine" type="checkbox" /> Only my reports</label>
+        <label id="gallery-owner-filter" class="check gallery-mine"><input id="gallery-mine" type="checkbox" /> Only my reports</label>
       </form>
 
       <p id="gallery-status" class="gallery-count small muted" role="status" aria-live="polite">Loading reports…</p>

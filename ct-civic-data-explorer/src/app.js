@@ -13,7 +13,7 @@ import helmet from 'helmet';
 import { config } from './config.js';
 import { pool } from './db/pool.js';
 import { MySqlSessionStore } from './db/session-store.js';
-import { requireAuth } from './middleware/auth.js';
+import { optionalAuth, requireSignedIn } from './middleware/auth.js';
 import { csrfProtection } from './middleware/csrf.js';
 import { apiNotFound, errorHandler } from './middleware/errors.js';
 import { requestLog } from './middleware/request-log.js';
@@ -101,13 +101,14 @@ export function createApp({ sessionStore, logRequests = config.env !== 'test' } 
   );
 
   app.use('/api/auth', authRouter);
-  app.use('/api', requireAuth, csrfProtection);
+  app.use('/api', optionalAuth);
   app.use('/api/towns', townsRouter);
-  app.use('/api/indicators', indicatorsRouter);
   app.use('/api/datasets', datasetsRouter);
   app.use('/api/reports', reportsRouter);
+  app.use('/api/assistant', csrfProtection, assistantRouter);
+  app.use('/api', requireSignedIn, csrfProtection);
+  app.use('/api/indicators', indicatorsRouter);
   app.use('/api/users', usersRouter);
-  app.use('/api/assistant', assistantRouter);
   app.use('/api/ai-settings', aiSettingsRouter);
   app.use('/api/admin/usage', usageRouter);
   app.use('/api', apiNotFound);

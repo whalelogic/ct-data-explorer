@@ -1,6 +1,9 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { idParams } from '../lib/schemas.js';
+import { requireSignedIn } from '../middleware/auth.js';
+import { csrfProtection } from '../middleware/csrf.js';
+import { guestAiLimit } from '../middleware/guest-ai-limit.js';
 import { validate } from '../middleware/validate.js';
 import { draftSummary } from '../services/ai/index.js';
 import {
@@ -31,24 +34,24 @@ export const reportsRouter = Router();
 
 // Working with an unsaved selection.
 
-reportsRouter.post('/comparison-options', validate(comparisonOptionsSchema), async (req, res) => {
-  const { datasetIds } = req.valid.body;
-  const options = await getComparisonOptions(datasetIds, req.user);
+reportsRouter.post('/comparison-options', csrfProtection, validate(comparisonOptionsSchema), async (req, res) => {
+  const { datasetIds, matchFields } = req.valid.body;
+  const options = await getComparisonOptions(datasetIds, req.user, { matchFields });
   await trackDatasetAccess(datasetIds);
   res.json(options);
 });
 
-reportsRouter.post('/preview', validate(selectionSchema), async (req, res) => {
+reportsRouter.post('/preview', csrfProtection, validate(selectionSchema), async (req, res) => {
   const report = await buildReport(req.valid.body, { user: req.user });
   await trackReportUsage('report_preview', report, req.valid.body);
   res.json(report);
 });
 
-reportsRouter.post('/pdf', validate(selectionSchema), async (req, res) => {
+reportsRouter.post('/pdf', csrfProtection, validate(selectionSchema), async (req, res) => {
   await sendPdf(res, await buildReport(req.valid.body, { user: req.user }));
 });
 
-reportsRouter.post('/summary', validate(selectionSchema), async (req, res) => {
+reportsRouter.post('/summary', csrfProtection, guestAiLimit, validate(selectionSchema), async (req, res) => {
   const report = await buildReport(req.valid.body, { user: req.user });
   const draft = await draftSummary(report);
   await trackReportUsage('report_summary', report);
@@ -56,6 +59,7 @@ reportsRouter.post('/summary', validate(selectionSchema), async (req, res) => {
 });
 
 // Saved report library.
+reportsRouter.use(requireSignedIn, csrfProtection);
 
 reportsRouter.get('/', validate(listQuery, 'query'), async (req, res) => {
   res.json((await listReports(req.valid.query.q, req.user)).map(presentReport));

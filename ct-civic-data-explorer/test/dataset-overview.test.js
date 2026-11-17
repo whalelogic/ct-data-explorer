@@ -25,9 +25,11 @@ test('overview includes computable ratios alongside their stored input columns',
     ['numerator', 'denominator', 'rate']);
 });
 
-test('dataset overview cannot be read anonymously', async () => {
+test('guest browsing APIs validate input before querying data', async () => {
   const app = createApp({ sessionStore: new session.MemoryStore(), logRequests: false });
-  await request(app).get('/api/datasets/1').expect(401);
+  await request(app).get('/api/datasets/1?limit=101').expect(400);
+  await request(app).get('/api/datasets/1/report-options?compareBy=invalid').expect(400);
+  await request(app).get('/api/towns/invalid').expect(400);
 });
 
 test('dataset preview rejects unbounded or invalid paging before querying data', async () => {

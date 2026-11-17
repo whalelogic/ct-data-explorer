@@ -32,6 +32,17 @@ async function createTestClients(app, testTag, userIds) {
   return clients;
 }
 
+async function createGuestClient(app, { expectAssistant = false } = {}) {
+  const agent = request.agent(app);
+  const response = await agent.get('/api/auth/session').expect(200);
+  assert.equal(response.body.user, null);
+  if (expectAssistant) {
+    assert.equal(response.body.features.assistant, true);
+    assert.equal(response.body.features.assistantReports, true);
+  }
+  return { agent, csrfToken: response.body.csrfToken };
+}
+
 function sendWriteRequest(client, method, path, body) {
   return client.agent[method](path)
     .set('X-CSRF-Token', client.csrfToken)
@@ -123,6 +134,7 @@ test('HTTP and database curation protects every report path and preserves source
 
   try {
     const { admin, staff } = await createTestClients(app, testTag, userIds);
+    const guest = await createGuestClient(app);
     await staff.agent.get('/api/indicators').expect(403);
     await admin.agent.get('/api/indicators').expect(200);
 
@@ -146,6 +158,7 @@ test('HTTP and database curation protects every report path and preserves source
     assert.equal(draftPreview.body.preview.rows[0].cells[1].value, 'SECRET');
     assert.equal(draftPreview.body.preview.rows[0].cells[3].value, 987654);
     await staff.agent.get(recordDatasetPath).expect(404);
+    await sendWriteRequest(guest, 'post', '/api/reports/comparison-options', { datasetIds: [recordDatasetId] }).expect(404);
 
     const draftOptions = await admin.agent.get(`${recordDatasetPath}/report-options`).expect(200);
     assert.deepEqual(draftOptions.body.columns, [], 'Management preview must not approve report fields');
@@ -194,8 +207,16 @@ test('HTTP and database curation protects every report path and preserves source
     assert.deepEqual(previewResponse.body.blocks[0].columns.map((field) => field.key), ['c0', 'c2']);
     assert.ok(!JSON.stringify(previewResponse.body).includes('SECRET'));
 
+    const guestPreview = await sendWriteRequest(guest, 'post', '/api/reports/preview', recordSelection).expect(200);
+    assert.deepEqual(guestPreview.body.indicators[0].cells.map((cell) => cell.value), [123, 124]);
+    assert.deepEqual(guestPreview.body.dataset.columns.map((column) => column.key), ['c0', 'c2']);
+    assert.equal(guestPreview.body.dataset.uploadedBy, undefined);
+    assert.equal(guestPreview.body.dataset.importNotes, undefined);
+    assert.doesNotMatch(JSON.stringify(guestPreview.body), /SECRET|987654|Internal total/);
+    await sendWriteRequest(guest, 'post', '/api/reports/preview', { ...recordSelection, compareBy: 'c1' }).expect(400);
+
     // Every report route must reject hidden values and hidden filter fields.
-    for (const client of [staff, admin]) {
+    for (const client of [staff, admin, guest]) {
       const hiddenMeasureSelection = { ...recordSelection, indicators: ['c3'] };
       const hiddenFilterSelection = { ...recordSelection, recordFilters: { c1: 'SECRET' } };
 
@@ -207,19 +228,25 @@ test('HTTP and database curation protects every report path and preserves source
       await sendWriteRequest(client, 'post', '/api/reports', {
         title: testTag,
         selection: hiddenMeasureSelection,
-      }).expect(400);
+      }).expect(client === guest ? 401 : 400);
     }
 
-    const pdfResponse = await sendWriteRequest(staff, 'post', '/api/reports/pdf', recordSelection)
-      .expect(200)
-      .expect('Content-Type', /pdf/);
-    assert.ok(pdfResponse.body.length > 1000);
+    for (const client of [staff, guest]) {
+      const pdfResponse = await sendWriteRequest(client, 'post', '/api/reports/pdf', recordSelection)
+        .expect(200)
+        .expect('Content-Type', /pdf/);
+      assert.ok(pdfResponse.body.length > 1000);
+    }
 
     const savedReportResponse = await sendWriteRequest(staff, 'post', '/api/reports', {
       title: testTag,
       selection: recordSelection,
     }).expect(201);
     const savedReportPath = `/api/reports/${savedReportResponse.body.id}`;
+    await guest.agent.get('/api/reports').expect(401);
+    await guest.agent.get(savedReportPath).expect(401);
+    await guest.agent.get(`/api/reports/by-slug/${savedReportResponse.body.slug}`).expect(401);
+    await guest.agent.get(`${savedReportPath}/pdf`).expect(401);
 
     // Revoking a field also prevents existing reports from exporting or duplicating it.
     await sendWriteRequest(admin, 'put', `${recordDatasetPath}/curation`, {
@@ -335,7 +362,7 @@ test('staff customize shared presentation and report overrides without bypassing
     await sendWriteRequest(admin, 'patch', path, { isActive: true }).expect(200);
     const initial = await staff.agent.get(`${path}/presentation`).expect(200);
     assert.ok(!JSON.stringify(initial.body).includes('Hidden'));
-    assert.deepEqual(initial.body.fields.map((field) => field.key), ['c1', 'c3']);
+    assert.deepEqual(initial.body.fields.map((field) => field.key), ['c0', 'c1', 'c3']);
     const defaults = {
       ...initial.body.settings, displayName: 'Local employment', description: 'An explanation for readers',
       defaultChartType: 'line', fieldOrder: ['c3', 'c1'],
@@ -433,7 +460,8 @@ test('datasets without a town column upload, publish, report and export by their
   const testTag = `row-label-test-${crypto.randomUUID()}`;
   const userIds = [];
   const app = createApp({ sessionStore: new session.MemoryStore(), logRequests: false });
-  const csv = 'Program,Region,Clients,Staff\nFood pantry,North,1200,8\nHousing help,South,300,0\nFood pantry,South,900,6\n,North,40,2\n';
+  const csv = 'Program,Region,Clients,Staff,Cycle\nFood pantry,North,1200,8,Spring\nHousing help,South,300,0,Spring\n'
+    + 'Food pantry,South,900,6,Spring\n,North,40,2,Spring\n';
   try {
     const { admin, staff } = await createTestClients(app, testTag, userIds);
 
@@ -458,7 +486,7 @@ test('datasets without a town column upload, publish, report and export by their
 
     // The label column is the row's identity, not a field to approve.
     await sendWriteRequest(admin, 'put', `${path}/curation`, { approvedFields: ['c0'] }).expect(400);
-    await sendWriteRequest(admin, 'put', `${path}/curation`, { approvedFields: ['c1', 'c2', 'c3'] }).expect(200);
+    await sendWriteRequest(admin, 'put', `${path}/curation`, { approvedFields: ['c1', 'c2', 'c3', 'c4'] }).expect(200);
     await sendWriteRequest(admin, 'patch', path, { isActive: true }).expect(200);
 
     const options = await staff.agent.get(`${path}/report-options`).expect(200);
@@ -467,10 +495,12 @@ test('datasets without a town column upload, publish, report and export by their
     assert.equal(options.body.hasState, false);
     assert.deepEqual(options.body.places.map((place) => place.name), ['Food pantry', 'Housing help', 'Row 5']);
     assert.equal(options.body.defaultCompare, 'c0');
-    assert.deepEqual(options.body.compareOptions.map((option) => [option.id, option.label, option.values]), [
-      ['c0', 'Program', ['Food pantry', 'Housing help', 'Row 5']],
-      ['c1', 'Region', ['North', 'South']],
-    ]);
+    const comparisons = new Map(options.body.compareOptions.map(({ id, label, values }) => [id, { label, values }]));
+    assert.deepEqual(comparisons.get('c0'), { label: 'Program', values: ['Food pantry', 'Housing help', 'Row 5'] });
+    assert.deepEqual(comparisons.get('c1'), { label: 'Region', values: ['North', 'South'] });
+    assert.equal(comparisons.has('c4'), false);
+    const requested = await staff.agent.get(`${path}/report-options?compareBy=c4`).expect(200);
+    assert.deepEqual(requested.body.compareOptions.find((option) => option.id === 'c4').values, ['Spring']);
 
     // Repeated labels stay separate rows; nothing is summed.
     const selection = { dataset: { name: testTag, vintage: '2026' }, rows: ['Food pantry'], benchmark: false, indicators: ['c2'] };
@@ -480,30 +510,54 @@ test('datasets without a town column upload, publish, report and export by their
     assert.equal(everyRow.body.indicators[0].cells.length, 4);
     await sendWriteRequest(staff, 'post', '/api/reports/preview', { ...selection, rows: ['Andover'] }).expect(400);
 
-    // A report can compare by another approved text column without changing the dataset default.
+    // A report can compare by another approved field without changing the dataset default.
     const byRegionReport = await sendWriteRequest(staff, 'post', '/api/reports/preview', { ...selection, compareBy: 'c1', rows: ['North'] }).expect(200);
     assert.equal(byRegionReport.body.rowNoun, 'Region');
     assert.deepEqual(byRegionReport.body.indicators[0].cells.map((cell) => cell.value), [1200, 40]);
-    await sendWriteRequest(staff, 'post', '/api/reports/preview', { ...selection, compareBy: 'c2', rows: ['1200'] }).expect(400);
+    const byNumber = await sendWriteRequest(staff, 'post', '/api/reports/preview', {
+      ...selection, compareBy: 'c2', rows: ['1200'], indicators: ['c3'],
+    }).expect(200);
+    assert.equal(byNumber.body.rowNoun, 'Clients');
+    assert.deepEqual(byNumber.body.indicators[0].cells.map((cell) => cell.value), [8]);
 
     const saved = await sendWriteRequest(staff, 'post', '/api/reports', { title: testTag, selection }).expect(201);
     const reloaded = await staff.agent.get(`/api/reports/${saved.body.id}`).expect(200);
     assert.deepEqual(reloaded.body.selection.rows, ['Food pantry']);
+    assert.equal(reloaded.body.selection.compareBy, 'c0');
     await staff.agent.get(`/api/reports/${saved.body.id}/pdf`).expect(200).expect('Content-Type', /pdf/);
+    const legacy = await sendWriteRequest(staff, 'post', '/api/reports', { title: `${testTag} legacy`, selection }).expect(201);
+    await pool.query("UPDATE reports SET selection = JSON_REMOVE(selection, '$.compareBy') WHERE id = ?", [legacy.body.id]);
+    const legacySelection = await staff.agent.get(`/api/reports/${legacy.body.id}`).expect(200);
+    assert.equal(legacySelection.body.selection.compareBy, 'c0');
 
-    // Staff may relabel rows by another approved text field, never by a number or an unknown column.
-    await sendWriteRequest(staff, 'put', `${path}/row-label`, { rowLabelKey: 'c2' }).expect(400);
+    // Staff may use a numeric primary field and give identifier columns visible aliases.
     await sendWriteRequest(staff, 'put', `${path}/row-label`, { rowLabelKey: 'c9' }).expect(400);
+    await sendWriteRequest(staff, 'put', `${path}/row-label`, { rowLabelKey: 'c2' }).expect(200);
+    await sendWriteRequest(staff, 'put', `${path}/presentation`, {
+      revision: 0, fields: { c0: { label: 'Service' }, c1: { label: 'Service area' }, c2: { label: 'Client count' } },
+    }).expect(200);
+    const numericOptions = await staff.agent.get(`${path}/report-options`).expect(200);
+    assert.equal(numericOptions.body.defaultCompare, 'c2');
+    assert.equal(numericOptions.body.rowNoun, 'Client count');
     const relabeled = await sendWriteRequest(staff, 'put', `${path}/row-label`, { rowLabelKey: 'c1' }).expect(200);
     assert.equal(relabeled.body.rowLabelKey, 'c1');
     assert.equal(relabeled.body.townKeyed, false);
     const regionOptions = await staff.agent.get(`${path}/report-options`).expect(200);
-    assert.equal(regionOptions.body.rowNoun, 'Region');
+    assert.equal(regionOptions.body.rowNoun, 'Service area');
     assert.deepEqual(regionOptions.body.places.map((place) => place.name), ['North', 'South']);
-    // The saved report named Program values, which no longer label rows.
-    await staff.agent.get(`/api/reports/${saved.body.id}/pdf`).expect(400);
+    for (const report of [saved.body, legacy.body]) {
+      const view = await staff.agent.get(`/api/reports/by-slug/${report.slug}`).expect(200);
+      assert.equal(view.body.data.rowNoun, 'Service');
+      assert.deepEqual(view.body.data.indicators[0].cells.map((cell) => cell.value), [1200, 900]);
+      await staff.agent.get(`/api/reports/${report.id}/pdf`).expect(200).expect('Content-Type', /pdf/);
+    }
     const byRegion = await sendWriteRequest(staff, 'post', '/api/reports/preview', { ...selection, rows: ['South'] }).expect(200);
     assert.deepEqual(byRegion.body.indicators[0].cells.map((cell) => cell.value), [300, 900]);
+    await sendWriteRequest(admin, 'put', `${path}/curation`, { approvedFields: ['c2', 'c3'] }).expect(200);
+    const curatedOptions = await staff.agent.get(`${path}/report-options?compareBy=c1`).expect(200);
+    assert.equal(curatedOptions.body.defaultCompare, 'c0');
+    assert.ok(curatedOptions.body.compareOptions.every((option) => option.id !== 'c1'));
+    await sendWriteRequest(staff, 'put', `${path}/row-label`, { rowLabelKey: 'c1' }).expect(400);
   } finally {
     await removeTestData(userIds, testTag);
   }
@@ -533,11 +587,16 @@ test('town files with county and planning region rows upload and report those ro
     const geoTypes = Object.fromEntries(options.body.places.map((place) => [place.name, place.geoType]));
     assert.equal(geoTypes['Fairfield County'], 'county');
     assert.equal(geoTypes['Capitol Planning Region'], 'region');
-    assert.deepEqual(options.body.compareOptions.map((option) => [option.id, option.values.length]), [['town', 1], ['county', 2], ['region', 1], ['c1', 2]]);
+    assert.deepEqual(options.body.compareOptions.filter((option) => option.kind === 'place')
+      .map((option) => [option.id, option.values.length]), [['town', 1], ['county', 2], ['region', 1]]);
     const counties = await sendWriteRequest(staff, 'post', '/api/reports/preview', {
       dataset: { name: testTag, vintage: '2026' }, compareBy: 'county', rows: ['Fairfield County', 'Hartford County'], benchmark: false, indicators: ['c2'],
     }).expect(200);
     assert.equal(counties.body.title, 'Fairfield County and Hartford County');
+    const allCounties = await sendWriteRequest(staff, 'post', '/api/reports/preview', {
+      dataset: { name: testTag, vintage: '2026' }, compareBy: 'county', allRows: true, benchmark: false, indicators: ['c2'],
+    }).expect(200);
+    assert.deepEqual(allCounties.body.places.map((place) => place.name), ['Fairfield County', 'Hartford County']);
 
     const selection = {
       dataset: { name: testTag, vintage: '2026' }, rows: ['Andover', 'Fairfield County'], benchmark: true, indicators: ['c2'],
@@ -581,7 +640,8 @@ test('geographic comparisons align source formats and protect private secondary 
     const related = second.body;
     const optionsInput = { datasetIds: [base.id, related.id] };
     const options = await sendWriteRequest(staff, 'post', '/api/reports/comparison-options', optionsInput).expect(200);
-    assert.deepEqual(options.body.groupBy.map(({ id }) => id), ['town', 'county', 'region', 'state']);
+    assert.deepEqual(options.body.groupBy.map(({ id }) => id), ['town', 'county', 'region', 'state', 'fields']);
+    assert.deepEqual(options.body.groupBy.find(({ id }) => id === 'fields').values, ['Andover', 'Bolton', 'Hartford']);
     assert.deepEqual(options.body.groupBy.find(({ id }) => id === 'county').values, ['Hartford County', 'Tolland County']);
     await sendWriteRequest(admin, 'post', '/api/reports/comparison-options', optionsInput).expect(404);
 
@@ -651,10 +711,19 @@ test('non-geographic comparisons align shared labels and indicators across diffe
       datasets.push(result.body);
     }
     const [first, second] = datasets;
+    const presentationPath = `/api/datasets/${first.id}/presentation`;
+    const { body: { settings } } = await admin.agent.get(presentationPath).expect(200);
+    await sendWriteRequest(admin, 'put', presentationPath, {
+      ...settings, fields: { c0: { label: 'Service program' }, c1: { label: 'People served' } },
+    }).expect(200);
     const options = await sendWriteRequest(staff, 'post', '/api/reports/comparison-options', {
       datasetIds: [first.id, second.id],
     }).expect(200);
-    assert.deepEqual(options.body.groupBy.map(({ id, values }) => [id, values]), [['label', ['Food aid', 'Housing']]]);
+    assert.equal(options.body.defaultCompare, 'label');
+    assert.deepEqual(options.body.groupBy.map(({ id, kind, noun, values }) => [id, kind, noun, values]), [
+      ['label', 'column', 'Service program', ['Food aid', 'Housing']],
+      ['fields', 'column', 'Service program', ['Food aid', 'Housing']],
+    ]);
     const sources = [{ datasetId: first.id, indicator: 'c1' }, { datasetId: second.id, indicator: 'c2' }];
     const selection = {
       dataset: { id: first.id, name: first.name, vintage: first.vintage },
@@ -664,6 +733,8 @@ test('non-geographic comparisons align shared labels and indicators across diffe
       comparison: { groupBy: 'label', sources },
     };
     const preview = await sendWriteRequest(staff, 'post', '/api/reports/preview', selection).expect(200);
+    assert.equal(preview.body.rowNoun, 'Service program');
+    assert.equal(preview.body.indicators[0].indicatorLabel, 'People served');
     assert.deepEqual(preview.body.indicators.map(({ cells }) => cells.map(({ value }) => value)), [[100, 80], [null, 90]]);
     assert.deepEqual(preview.body.comparison.sharedIndicators[0].datasets.map(({ indicator }) => indicator), ['c1', 'c2']);
     assert.equal(preview.body.comparison.relationships[0].correlation, null);
@@ -672,6 +743,90 @@ test('non-geographic comparisons align shared labels and indicators across diffe
       comparison: { groupBy: 'label', sources: [sources[0], { ...sources[1], aggregation: 'average' }] },
     }).expect(200);
     assert.deepEqual(byAverage.body.indicators[1].cells.map(({ value, display }) => [value, display]), [[32.5, '32.5'], [90, '90']]);
+  } finally {
+    await removeTestData(userIds, testTag);
+  }
+});
+
+test('field comparisons use approved source keys and save the keys used by the report', {
+  skip: process.env.CT_CURATION_INTEGRATION !== '1',
+}, async () => {
+  const testTag = "field-comparison-test-" + crypto.randomUUID();
+  const userIds = [];
+  const app = createApp({ sessionStore: new session.MemoryStore(), logRequests: false });
+  try {
+    const { admin, staff } = await createTestClients(app, testTag, userIds);
+    const { body: base } = await uploadDataset(admin, testTag, testTag, [
+      'Region title,Census ID,Clients,Internal',
+      'Capitol Planning Region,001,12,Secret A',
+      'Western Planning Region,002,40,Secret B',
+      'Exact Case,003,75,Secret C',
+    ].join('\n'), { labelColumn: 'Region title' }).expect(201);
+    const basePath = '/api/datasets/' + base.id;
+    await sendWriteRequest(admin, 'put', basePath + '/curation', { approvedFields: ['c1', 'c2'] }).expect(200);
+    await sendWriteRequest(admin, 'put', basePath + '/presentation', {
+      revision: 0, fields: { c0: { label: 'Planning region' }, c1: { label: 'Census code' } },
+    }).expect(200);
+    await sendWriteRequest(admin, 'patch', basePath, { isActive: true }).expect(200);
+
+    const { body: related } = await uploadDataset(staff, testTag, testTag + '-private', [
+      'Area,Area Code,Participants',
+      'Capitol Planning Region,001,81',
+      'Western Planning Region,2,82',
+      'EXACT CASE,003,83',
+      'Boundary,004,84',
+    ].join('\n'), { labelColumn: 'Area' }, '/api/datasets/private').expect(201);
+    const datasetIds = [base.id, related.id];
+    const primaryFields = { [base.id]: 'c0', [related.id]: 'c0' };
+    const codeFields = { [base.id]: 'c1', [related.id]: 'c1' };
+    const optionsPath = '/api/reports/comparison-options';
+    const { body: options } = await sendWriteRequest(staff, 'post', optionsPath, { datasetIds }).expect(200);
+    const primaryOption = options.groupBy.find(({ id }) => id === 'fields');
+    assert.equal(options.defaultCompare, 'fields');
+    assert.equal(primaryOption.noun, 'Planning region');
+    assert.deepEqual(primaryOption.matchFields, primaryFields);
+    assert.deepEqual(primaryOption.values, ['Capitol Planning Region', 'Western Planning Region']);
+    assert.deepEqual(options.datasets[0].matchFields.map(({ key, label }) => [key, label]), [
+      ['c0', 'Planning region'], ['c1', 'Census code'], ['c2', 'Clients'],
+    ]);
+
+    const { body: byCodeOptions } = await sendWriteRequest(staff, 'post', optionsPath, {
+      datasetIds, matchFields: codeFields,
+    }).expect(200);
+    assert.deepEqual(byCodeOptions.groupBy.find(({ id }) => id === 'fields').values, ['001', '003']);
+    const { body: noMatchOptions } = await sendWriteRequest(staff, 'post', optionsPath, {
+      datasetIds, matchFields: { [base.id]: 'c1' },
+    }).expect(200);
+    assert.deepEqual(noMatchOptions.groupBy.find(({ id }) => id === 'fields').values, []);
+
+    await sendWriteRequest(staff, 'post', optionsPath, { datasetIds, matchFields: { [base.id]: 'c3' } }).expect(400);
+    await sendWriteRequest(staff, 'post', optionsPath, { datasetIds, matchFields: { 99999999: 'c0' } }).expect(400);
+    await sendWriteRequest(admin, 'post', optionsPath, { datasetIds, matchFields: codeFields }).expect(404);
+
+    const sources = [{ datasetId: base.id, indicator: 'c2' }, { datasetId: related.id, indicator: 'c2' }];
+    const selection = {
+      dataset: { id: base.id, name: base.name, vintage: base.vintage },
+      benchmark: false,
+      allRows: true,
+      indicators: sources.map(({ datasetId, indicator }) => 'd' + datasetId + ':' + indicator),
+      comparison: { groupBy: 'fields', sources },
+    };
+    const { body: byCode } = await sendWriteRequest(staff, 'post', '/api/reports/preview', {
+      ...selection, comparison: { ...selection.comparison, matchFields: codeFields },
+    }).expect(200);
+    assert.equal(byCode.rowNoun, 'Census code');
+    assert.deepEqual(byCode.places.map(({ name }) => name), ['001', '003']);
+    assert.deepEqual(byCode.indicators.map(({ cells }) => cells.map(({ value }) => value)), [[12, 75], [81, 83]]);
+    await sendWriteRequest(staff, 'post', '/api/reports/preview', {
+      ...selection, comparison: { ...selection.comparison, matchFields: { [base.id]: 'c3' } },
+    }).expect(400);
+
+    const { body: saved } = await sendWriteRequest(staff, 'post', '/api/reports', { title: testTag, selection }).expect(201);
+    assert.deepEqual(saved.selection.comparison.matchFields, primaryFields);
+    await sendWriteRequest(staff, 'put', basePath + '/row-label', { rowLabelKey: 'c1' }).expect(200);
+    const { body: reopened } = await staff.agent.get('/api/reports/by-slug/' + saved.slug).expect(200);
+    assert.deepEqual(reopened.data.places.map(({ name }) => name), primaryOption.values);
+    await staff.agent.get('/api/reports/' + saved.id + '/pdf').expect(200).expect('Content-Type', /pdf/);
   } finally {
     await removeTestData(userIds, testTag);
   }
@@ -711,7 +866,7 @@ test('the data assistant reads published figures, keeps record values private an
   const app = createApp({ sessionStore: new session.MemoryStore(), logRequests: false });
   try {
     const { admin, staff } = await createTestClients(app, testTag, userIds);
-    const numeric = await uploadDataset(admin, testTag, `${testTag}-towns`, 'Town,pop,households\nAndover,1234,500\nBridgewater,2000,800\n').expect(201);
+    const numeric = await uploadDataset(admin, testTag, `${testTag}-towns`, 'Town,pop,households\nAndover,1234,500\nBridgewater,2000,800\nConnecticut,4000,2000\n').expect(201);
     await sendWriteRequest(admin, 'put', `/api/datasets/${numeric.body.id}/curation`, { approvedFields: ['pop', 'households'] }).expect(200);
     await sendWriteRequest(admin, 'patch', `/api/datasets/${numeric.body.id}`, { isActive: true }).expect(200);
     const records = await uploadDataset(admin, testTag, `${testTag}-programs`, 'Program,Clients\nFood pantry,1200\nHousing help,300\n', { labelColumn: 'Program', labelIsTown: 'false' }).expect(201);
@@ -733,6 +888,18 @@ test('the data assistant reads published figures, keeps record values private an
     }).expect(200);
     assert.equal(answer.body.reply, 'The average is **1,617.00** people per town.');
     assert.equal(answer.body.proposal, null);
+    assert.deepEqual(answer.body.citations, [{
+      datasetId: numeric.body.id,
+      name: numeric.body.name,
+      source: testTag,
+      vintage: '2026',
+      version: 1,
+      url: `/dataset?id=${numeric.body.id}`,
+      fields: ['Population', 'average of pop'],
+      fieldCount: 2,
+      locations: ['Andover', 'Bridgewater'],
+      locationCount: 2,
+    }]);
     const catalog = JSON.parse(figures.requests[1].messages.at(-1).content[0].content);
     assert.ok(catalog.some(({ id }) => id === numeric.body.id));
     assert.ok(catalog.some(({ id }) => id === records.body.id));
@@ -743,6 +910,52 @@ test('the data assistant reads published figures, keeps record values private an
     assert.equal(privateResult.is_error, true);
     assert.match(privateResult.content, /private/);
     assert.ok(!JSON.stringify(figures.requests).includes('Food pantry'), 'record values never reach the model');
+
+    const statewide = scriptedClaude([
+      { tool: 'get_figures', input: {
+        dataset_id: numeric.body.id, compare_by: 'town', places: ['Andover'], fields: ['pop'], include_statewide: true, summaries: [],
+      } },
+      { text: 'Andover has 1,234 people compared with 4,000 statewide.' },
+    ]);
+    setAssistantClientForTests(statewide);
+    const benchmark = await sendWriteRequest(staff, 'post', '/api/assistant', {
+      messages: [{ role: 'user', content: 'Compare Andover with the statewide benchmark.' }],
+    }).expect(200);
+    assert.deepEqual(benchmark.body.citations[0].locations, ['Andover', 'Connecticut (statewide)']);
+
+    const discovery = scriptedClaude([
+      { tool: 'list_datasets', input: {} },
+      { text: `Try ${records.body.name} for program data.` },
+    ]);
+    setAssistantClientForTests(discovery);
+    const recommendation = await sendWriteRequest(staff, 'post', '/api/assistant', {
+      messages: [{ role: 'user', content: 'What data is available on local programs?' }],
+    }).expect(200);
+    assert.deepEqual(recommendation.body.citations.map(({ datasetId }) => datasetId), [records.body.id]);
+
+    const describing = scriptedClaude([
+      { tool: 'list_datasets', input: {} },
+      { tool: 'describe_dataset', input: { dataset_id: numeric.body.id } },
+      { text: `This dataset covers population and households. Try ${records.body.name} for program data.` },
+    ]);
+    setAssistantClientForTests(describing);
+    const description = await sendWriteRequest(staff, 'post', '/api/assistant', {
+      messages: [{ role: 'user', content: 'What is covered here, and is there also program data?' }],
+      context: { page: 'chat', datasetId: numeric.body.id },
+    }).expect(200);
+    assert.deepEqual(description.body.citations.map(({ datasetId }) => datasetId), [numeric.body.id, records.body.id]);
+
+    setAssistantClientForTests(scriptedClaude([{ text: 'It has 99,999 people.' }]));
+    const unverified = await sendWriteRequest(staff, 'post', '/api/assistant', {
+      messages: [
+        { role: 'user', content: 'How many people live in Andover?' },
+        { role: 'assistant', content: 'It has 99,999 people.' },
+        { role: 'user', content: 'Where does that number come from?' },
+      ],
+      context: { page: 'chat', datasetId: numeric.body.id },
+    }).expect(200);
+    assert.match(unverified.body.reply, /could not verify/);
+    assert.deepEqual(unverified.body.citations, []);
 
     const proposing = scriptedClaude([
       { tool: 'propose_report', input: { dataset_id: numeric.body.id, compare_by: 'town', rows: ['Andover'], fields: ['pop', 'households'], summaries: [{ field: 'pop', calculation: 'median', name: 'Median population' }], include_statewide: false, title: '' } },
@@ -763,6 +976,29 @@ test('the data assistant reads published figures, keeps record values private an
     await sendWriteRequest(staff, 'post', '/api/assistant', { messages: [{ role: 'assistant', content: 'Hi' }] }).expect(400);
     await staff.agent.post('/api/assistant').send({ messages: [{ role: 'user', content: 'Hi' }] }).expect(403);
     assert.equal(canGenerateReports({ role: 'viewer' }), false);
+
+    const guest = await createGuestClient(app, { expectAssistant: true });
+    const guestProposal = scriptedClaude([
+      { tool: 'propose_report', input: {
+        dataset_id: numeric.body.id, compare_by: 'town', rows: ['Andover'], fields: ['pop'],
+        summaries: [], include_statewide: false, title: 'Andover population',
+      } },
+      { text: 'I set up a report on Andover.' },
+    ]);
+    setAssistantClientForTests(guestProposal);
+    const guestQuestion = {
+      messages: [{ role: 'user', content: 'Make a report for Andover population' }],
+      context: { page: 'chat', datasetId: numeric.body.id },
+    };
+    await guest.agent.post('/api/assistant').send(guestQuestion).expect(403);
+    const guestAnswer = await sendWriteRequest(guest, 'post', '/api/assistant', guestQuestion).expect(200);
+    assert.equal(guestAnswer.body.proposal.datasetId, numeric.body.id);
+    assert.deepEqual(guestAnswer.body.proposal.selection.rows, ['Andover']);
+    assert.deepEqual(guestAnswer.body.citations.map(({ datasetId, fields, locations }) => ({ datasetId, fields, locations })), [{
+      datasetId: numeric.body.id, fields: ['Population'], locations: ['Andover'],
+    }]);
+    const guestPreview = await sendWriteRequest(guest, 'post', '/api/reports/preview', guestAnswer.body.proposal.selection).expect(200);
+    assert.equal(guestPreview.body.indicators[0].cells[0].value, 1234);
   } finally {
     setAssistantClientForTests(undefined);
     await removeTestData(userIds, testTag);
@@ -783,7 +1019,8 @@ test('only the uploader can access a private dataset or any report using it', {
     await sendWriteRequest(admin, 'put', `/api/datasets/${published.body.id}/curation`, { approvedFields: ['c1'] }).expect(200);
     await sendWriteRequest(admin, 'patch', `/api/datasets/${published.body.id}`, { isActive: true }).expect(200);
 
-    const first = await uploadDataset(staff, testTag, testTag, csv, {}, '/api/datasets/private').expect(201);
+    const privateSourceUrl = 'https://example.invalid/client-data';
+    const first = await uploadDataset(staff, privateSourceUrl, testTag, csv, {}, '/api/datasets/private').expect(201);
     const second = await uploadDataset(staff, testTag, testTag, csv, {}, '/api/datasets/private').expect(201);
     const { id, isPrivate, isActive } = first.body;
     assert.equal(isPrivate, true);
@@ -848,10 +1085,11 @@ test('only the uploader can access a private dataset or any report using it', {
       { text: 'That dataset is unavailable.' },
     ]);
     setAssistantClientForTests(scripted);
-    await sendWriteRequest(admin, 'post', '/api/assistant', {
+    const unauthorized = await sendWriteRequest(admin, 'post', '/api/assistant', {
       messages: [{ role: 'user', content: 'Describe this dataset' }],
       context: { page: 'chat', datasetId: id, includePrivate: true },
     }).expect(200);
+    assert.deepEqual(unauthorized.body.citations, []);
     assert.equal(lastToolResult(scripted).is_error, true);
     assert.ok(!JSON.stringify(scripted.requests).includes(testTag));
 
@@ -871,10 +1109,35 @@ test('only the uploader can access a private dataset or any report using it', {
     assert.ok(publicCatalog.every((dataset) => dataset.id !== id && dataset.id !== second.body.id));
     assert.equal(lastToolResult(publicChat).is_error, true);
 
+    const guest = await createGuestClient(app, { expectAssistant: true });
+    for (const path of REPORT_PATHS) {
+      await sendWriteRequest(guest, 'post', path, selection).expect(404);
+      await sendWriteRequest(guest, 'post', path, secondary).expect(404);
+    }
+    await sendWriteRequest(guest, 'post', '/api/reports/comparison-options', {
+      datasetIds: [published.body.id, id],
+    }).expect(404);
+    const guestChat = scriptedClaude([
+      { tool: 'list_datasets', input: {} },
+      { tool: 'describe_dataset', input: { dataset_id: id } },
+      { text: 'That dataset is unavailable.' },
+    ]);
+    setAssistantClientForTests(guestChat);
+    const guestResponse = await sendWriteRequest(guest, 'post', '/api/assistant', {
+      messages: [{ role: 'user', content: 'What data is available?' }],
+      context: { page: 'chat', datasetId: id, includePrivate: true },
+    }).expect(200);
+    assert.deepEqual(guestResponse.body.citations, []);
+    assert.doesNotMatch(guestChat.requests[0].messages[0].content[0].text, /Open dataset:/);
+    const guestCatalog = JSON.parse(guestChat.requests[1].messages.at(-1).content[0].content);
+    assert.ok(guestCatalog.some((dataset) => dataset.id === published.body.id));
+    assert.ok(guestCatalog.every((dataset) => dataset.id !== id && dataset.id !== second.body.id));
+    assert.equal(lastToolResult(guestChat).is_error, true);
+
     const ownerChat = scriptedClaude([
       { tool: 'list_datasets', input: {} },
       { tool: 'compare_datasets', input: {
-        sources: [{ dataset_id: id, indicator: 'c1', aggregation: 'source' }],
+        sources: [id, published.body.id].map((dataset_id) => ({ dataset_id, indicator: 'c1', aggregation: 'source' })),
         group_by: 'town',
         rows: ['Andover'],
         create_report: false,
@@ -888,15 +1151,21 @@ test('only the uploader can access a private dataset or any report using it', {
       context: { page: 'chat', datasetIds: [id] },
     }).expect(404);
     assert.equal(ownerChat.requests.length, 0);
-    await sendWriteRequest(staff, 'post', '/api/assistant', {
+    const ownerAnswer = await sendWriteRequest(staff, 'post', '/api/assistant', {
       messages: [{ role: 'user', content: 'How many clients does Andover have?' }],
       context: { page: 'chat', includePrivate: true },
     }).expect(200);
+    assert.deepEqual(ownerAnswer.body.citations.map(({ datasetId, sourceUrl, fields, locations }) =>
+      ({ datasetId, sourceUrl, fields, locations })), [
+      { datasetId: id, sourceUrl: privateSourceUrl, fields: ['Clients'], locations: ['Andover'] },
+      { datasetId: published.body.id, sourceUrl: undefined, fields: ['Clients'], locations: ['Andover'] },
+    ]);
     const ownerCatalog = JSON.parse(ownerChat.requests[1].messages.at(-1).content[0].content);
     assert.ok(ownerCatalog.some((dataset) => dataset.id === id));
     assert.ok(ownerCatalog.some((dataset) => dataset.id === second.body.id));
     assert.deepEqual(JSON.parse(lastToolResult(ownerChat).content).values, {
       [`d${id}:c1`]: { Andover: '54,321' },
+      [`d${published.body.id}:c1`]: { Andover: '19' },
     });
     assert.ok(!JSON.stringify(ownerChat.requests).includes('unshared-label'));
   } finally {

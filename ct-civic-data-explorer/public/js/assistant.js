@@ -7,7 +7,7 @@ const MAX_HISTORY = 29;
 const byId = (id) => document.getElementById(id);
 
 async function initializeChat() {
-  const { user, features } = await loadSession();
+  const { user, features } = await loadSession({ allowGuest: true });
   renderHeader(user);
   if (!features.assistant) {
     showStatus(byId('page-status'), 'AI chat is unavailable. An administrator can enable it in AI settings.');
@@ -29,7 +29,7 @@ async function initializeChat() {
   const status = byId('chat-status');
   const linkedId = Number(new URLSearchParams(location.search).get('dataset'));
   const datasetId = Number.isSafeInteger(linkedId) && linkedId > 0 ? linkedId : undefined;
-  const privateDatasets = await api('/datasets?scope=private');
+  const privateDatasets = user ? await api('/datasets?scope=private') : [];
   byId('chat-private-consent').hidden = !privateDatasets.some((dataset) => dataset.isActive);
   const linkedPrivateDataset = privateDatasets.some((dataset) => dataset.id === datasetId);
   const messages = [];
@@ -92,27 +92,13 @@ async function initializeChat() {
       class: 'assistant-apply',
       onClick: () => {
         try {
-          savePendingProposal(user.id, proposal);
+          savePendingProposal(user?.id ?? null, proposal);
           location.assign(`/builder?dataset=${proposal.datasetId}&proposal=1`);
         } catch {
           showStatus(status, 'Enable browser session storage to open the report.', 'error');
         }
       },
     }, 'Open in report builder');
-  }
-
-  function replyActions(reply, proposal) {
-    const copy = h('button', { type: 'button', class: 'link', 'aria-label': 'Copy reply' }, 'Copy');
-    copy.addEventListener('click', async () => {
-      try {
-        await navigator.clipboard.writeText(reply);
-        copy.textContent = 'Copied';
-        setTimeout(() => { copy.textContent = 'Copy'; }, 1600);
-      } catch {
-        showStatus(status, 'Could not copy the reply.', 'error');
-      }
-    });
-    return h('div', { class: 'chat-reply-actions' }, copy, proposal && proposalButton(proposal));
   }
 
   async function send() {
@@ -131,7 +117,7 @@ async function initializeChat() {
     try {
       const history = messages.slice(-MAX_HISTORY);
       if (history[0]?.role === 'assistant') history.shift();
-      const { reply, proposal } = await api('/assistant', {
+      const { reply, proposal, citations = [] } = await api('/assistant', {
         method: 'POST',
         json: {
           messages: [...history, prompt],
@@ -140,7 +126,8 @@ async function initializeChat() {
       });
       messages.push(prompt, { role: 'assistant', content: reply.slice(0, 4000) });
       const follow = atLatest();
-      const answer = h('div', { class: 'assistant-message' }, renderRichText(reply), replyActions(reply, proposal));
+      const answer = h('div', { class: 'assistant-message' },
+        renderRichText(reply), renderCitations(citations), proposal && proposalButton(proposal));
       pending.replaceWith(answer);
       if (follow) scrollToLatest();
       else updateLatestButton();
@@ -187,6 +174,46 @@ async function initializeChat() {
   updateControls();
   showSuggestions();
   chat.hidden = false;
+}
+
+function renderCitations(citations) {
+  if (!citations.length) return null;
+  return h('section', { class: 'chat-citations', 'aria-label': 'Sources' },
+    h('h2', {}, 'Sources'),
+    h('ul', {}, citations.map(renderCitation)));
+}
+
+function renderCitation(citation) {
+  const datasetUrl = `/dataset?id=${encodeURIComponent(citation.datasetId)}`;
+  const linkOptions = { target: '_blank', rel: 'noopener noreferrer' };
+  const sourceUrl = externalSourceUrl(citation.sourceUrl);
+  const source = sourceUrl
+    ? h('a', { href: sourceUrl, ...linkOptions }, citation.source)
+    : citation.source;
+  const edition = [citation.vintage, citation.version != null && `Version ${citation.version}`].filter(Boolean).join(' · ');
+  return h('li', {},
+    h('a', { href: datasetUrl, ...linkOptions }, citation.name),
+    h('div', { class: 'muted' }, source, source && edition ? ' · ' : null, edition),
+    citationDetail('Rows', citation.locations, citation.locationCount),
+    citationDetail('Fields', citation.fields, citation.fieldCount));
+}
+
+function citationDetail(label, values, count) {
+  if (!values?.length) return null;
+  const remaining = (count ?? values.length) - values.length;
+  return h('div', { class: 'muted' },
+    `${label} · ${values.join(', ')}`, remaining > 0 ? ` and ${remaining} more` : null);
+}
+
+function externalSourceUrl(value) {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    if (['http:', 'https:'].includes(url.protocol) && !url.username && !url.password) return url.href;
+  } catch {
+    return null;
+  }
+  return null;
 }
 
 /** Render paragraphs, bullets and emphasis as text nodes. */

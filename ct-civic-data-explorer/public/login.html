@@ -13,8 +13,7 @@
         <p class="section-kicker">CTData Collaborative</p>
         <h1>Civic Data Explorer</h1>
         <p class="muted">
-          Sign in to explore Connecticut communities with curated data, compare locations and save
-          your findings.
+          Sign in to save reports to your account and manage private datasets.
         </p>
         <form id="login-form" novalidate>
           <label for="email">Email</label>
@@ -28,7 +27,10 @@
             required
           />
           <p id="status" class="status" role="alert" hidden></p>
-          <div class="button-row"><button type="submit">Sign in</button></div>
+          <div class="button-row">
+            <button type="submit">Sign in</button>
+            <a href="/">Continue as guest</a>
+          </div>
         </form>
         <p class="muted small">Forgot your password? Ask an administrator for a reset link.</p>
       </div>

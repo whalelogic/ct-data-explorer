@@ -1,5 +1,5 @@
 /**
- * Add a dataset: choose a file → describe it → say what each row is → upload.
+ * Add a dataset: choose a file → describe it → choose its primary field → upload.
  * Steps after the first appear once a file is chosen; the server reads the file's columns
  * so the row question offers real choices.
  */
@@ -8,8 +8,6 @@ import { h as createElement } from './dom.js';
 import { mountIndicatorEditor } from './indicator-editor.js';
 import { boot, renderAdminNav, renderHeader, showStatus } from './layout.js';
 
-/** Share of a column's values that must be Connecticut places before that box is pre-ticked. */
-const TOWN_MATCH_SHARE = 0.8;
 const privateUpload = location.pathname === '/datasets/new';
 const uploadPath = privateUpload ? '/datasets/private' : '/datasets';
 
@@ -101,9 +99,8 @@ async function inspectSelectedFile() {
     }
     if (inspection.suggested) {
       select.value = inspection.suggested.label;
-      getElement('ds-label-is-town').checked = inspection.suggested.isTown;
     }
-    showLabelSamples();
+    handleLabelColumnChange();
     getElement('row-label-field').hidden = false;
     const rows = inspection.rowCount.toLocaleString();
     showStatus(getElement('inspect-status'), `Found ${rows} rows and ${inspectedColumns.length} columns.`, 'ok');
@@ -123,7 +120,7 @@ function renderUploadPreview() {
   const headingRow = createElement('tr');
   for (const { column } of order) {
     const isRowLabel = column.label === chosen;
-    const kind = isRowLabel ? 'Rows' : column.isNumeric ? 'Number' : 'Text';
+    const kind = isRowLabel ? 'Primary field' : column.isNumeric ? 'Number' : 'Text';
     headingRow.append(createElement('th', { scope: 'col', class: isRowLabel ? 'is-row-label' : (column.isNumeric ? 'num' : null) },
       createElement('span', { class: 'column-name' }, column.label),
       createElement('span', { class: 'column-type' }, kind)));
@@ -133,7 +130,7 @@ function renderUploadPreview() {
     const row = createElement('tr');
     for (const { column, index } of order) {
       const isRowLabel = column.label === chosen;
-      const value = cells[index] || '—';
+      const value = cells[index] === '' || cells[index] == null ? '—' : cells[index];
       row.append(isRowLabel
         ? createElement('th', { scope: 'row', class: 'is-row-label' }, value)
         : createElement('td', { class: column.isNumeric ? 'num' : null }, value));
@@ -144,23 +141,19 @@ function renderUploadPreview() {
   getElement('upload-preview').replaceChildren(table);
 }
 
-function showLabelSamples() {
-  renderUploadPreview();
-  const column = inspectedColumns.find((candidate) => candidate.label === getElement('ds-label-column').value);
-  if (!column) {
-    getElement('label-samples').textContent = '';
-    return;
-  }
-  const share = Math.round(column.townShare * 100);
-  const placeNote = share > 0 ? ` ${share}% of these are Connecticut places.` : '';
-  getElement('label-samples').textContent = `For example: ${column.samples.join(', ') || 'none'}.${placeNote}`;
-}
-
 function handleLabelColumnChange() {
   const column = inspectedColumns.find((candidate) => candidate.label === getElement('ds-label-column').value);
-  // Suggest the places option only when the values really are places.
-  getElement('ds-label-is-town').checked = Boolean(column && column.townShare >= TOWN_MATCH_SHARE);
-  showLabelSamples();
+  // Geographic uploads require a recognized place on every row, including rows with blanks.
+  const matchesPlaces = column?.townShare === 1 && column.blankCount === 0;
+  getElement('ds-label-is-town').checked = matchesPlaces;
+  getElement('geography-option').hidden = !matchesPlaces;
+
+  const details = column?.samples.length ? [`Sample values · ${column.samples.join(' · ')}`] : [];
+  if (column?.townShare > 0 && !matchesPlaces) {
+    details.push('Every row must match a Connecticut place to enable place comparisons.');
+  }
+  getElement('label-samples').textContent = details.join(' · ');
+  renderUploadPreview();
 }
 
 async function uploadDataset(event) {

@@ -26,7 +26,7 @@ import {
   buildCustomFields, computeSummaries, customIndicatorKeys, isSummaryIndicator, withoutCustomIndicators, withoutSummaryIndicators,
 } from './custom-indicators.js';
 import { createSlug } from './slugs.js';
-import { PLACE_GROUPS, benchmarkWording, describePlaces } from './row-labels.js';
+import { PLACE_GROUPS, benchmarkWording, describePlaces, reportGeography } from './row-labels.js';
 import { requireAccessibleDataset } from './datasets.service.js';
 import { compareDatasets } from './dataset-comparison.js';
 import { trackReportUsage } from './dataset-usage.js';
@@ -40,12 +40,16 @@ const TIME_ZONE = 'America/New_York';
 export async function buildReport(fullSelection, { now = new Date(), user } = {}) {
   if (fullSelection.comparison) return buildComparisonReport(fullSelection, user, now);
   const dataset = await requireActiveDataset(fullSelection.dataset, user);
+  const includeUploadDetails = Boolean(user);
   if (dataset.data_format === 'records') {
-    return buildRecordReport(fullSelection, dataset, now);
+    return buildRecordReport(fullSelection, dataset, now, { includeUploadDetails });
   }
-  // Summary fields (e.g. average per town) are one value for the report, not a column.
+  if (fullSelection.compareBy && !reportGeography(fullSelection.compareBy)) {
+    throw new HttpError(400, 'This dataset offers comparison by Connecticut geography. Choose an available geography.');
+  }
+  // Summary fields provide one value for the whole report.
   const selection = withoutSummaryIndicators(fullSelection);
-  const places = await resolveTownPlaces(selection, dataset);
+  const places = await resolveObservationPlaces(selection, dataset);
   const { selectedIndicators, approvedIndicators } = await resolveIndicators(selection, dataset);
   const placeIds = places.map((place) => place.id);
   const valuesByPlace = await observations.valuesByTown(dataset.id, placeIds);
@@ -53,6 +57,7 @@ export async function buildReport(fullSelection, { now = new Date(), user } = {}
 
   const placeSummaries = places.map(presentPlace);
   const comparedPlaces = places.filter((place) => place.geo_type !== 'state');
+  const rowNoun = placeNoun(comparedPlaces);
   const benchmark = await loadPlaceBenchmark(fullSelection, dataset, comparedPlaces, valuesByPlace);
   const summaries = computeSummaries(
     fullSelection,
@@ -61,12 +66,12 @@ export async function buildReport(fullSelection, { now = new Date(), user } = {}
     {
       readValue: (place, field) => computeValue(field, valuesByPlace.get(place.id)),
       nameOf: (place) => place.name,
-      rowNoun: placeNoun(comparedPlaces),
+      rowNoun,
     },
     benchmark,
   );
   const generatedOn = now.toLocaleDateString('en-CA', { timeZone: TIME_ZONE }); // YYYY-MM-DD
-  const datasetSummary = presentDataset(dataset);
+  const datasetSummary = presentDataset(dataset, { includeUploadDetails });
   const blocks = [];
   for (const layoutBlock of selection.layout) {
     // A report of summaries only has no per-row fields to chart or tabulate.
@@ -79,7 +84,7 @@ export async function buildReport(fullSelection, { now = new Date(), user } = {}
 
   return {
     style: resolveReportStyle(dataset.presentation?.style, selection.styleOverrides),
-    rowNoun: 'Town',
+    rowNoun: rowNoun[0].toUpperCase() + rowNoun.slice(1),
     title: selection.title || describePlaces(placeSummaries, selection.allRows),
     subtitle: selection.subtitle || `${dataset.presentation?.displayName || dataset.name}, ${dataset.vintage}`,
     showTitle: selection.showTitle,
@@ -97,6 +102,7 @@ export async function buildReport(fullSelection, { now = new Date(), user } = {}
 
 async function buildComparisonReport(selection, user, now) {
   const { dataset, datasets, places, indicators, rowNoun, comparison } = await compareDatasets(selection, user);
+  const rowBased = ['label', 'fields'].includes(comparison.groupBy);
   const siteLabels = datasets.map((item) => `${item.displayName}, ${item.vintage} (v${item.version})`);
   const generatedOn = now.toLocaleDateString('en-CA', { timeZone: TIME_ZONE });
   const blocks = selection.layout.flatMap((block) => buildBlocks(block, indicators, places));
@@ -125,13 +131,13 @@ async function buildComparisonReport(selection, user, now) {
     indicators,
     comparison,
     rowNoun,
-    rowBased: comparison.groupBy === 'label',
+    rowBased,
     containsPrivateData: datasets.some((item) => item.isPrivate),
     summaries: [],
     blocks,
     style: resolveReportStyle(dataset.reportStyle, selection.styleOverrides),
     showTitle: selection.showTitle,
-    title: selection.title || (comparison.groupBy === 'label' ? `${rowNoun} comparison` : describePlaces(places, selection.allRows && comparison.groupBy !== 'state')),
+    title: selection.title || (rowBased ? `${rowNoun} comparison` : describePlaces(places, selection.allRows && comparison.groupBy !== 'state')),
     subtitle: selection.subtitle || siteLabels.join(' · '),
     generatedOn,
     sourceLine: `Sources: ${datasets.map((item, index) => `${item.source} (${siteLabels[index]})`).join(' · ')}. Generated ${generatedOn}.`,
@@ -174,23 +180,25 @@ export async function getReport(id, user) {
 
 export async function createReport({ title, selection }, user) {
   const builtReport = await buildReport(selection, { user });
+  const storedSelection = pinComparisonFields(selection, builtReport);
   const isPrivate = usesPrivateData(builtReport);
   const id = await reports.insert({
     title,
     slug: isPrivate ? privateSlug() : await uniqueSlug(title),
-    selection,
+    selection: storedSelection,
     createdBy: user.id,
     datasetId: builtReport.dataset.id,
     isPrivate,
   });
-  await trackReportUsage('report_created', builtReport, selection);
+  await trackReportUsage('report_created', builtReport, storedSelection);
   return reports.findById(id, user);
 }
 
 export async function updateReport(id, { title, selection }, user) {
   const report = await getOwnedReport(id, user);
-  const nextSelection = selection ?? parseStoredSelection(report.selection);
-  const builtReport = await buildReport(nextSelection, { user });
+  const requestedSelection = selection ?? parseStoredSelection(report.selection);
+  const builtReport = await buildReport(requestedSelection, { user });
+  const nextSelection = pinComparisonFields(requestedSelection, builtReport);
   const nextTitle = title ?? report.title;
   const isPrivate = Boolean(report.is_private) || usesPrivateData(builtReport);
   await reports.update(id, {
@@ -210,8 +218,9 @@ export async function updateReport(id, { title, selection }, user) {
 /** Any signed-in user may duplicate a report; the copy belongs to them. */
 export async function duplicateReport(id, user) {
   const report = await getReport(id, user);
-  const selection = parseStoredSelection(report.selection);
-  const builtReport = await buildReport(selection, { user });
+  const requestedSelection = parseStoredSelection(report.selection);
+  const builtReport = await buildReport(requestedSelection, { user });
+  const selection = pinComparisonFields(requestedSelection, builtReport);
   const title = `${report.title} (copy)`.slice(0, 200);
   const isPrivate = Boolean(report.is_private) || usesPrivateData(builtReport);
   const copyId = await reports.insert({
@@ -224,6 +233,17 @@ export async function duplicateReport(id, user) {
   });
   await trackReportUsage('report_created', builtReport, selection);
   return reports.findById(copyId, user);
+}
+
+/** Store the actual fields used to build the report so later dataset defaults do not change it. */
+function pinComparisonFields(selection, report) {
+  if (report.comparison?.matchFields) {
+    return { ...selection, comparison: { ...selection.comparison, matchFields: report.comparison.matchFields } };
+  }
+  if (!selection.comparison && !selection.compareBy && report.rowLabelKey) {
+    return { ...selection, compareBy: report.rowLabelKey };
+  }
+  return selection;
 }
 
 /** A saved report with its current figures, for the interactive viewer at /explore/<slug>.html. */
@@ -282,17 +302,28 @@ async function requireActiveDataset({ id, name, vintage }, user) {
   return dataset;
 }
 
-/**
- * Places named in the selection (or every town, county and planning region in the
- * dataset), then the statewide figure when requested. Shared by indicator datasets and town-keyed source-row datasets.
- */
-export async function resolveTownPlaces(selection, dataset) {
+/** Indicator datasets compare registered Connecticut geographies. */
+async function resolveObservationPlaces(selection, dataset) {
+  const geography = reportGeography(selection.compareBy);
+  if (geography) {
+    const datasetPlaces = await observations.previewPlaces(dataset.id, { offset: 0, limit: 10000 });
+    const eligible = datasetPlaces.filter((place) => place.geo_type === geography);
+    const byName = new Map(eligible.map((place) => [place.name.toLowerCase(), place]));
+    const places = selection.allRows ? eligible : selection.rows.map((name) => {
+      const place = byName.get(name.toLowerCase());
+      if (!place) throw new HttpError(400, `Choose a ${PLACE_GROUPS[geography].noun} in this dataset. “${name}” is unavailable.`);
+      return place;
+    });
+    if (!places.length) throw new HttpError(400, `This dataset has no ${PLACE_GROUPS[geography].label.toLowerCase()} to compare.`);
+    const statewide = selection.benchmark && datasetPlaces.find((place) => place.geo_type === 'state');
+    return statewide ? [...places, statewide] : places;
+  }
   let places;
   if (selection.allRows) {
     const datasetPlaces = await observations.previewPlaces(dataset.id, { offset: 0, limit: 10000 });
     places = datasetPlaces.filter((place) => place.geo_type !== 'state');
   } else {
-    places = await findNamedTowns(selection.rows);
+    places = await findNamedPlaces(selection.rows);
   }
   if (selection.benchmark) {
     const state = await towns.findState();
@@ -303,24 +334,24 @@ export async function resolveTownPlaces(selection, dataset) {
   return places;
 }
 
-async function findNamedTowns(names) {
+async function findNamedPlaces(names) {
   const matchingPlaces = await towns.findByNames(names);
-  const townsByName = new Map();
+  const placesByName = new Map();
   const matchingNames = new Set();
   for (const place of matchingPlaces) {
     const lowerCaseName = place.name.toLowerCase();
     matchingNames.add(lowerCaseName);
     if (place.geo_type !== 'state') {
-      townsByName.set(lowerCaseName, place);
+      placesByName.set(lowerCaseName, place);
     }
   }
 
   const places = [];
   for (const name of names) {
     const lowerCaseName = name.toLowerCase();
-    const town = townsByName.get(lowerCaseName);
-    if (town) {
-      places.push(town);
+    const place = placesByName.get(lowerCaseName);
+    if (place) {
+      places.push(place);
       continue;
     }
     if (matchingNames.has(lowerCaseName)) {

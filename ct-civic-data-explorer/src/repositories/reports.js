@@ -2,7 +2,11 @@
 import { pool } from '../db/pool.js';
 
 const SELECT = `
-  SELECT r.id, r.title, r.slug, r.selection, r.created_by, r.dataset_id, r.created_at, r.updated_at, r.is_private,
+  SELECT r.id, r.title, r.slug,
+         CASE WHEN d.row_label_key IS NOT NULL AND NOT JSON_CONTAINS_PATH(r.selection, 'one', '$.compareBy', '$.comparison')
+              THEN JSON_SET(r.selection, '$.compareBy', d.row_label_key)
+              ELSE r.selection END AS selection,
+         r.created_by, r.dataset_id, r.created_at, r.updated_at, r.is_private,
          CONCAT(u.first_name, ' ', u.last_name) AS creator_name,
          d.name AS dataset_name, d.vintage AS dataset_vintage, d.version AS dataset_version, d.presentation AS dataset_presentation
   FROM reports r
@@ -63,6 +67,16 @@ export async function update(id, { title, slug, selection, datasetId, isPrivate 
          is_private = is_private OR ?, updated_at = NOW(3)
      WHERE id = ?`,
     [title, isPrivate, slug, JSON.stringify(selection), datasetId, isPrivate, id],
+  );
+}
+
+/** Keep the existing comparison basis on reports saved before that choice was stored. */
+export async function pinRecordCompareColumn(datasetId, fieldKey, db = pool) {
+  if (!fieldKey) return;
+  await db.query(
+    `UPDATE reports SET selection = JSON_SET(selection, '$.compareBy', ?)
+     WHERE dataset_id = ? AND NOT JSON_CONTAINS_PATH(selection, 'one', '$.compareBy', '$.comparison')`,
+    [fieldKey, datasetId],
   );
 }
 

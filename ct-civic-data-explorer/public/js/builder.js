@@ -6,6 +6,8 @@ import { fieldUnitLabel, groupFieldsByUnit } from '/shared/field-groups.js';
 import { resolveReportStyle } from '/shared/report-style.js';
 import { mountReportStyleEditor } from './report-style-editor.js';
 import { api, loadSession } from './api.js';
+import { getGuestReport, saveGuestReport } from './guest-reports.js';
+import { reportBuilderUrl } from './report-library.js';
 import { clearReport, renderReport } from './report-view.js';
 import { takePendingProposal } from './chat-proposal.js';
 import { h as createElement } from './dom.js';
@@ -23,22 +25,27 @@ const TAB_NAMES = ['data', 'fields', 'content', 'style'];
 const RATIO_UNITS = { ratio: 'ratio', percent: 'percent', per_1000: 'per_1000' };
 const RATIO_SYMBOLS = { ratio: '', percent: ' × 100', per_1000: ' × 1,000' };
 const MAX_COMPARISON_FIELDS = 8;
-const COMPARISON_NOUNS = { town: 'town', county: 'county', region: 'planning region', state: 'state', label: 'row' };
+const LEGACY_GEOGRAPHY = 'legacy-geography';
 
 let styleEditor;
 let currentUser = null;
 let aiSummaryEnabled = false;
 let activeDatasets = [];
 let datasetOptions = [];
-/** What the report can compare (towns, counties, a column such as Program), with their values. */
+/** Available comparison fields and geography levels from the selected dataset. */
 let compareOptions = [];
 let additionalDatasetIds = [];
+let matchingDatasets = [];
 let defaultCompare = null;
 let hasStatewideRow = false;
 let availableRows = [];
-let rowNoun = 'Town';
+let availableRowCount = 0;
+let rowNoun = 'row';
+let availableFilters = [];
 /** Lists longer than this get a "Find in this list" box. */
 const SEARCHABLE_ROW_COUNT = 12;
+const ROW_LIST_PAGE_SIZE = 100;
+let visibleRowLimit = ROW_LIST_PAGE_SIZE;
 /** Mirrors MAX_NAMED_ROWS on the server; longer lists are sent as "all rows". */
 const MAX_NAMED_ROWS = 2000;
 /** Field lists longer than this get a "Find a field" box and unit headings. */
@@ -81,7 +88,7 @@ function datasetLabel(dataset) {
 }
 
 async function initializeBuilder() {
-  const session = await loadSession();
+  const session = await loadSession({ allowGuest: true });
   currentUser = session.user;
   aiSummaryEnabled = session.features.aiSummary;
   renderHeader(currentUser);
@@ -89,7 +96,7 @@ async function initializeBuilder() {
   const datasets = await api('/datasets');
   activeDatasets = datasets.filter((dataset) => dataset.isActive);
   await loadInitialSelection();
-  const pending = new URLSearchParams(location.search).get('proposal') === '1' && takePendingProposal(currentUser.id);
+  const pending = new URLSearchParams(location.search).get('proposal') === '1' && takePendingProposal(currentUser?.id ?? null);
   if (pending && !savedReport && activeDatasets.some((dataset) => dataset.id === pending.datasetId)) {
     reportSelection = { ...reportSelection, ...pending.selection };
   }
@@ -106,7 +113,7 @@ async function initializeBuilder() {
   fillFormControls();
   updateHeading();
 
-  await loadDatasetColumns().catch((error) => showStatus(getElement('builder-status'), error.message, 'error'));
+  await loadDatasetColumns({ inferRows: true }).catch((error) => showStatus(getElement('builder-status'), error.message, 'error'));
   styleEditor = mountReportStyleEditor(getElement('report-style'), {
     prefix: 'report-style',
     overrides: true,
@@ -134,7 +141,7 @@ async function loadInitialSelection() {
   const requestedDataset = activeDatasets.find((dataset) => String(dataset.id) === queryParameters.get('dataset'));
   const initialDataset = requestedDataset ?? activeDatasets[0];
 
-  if (queryParameters.has('dataset') && !requestedDataset && !queryParameters.has('report')) {
+  if (queryParameters.has('dataset') && !requestedDataset && !queryParameters.has('report') && !queryParameters.has('localReport')) {
     throw new Error('This dataset is no longer active. Choose another dataset from the dashboard.');
   }
 
@@ -145,7 +152,7 @@ async function loadInitialSelection() {
     dataset: null,
     rows: [],
     allRows: false,
-    // Statewide totals dwarf town values on count charts, so comparison is opt-in.
+    // A statewide total is optional in reports that compare geographies.
     benchmark: false,
     indicators: [],
     showTitle: true,
@@ -162,8 +169,13 @@ async function loadInitialSelection() {
   }
   if (queryParameters.get('town')) {
     reportSelection.rows = [queryParameters.get('town')];
+    reportSelection.compareBy = 'town';
   }
-  if (queryParameters.has('report')) {
+  if (queryParameters.has('localReport')) {
+    if (currentUser) throw new Error('Sign out to open this report saved as a guest.');
+    savedReport = getGuestReport(queryParameters.get('localReport'));
+    reportSelection = { ...reportSelection, ...savedReport.selection };
+  } else if (queryParameters.has('report')) {
     const reportId = encodeURIComponent(queryParameters.get('report'));
     const report = await api(`/reports/${reportId}`);
     savedReport = { id: report.id, ownerId: report.createdBy.id, title: report.title, viewUrl: report.viewUrl };
@@ -248,11 +260,22 @@ function registerEventHandlers() {
   getElement('dataset').addEventListener('change', handleDatasetChange);
   getElement('comparison-mode').addEventListener('change', handleComparisonMode);
   getElement('comparison-dataset').addEventListener('change', handleAddComparisonDataset);
-  getElement('compare-options').addEventListener('change', handleCompareChange);
+  getElement('compare-by').addEventListener('change', handleCompareChange);
+  getElement('comparison-match-selects').addEventListener('change', handleMatchingFieldChange);
+  getElement('reset-comparison-match-fields').addEventListener('click', resetMatchingFields);
   getElement('row-checklist').addEventListener('change', handleRowCheck);
-  getElement('row-search').addEventListener('input', renderRowChecklist);
+  getElement('row-search').addEventListener('input', () => {
+    visibleRowLimit = ROW_LIST_PAGE_SIZE;
+    renderRowChecklist();
+  });
+  getElement('show-more-rows').addEventListener('click', () => {
+    const nextRow = visibleRowLimit;
+    visibleRowLimit += ROW_LIST_PAGE_SIZE;
+    renderRowChecklist();
+    getElement(`row-choice-${nextRow}`)?.focus();
+  });
   getElement('select-all-rows').addEventListener('click', selectAllRows);
-  getElement('clear-towns').addEventListener('click', clearRows);
+  getElement('clear-rows').addEventListener('click', clearRows);
   getElement('field-search').addEventListener('input', renderAvailableFields);
   getElement('clear-fields').addEventListener('click', clearFields);
   getElement('select-all-fields').addEventListener('click', selectAllFields);
@@ -345,19 +368,17 @@ function handleTabKeydown(event) {
   }
 }
 
-/** Each tab shows how much of it is filled in, so nothing has to be scrolled to be checked. */
-/** Each step's tab says what has been chosen in it, so no separate summary is needed. */
+/** Give each step a short summary once it has selections. */
 function updateTabCounts() {
-  const rowCount = reportSelection.allRows ? availableRows.length : reportSelection.rows.length;
+  const rowCount = reportSelection.allRows ? availableRowCount : reportSelection.rows.length;
   const fieldCount = reportSelection.indicators.filter((key) => indicatorsByKey.has(key)).length;
   const hasRows = rowCount > 0;
   const hasFields = fieldCount > 0;
 
-  setStepSummary('data', hasRows ? `${reportSelection.allRows ? 'All ' : ''}${rowCount.toLocaleString('en-US')} ${pluralize(rowNoun, rowCount).toLowerCase()}` : 'Not chosen', hasRows);
-  setStepSummary('fields', hasFields ? `${fieldCount} ${fieldCount === 1 ? 'field' : 'fields'}` : 'Not chosen', hasFields);
-  // The layout starts filled in, so it only counts as done once there is something to lay out.
-  setStepSummary('content', describeLayout(), hasRows && hasFields && reportSelection.layout.length > 0);
-  renderSaveSummary();
+  setStepSummary('data', hasRows ? `${reportSelection.allRows ? 'All ' : ''}${rowCount.toLocaleString('en-US')} ${pluralize(rowChoiceNoun(), rowCount)}` : '', hasRows);
+  setStepSummary('fields', hasFields ? `${fieldCount} ${fieldCount === 1 ? 'field' : 'fields'}` : '', hasFields);
+  const hasContent = hasRows && hasFields;
+  setStepSummary('content', hasContent ? describeLayout() : '', hasContent && reportSelection.layout.length > 0);
 }
 
 function setStepSummary(step, text, isComplete) {
@@ -379,17 +400,9 @@ function describeLayout() {
   return [...counts].map(([type, count]) => `${count} ${BLOCK_NAMES[type].toLowerCase()}${count === 1 ? '' : 's'}`).join(', ');
 }
 
-function renderSaveSummary() {
-  let text = 'Not saved';
-  if (savedReport) {
-    text = hasUnsavedChanges() ? 'Unsaved changes' : 'Saved';
-  }
-  setStepSummary('style', text, Boolean(savedReport) && !hasUnsavedChanges());
-}
-
 // ---- Step footer --------------------------------------------------------------------------
 
-const STEP_LABELS = { data: 'Compare', fields: 'Show', content: 'Layout', style: 'Finish' };
+const STEP_LABELS = { data: 'Compare', fields: 'Fields', content: 'Layout', style: 'Finish' };
 
 function currentStep() {
   return TAB_NAMES.find((name) => getElement(`tab-${name}`).getAttribute('aria-selected') === 'true') ?? TAB_NAMES[0];
@@ -434,21 +447,25 @@ function pluralize(noun, count = 2) {
 
 /** The compare choice currently shown, falling back to the dataset's default. */
 function currentCompareOption() {
-  const groupBy = reportSelection.comparison?.groupBy ?? reportSelection.compareBy;
+  const groupBy = reportSelection.comparison?.groupBy ?? reportSelection.compareBy ?? LEGACY_GEOGRAPHY;
   return compareOptions.find((option) => option.id === groupBy)
     ?? compareOptions.find((option) => option.id === defaultCompare)
     ?? compareOptions[0]
     ?? null;
 }
 
+function rowChoiceNoun() {
+  return currentCompareOption()?.kind === 'column' ? 'value' : rowNoun;
+}
+
 /**
  * Pick the compare choice for a report: the one it saved, else the one holding its saved
  * rows (reports saved before this choice existed), else the dataset default.
  */
-function chooseCompareOption() {
+function chooseCompareOption(inferRows) {
   const groupBy = reportSelection.comparison?.groupBy ?? reportSelection.compareBy;
   const saved = compareOptions.find((option) => option.id === groupBy);
-  const holdingRows = reportSelection.rows.length
+  const holdingRows = inferRows && reportSelection.rows.length
     ? compareOptions.find((option) => reportSelection.rows.every((row) => option.values.includes(row)))
     : null;
   const chosen = saved ?? holdingRows ?? currentCompareOption();
@@ -458,14 +475,21 @@ function chooseCompareOption() {
 function applyCompareOption(option) {
   if (reportSelection.comparison) {
     reportSelection.comparison.groupBy = option?.id;
+    if (option?.id === 'fields') {
+      reportSelection.comparison.matchFields = { ...option.matchFields };
+    } else {
+      delete reportSelection.comparison.matchFields;
+    }
+    delete reportSelection.compareBy;
+  } else if (option?.id === LEGACY_GEOGRAPHY) {
     delete reportSelection.compareBy;
   } else {
     reportSelection.compareBy = option?.id;
   }
   availableRows = option?.values ?? [];
-  rowNoun = option ? option.noun.charAt(0).toUpperCase() + option.noun.slice(1) : 'Row';
-  // The statewide figure compares places with Connecticut; it means nothing for programs.
-  const canCompareState = option?.kind === 'place' && hasStatewideRow;
+  availableRowCount = option?.totalValues ?? availableRows.length;
+  rowNoun = option?.kind === 'place' ? option.noun : 'row';
+  const canCompareState = option?.kind === 'place' && option.id !== 'state' && hasStatewideRow;
   getElement('benchmark-option').hidden = !canCompareState;
   if (!canCompareState) {
     reportSelection.benchmark = false;
@@ -473,45 +497,74 @@ function applyCompareOption(option) {
   }
 }
 
-/** Two real example values; placeholders such as "-" or "N/A" explain nothing. */
-function exampleValues(values) {
-  return values.filter((value) => /[a-z0-9]/i.test(value) && !/^(n\/?a|none|null)$/i.test(value.trim())).slice(0, 2);
+function renderCompareOptions() {
+  const select = getElement('compare-by');
+  const current = currentCompareOption();
+  const defaultHint = reportSelection.comparison ? '' : ' (dataset default)';
+  select.replaceChildren(...compareOptions.map((option) =>
+    createElement('option', { value: option.id }, option.label + (option.id === defaultCompare ? defaultHint : ''))));
+  select.value = current?.id ?? '';
+  select.disabled = !current;
+  getElement('compare-section').hidden = !current;
+  const examples = (current?.values ?? [])
+    .filter((value) => /[\p{L}\p{N}]/u.test(value) && !/^(n\/?a|none|null)$/i.test(value))
+    .slice(0, 2);
+  const hint = getElement('compare-examples');
+  hint.textContent = examples.length ? `For example, ${examples.join(' or ')}` : '';
+  hint.hidden = examples.length === 0;
+  renderMatchingFields(current);
 }
 
-function renderCompareOptions() {
-  const container = getElement('compare-options');
-  container.replaceChildren();
-  const current = currentCompareOption();
-  // With one thing to compare there is no question to ask; the list heading says what it is.
-  getElement('compare-section').hidden = compareOptions.length < 2;
-  for (const option of compareOptions) {
-    const id = `compare-${option.id}`;
-    const card = createElement('label', { class: 'compare-option', for: id });
-    card.append(
-      createElement('input', { type: 'radio', name: 'compare-by', id, value: option.id, checked: option === current }),
-      createElement('span', { class: 'compare-option-label' }, option.label),
-      createElement('span', { class: 'compare-option-count' }, `${option.values.length.toLocaleString('en-US')} ${option.values.length === 1 ? 'option' : 'options'}`),
-      createElement('span', { class: 'compare-option-examples' }, `e.g. ${exampleValues(option.values).join(', ')}`),
-    );
-    container.append(card);
+function renderMatchingFields(option) {
+  const panel = getElement('comparison-match-fields');
+  panel.hidden = option?.id !== 'fields';
+  if (panel.hidden) return;
+
+  const fields = option.matchFields ?? {};
+  const controls = getElement('comparison-match-selects');
+  controls.replaceChildren();
+  for (const dataset of matchingDatasets) {
+    const { id: datasetId, matchFields, defaultMatchField } = dataset;
+    const inputId = 'comparison-match-' + datasetId;
+    const label = datasetLabel(activeDatasets.find((item) => item.id === datasetId));
+    const select = createElement('select', { id: inputId, 'data-dataset-id': datasetId });
+    for (const field of matchFields) {
+      const display = field.label + (field.key === defaultMatchField ? ' (dataset default)' : '');
+      select.append(createElement('option', { value: field.key }, display));
+    }
+    const selectedKey = fields[datasetId];
+    if (selectedKey && !matchFields.some((field) => field.key === selectedKey)) {
+      select.prepend(createElement('option', { value: selectedKey, disabled: true }, 'Unavailable field'));
+    } else if (!matchFields.length) {
+      select.append(createElement('option', { value: '' }, 'No available fields'));
+      select.disabled = true;
+    }
+    select.value = selectedKey ?? defaultMatchField ?? '';
+    controls.append(createElement('label', { for: inputId }, label), select);
   }
+  getElement('reset-comparison-match-fields').disabled = matchingDatasets.every(({ id, defaultMatchField }) =>
+    (fields[id] ?? null) === defaultMatchField);
+  const status = option.unavailable
+    ? 'A matching field is unavailable. Select a different field or use dataset defaults.'
+    : availableRowCount === 0 ? 'No shared values. Select different matching fields.' : '';
+  showStatus(getElement('comparison-match-status'), status);
 }
 
 function renderRowSelection() {
-  getElement('row-section').hidden = availableRows.length === 0;
-  const plural = pluralize(rowNoun).toLowerCase();
-  getElement('rows-heading').textContent = `Which ${plural}?`;
+  const option = currentCompareOption();
+  getElement('row-section').hidden = availableRowCount === 0;
+  getElement('rows-heading').textContent = option?.kind === 'column' ? 'Which values?' : `Which ${pluralize(rowNoun)}?`;
   const search = getElement('row-search');
   search.hidden = availableRows.length <= SEARCHABLE_ROW_COUNT;
-  search.placeholder = `Find a ${rowNoun.toLowerCase()}`;
+  search.placeholder = option?.kind === 'column' ? 'Find a value' : `Find a ${rowNoun}`;
   if (search.hidden) {
     search.value = '';
   }
+  const omitted = option?.omittedValues ?? 0;
+  const omittedNotice = getElement('row-omitted');
+  omittedNotice.hidden = omitted === 0;
+  omittedNotice.textContent = `${omitted.toLocaleString('en-US')} ${omitted === 1 ? 'value is' : 'values are'} available through Select all.`;
   renderRowChecklist();
-}
-
-function isRowChosen(name) {
-  return reportSelection.allRows || reportSelection.rows.includes(name);
 }
 
 function renderRowChecklist() {
@@ -519,19 +572,25 @@ function renderRowChecklist() {
   const list = getElement('row-checklist');
   list.replaceChildren();
   const shown = availableRows.filter((name) => !query || name.toLowerCase().includes(query));
-  for (const [index, name] of shown.entries()) {
+  const chosen = new Set(reportSelection.rows);
+  for (const [index, name] of shown.slice(0, visibleRowLimit).entries()) {
     const id = `row-choice-${index}`;
     const choice = createElement('label', { class: 'row-choice', for: id });
-    choice.append(createElement('input', { type: 'checkbox', id, value: name, checked: isRowChosen(name) }), name);
+    choice.append(createElement('input', { type: 'checkbox', id, value: name, checked: reportSelection.allRows || chosen.has(name) }), name);
     list.append(choice);
   }
   getElement('row-empty').hidden = shown.length > 0 || availableRows.length === 0;
+  getElement('show-more-rows').hidden = shown.length <= visibleRowLimit;
 
-  const chosenCount = reportSelection.allRows ? availableRows.length : reportSelection.rows.length;
-  getElement('builder-town-count').textContent = `${chosenCount} of ${availableRows.length} selected`;
+  renderRowActions();
+}
+
+function renderRowActions() {
+  const chosenCount = reportSelection.allRows ? availableRowCount : reportSelection.rows.length;
+  getElement('builder-row-count').textContent = `${chosenCount.toLocaleString('en-US')} of ${availableRowCount.toLocaleString('en-US')} selected`;
   renderRowChips();
-  getElement('select-all-rows').disabled = availableRows.length === 0 || chosenCount === availableRows.length;
-  getElement('clear-towns').disabled = chosenCount === 0;
+  getElement('select-all-rows').disabled = availableRowCount === 0 || chosenCount === availableRowCount;
+  getElement('clear-rows').disabled = chosenCount === 0;
 }
 
 /** MAX_ROW_CHIPS chosen rows stay visible above the list, each removable; the rest are counted. */
@@ -541,7 +600,7 @@ function renderRowChips() {
   const chips = getElement('row-chips');
   chips.replaceChildren();
   if (reportSelection.allRows) {
-    chips.append(createElement('span', { class: 'row-chip is-all' }, `All ${availableRows.length.toLocaleString('en-US')} ${pluralize(rowNoun).toLowerCase()}`));
+    chips.append(createElement('span', { class: 'row-chip is-all' }, `All ${availableRowCount.toLocaleString('en-US')} ${pluralize(rowChoiceNoun(), availableRowCount)}`));
     return;
   }
   for (const name of reportSelection.rows.slice(0, MAX_ROW_CHIPS)) {
@@ -576,47 +635,92 @@ function handleCompareChange(event) {
   if (option.id === 'state' && availableRows.length === 1) {
     reportSelection.rows = [...availableRows];
   }
-  getElement('row-search').value = '';
+  resetRowSearch();
+  renderCompareOptions();
   renderRowSelection();
-  if (reportSelection.comparison) {
-    renderFields();
+  renderRecordFilters();
+  renderFields();
+  updateDraftSummaryAvailability(findSelectedDataset());
+  if (!getElement('ratio-editor').hidden) {
+    updateCalculationControls();
   }
-  showStatus(getElement('builder-status'), hadRows ? `Now comparing ${option.label.toLowerCase()}. Choose which ones below.` : '');
+  showStatus(getElement('builder-status'), hadRows && !reportSelection.rows.length ? 'Choose which values to include using the new comparison field.' : '');
   selectionChanged();
 }
 
+async function handleMatchingFieldChange(event) {
+  const input = event.target.closest('select[data-dataset-id]');
+  if (!input || !input.value) return;
+  await changeMatchingFields(
+    { ...reportSelection.comparison.matchFields, [input.dataset.datasetId]: input.value },
+    input.id,
+  );
+}
+
+async function resetMatchingFields() {
+  await changeMatchingFields({}, 'comparison-match-' + matchingDatasets[0]?.id);
+}
+
+async function changeMatchingFields(fields, focusId) {
+  reportSelection.comparison.matchFields = fields;
+  reportSelection.rows = [];
+  reportSelection.allRows = false;
+  resetRowSearch();
+  await refreshDatasetControls();
+  if (document.activeElement === document.body) getElement(focusId)?.focus();
+}
+
+function resetRowSearch() {
+  getElement('row-search').value = '';
+  visibleRowLimit = ROW_LIST_PAGE_SIZE;
+}
+
 function handleRowCheck(event) {
-  const name = event.target.value;
+  const { value: name, checked } = event.target;
+  const tooMany = reportSelection.allRows
+    ? availableRows.length - 1 > MAX_NAMED_ROWS || availableRowCount > availableRows.length
+    : checked && reportSelection.rows.length >= MAX_NAMED_ROWS;
+  if (tooMany) {
+    event.target.checked = !checked;
+    showStatus(getElement('builder-status'), `You can choose up to ${MAX_NAMED_ROWS.toLocaleString('en-US')} values individually. Use Clear to start a new selection, or Select all to include every value.`, 'error');
+    return;
+  }
   if (reportSelection.allRows) {
     // Unticking one of "all" keeps the rest as an explicit list.
     reportSelection.rows = [...availableRows];
     reportSelection.allRows = false;
   }
-  if (event.target.checked) {
+  if (checked) {
     // Keep the dataset's order, so charts follow the list people see.
     const chosen = new Set([...reportSelection.rows, name]);
     reportSelection.rows = availableRows.filter((row) => chosen.has(row));
   } else {
     reportSelection.rows = reportSelection.rows.filter((row) => row !== name);
   }
+  showStatus(getElement('builder-status'), '');
   updateRows();
 }
 
 function selectAllRows() {
-  // Very long lists are sent as "all rows" so requests stay small.
-  reportSelection.allRows = availableRows.length > MAX_NAMED_ROWS;
-  reportSelection.rows = reportSelection.allRows ? [] : [...availableRows];
+  reportSelection.allRows = true;
+  reportSelection.rows = [];
+  showStatus(getElement('builder-status'), '');
   updateRows();
 }
 
 function clearRows() {
   reportSelection.rows = [];
   reportSelection.allRows = false;
+  showStatus(getElement('builder-status'), '');
   updateRows();
 }
 
 function updateRows() {
-  renderRowChecklist();
+  const chosen = new Set(reportSelection.rows);
+  for (const checkbox of getElement('row-checklist').querySelectorAll('input[type="checkbox"]')) {
+    checkbox.checked = reportSelection.allRows || chosen.has(checkbox.value);
+  }
+  renderRowActions();
   selectionChanged();
 }
 
@@ -638,9 +742,15 @@ function selectionChanged() {
 
 async function handleDatasetChange() {
   readFormControls();
+  delete reportSelection.compareBy;
+  if (reportSelection.comparison) {
+    delete reportSelection.comparison.groupBy;
+    delete reportSelection.comparison.matchFields;
+  }
   reportSelection.recordFilters = {};
   reportSelection.fieldOverrides = {};
   reportSelection.styleOverrides = {};
+  resetRowSearch();
   additionalDatasetIds = additionalDatasetIds.filter((id) => id !== reportSelection.dataset?.id);
   await refreshDatasetControls();
 }
@@ -678,19 +788,22 @@ async function refreshDatasetControls() {
   }
 }
 
-async function loadDatasetColumns() {
+async function loadDatasetColumns({ inferRows = false } = {}) {
   const requestNumber = ++optionsRequestNumber;
   isLoadingOptions = true;
   optionsLoadError = '';
+  getElement('compare-by').disabled = true;
   const selectedDataset = findSelectedDataset();
   renderComparisonControls(selectedDataset);
   let options = { columns: [], filters: [], compareOptions: [], defaultCompare: null, hasState: false };
 
   if (selectedDataset) {
     try {
+      const compareBy = reportSelection.compareBy;
+      const query = /^c\d{1,3}$/.test(compareBy ?? '') ? `?compareBy=${encodeURIComponent(compareBy)}` : '';
       options = reportSelection.comparison
         ? await loadComparisonOptions(selectedDataset)
-        : await api(`/datasets/${selectedDataset.id}/report-options`);
+        : await api(`/datasets/${selectedDataset.id}/report-options${query}`);
     } catch (error) {
       if (requestNumber !== optionsRequestNumber) {
         return false;
@@ -708,10 +821,13 @@ async function loadDatasetColumns() {
 
   defaultChartType = options.defaultChartType || 'grouped_bar';
   availableIndicators = options.columns;
+  availableFilters = options.filters;
   compareOptions = options.compareOptions ?? [];
+  matchingDatasets = options.matchingDatasets ?? [];
   defaultCompare = options.defaultCompare;
   hasStatewideRow = Boolean(options.hasState);
-  chooseCompareOption();
+  addSavedGeographyOption(options.geographyKey, inferRows);
+  chooseCompareOption(inferRows);
   if (reportSelection.comparison?.groupBy === 'state' && availableRows.length === 1) {
     reportSelection.rows = [...availableRows];
   }
@@ -734,13 +850,28 @@ async function loadDatasetColumns() {
   }
 
   getElement('benchmark').checked = reportSelection.benchmark;
-  renderRecordFilters(options.filters);
+  renderRecordFilters();
   updateDraftSummaryAvailability(selectedDataset);
   showStatus(getElement('comparison-status'), reportSelection.comparison && compareOptions.length === 0
-    ? 'No shared geography or row labels. Choose different datasets.' : '', 'error');
+    ? 'No matching values across the comparison fields. Choose different datasets.' : '', 'error');
   isLoadingOptions = false;
   renderComparisonControls(selectedDataset);
   return true;
+}
+
+/** Older reports can explicitly retain the original geographic field across multiple levels. */
+function addSavedGeographyOption(geographyKey, inferRows) {
+  if (!savedReport || !inferRows || reportSelection.comparison) return;
+  const key = reportSelection.compareBy;
+  const placeOptions = compareOptions.filter((option) => option.kind === 'place');
+  const values = placeOptions.flatMap((option) => option.values);
+  const isLegacyRecord = key && key === geographyKey && !compareOptions.some((option) => option.id === key);
+  const isLegacyMixedGeography = !geographyKey && !key && placeOptions.length > 1
+    && (reportSelection.allRows || (reportSelection.rows.every((row) => values.includes(row))
+      && !placeOptions.some((option) => reportSelection.rows.every((row) => option.values.includes(row)))));
+  if (!values.length || (!isLegacyRecord && !isLegacyMixedGeography)) return;
+
+  compareOptions.push({ id: key ?? LEGACY_GEOGRAPHY, kind: 'place', label: 'Geographies', noun: 'place', values });
 }
 
 function findSelectedDataset() {
@@ -749,7 +880,8 @@ function findSelectedDataset() {
 
 function updateDraftSummaryAvailability(primary) {
   const datasets = [primary, ...additionalDatasetIds.map((id) => activeDatasets.find((dataset) => dataset.id === id))];
-  const eligible = aiSummaryEnabled && datasets.every((dataset) => dataset && !dataset.isPrivate && dataset.dataFormat !== 'records');
+  const eligible = aiSummaryEnabled && reportSelection.comparison?.groupBy !== 'fields'
+    && datasets.every((dataset) => dataset && !dataset.isPrivate && dataset.dataFormat !== 'records');
   getElement('draft-summary').hidden = !eligible;
   if (!eligible) {
     getElement('draft').hidden = true;
@@ -759,21 +891,46 @@ function updateDraftSummaryAvailability(primary) {
 
 async function loadComparisonOptions(primary) {
   const datasetIds = [primary.id, ...additionalDatasetIds];
-  const alignment = await api('/reports/comparison-options', { method: 'POST', json: { datasetIds } });
+  const selectedFields = reportSelection.comparison.matchFields ?? {};
+  const matchFields = Object.fromEntries(datasetIds
+    .filter((id) => selectedFields[id])
+    .map((id) => [id, selectedFields[id]]));
+  const alignment = await requestComparisonAlignment(datasetIds, matchFields);
   const columns = alignment.datasets.flatMap(({ id: datasetId, columns }) =>
     columns.map((column) => ({
       ...column, datasetId, indicator: column.key, key: `d${datasetId}:${column.key}`,
     })));
-  const compareOptions = alignment.groupBy.map((option) => ({
-    ...option, noun: option.id === 'label' ? option.label : COMPARISON_NOUNS[option.id] ?? 'row',
-  }));
   return {
-    columns, compareOptions, filters: [], defaultCompare: primary.townKeyed ? 'town' : 'label', defaultChartType: primary.defaultChartType,
+    columns, compareOptions: alignment.groupBy, matchingDatasets: alignment.datasets,
+    filters: [], defaultCompare: alignment.defaultCompare, defaultChartType: primary.defaultChartType,
   };
+}
+
+async function requestComparisonAlignment(datasetIds, matchFields) {
+  const request = (json) => api('/reports/comparison-options', { method: 'POST', json });
+  if (!Object.keys(matchFields).length) return request({ datasetIds });
+  try {
+    return await request({ datasetIds, matchFields });
+  } catch (error) {
+    if (error.status !== 400) throw error;
+    const fallback = await request({ datasetIds });
+    const unavailable = fallback.datasets.some(({ id, matchFields: available }) =>
+      matchFields[id] && !available.some(({ key }) => key === matchFields[id]));
+    if (!unavailable) throw error;
+
+    // Keep the saved field visible for repair instead of quietly matching by another field.
+    const option = fallback.groupBy.find(({ id }) => id === 'fields');
+    Object.assign(option, {
+      matchFields: { ...option.matchFields, ...matchFields },
+      values: [], totalValues: 0, omittedValues: 0, unavailable: true,
+    });
+    return fallback;
+  }
 }
 
 function renderComparisonControls(primary) {
   const enabled = Boolean(reportSelection.comparison);
+  getElement('comparison-match-fields').disabled = isLoadingOptions;
   const mode = getElement('comparison-mode');
   mode.checked = enabled;
   mode.disabled = isLoadingOptions || !primary;
@@ -819,12 +976,12 @@ async function handleComparisonMode(event) {
     remapIndicatorKeys((key) => availableIndicators.some((field) => field.key === key && field.type !== 'text') ? `${prefix}${key}` : null);
     reportSelection.customIndicators = [];
   } else {
-    const groupBy = reportSelection.comparison.groupBy;
     delete reportSelection.comparison;
     additionalDatasetIds = [];
-    reportSelection.compareBy = groupBy;
+    delete reportSelection.compareBy;
     remapIndicatorKeys((key) => key.startsWith(prefix) ? key.slice(prefix.length) : null);
   }
+  resetRowSearch();
   openOverrideKeys.clear();
   await refreshDatasetControls();
 }
@@ -866,7 +1023,9 @@ function renderDatasetCaption(dataset) {
   );
 }
 
-function renderRecordFilters(filters) {
+function renderRecordFilters() {
+  const compareKey = currentCompareOption()?.id;
+  const filters = availableFilters.filter((filter) => filter.key !== compareKey || reportSelection.recordFilters?.[filter.key]);
   getElement('record-filter-panel').hidden = filters.length === 0;
   const filterContainer = getElement('record-filters');
   filterContainer.replaceChildren();
@@ -1299,8 +1458,7 @@ const CALCULATION_WORDS = {
 };
 
 /**
- * How a calculated field is worked out, in words: "Total Population ÷ number of towns",
- * "Median Population", "Population ÷ Households". null when a field it needs is gone.
+ * Describe a calculation using its field labels, or return null if a field is unavailable.
  */
 function describeCalculation(custom) {
   const calculation = custom.calculation ?? 'ratio';
@@ -1418,7 +1576,7 @@ function updateCalculationControls() {
   getElement('ratio-denominator-field').hidden = !secondLabel;
   getElement('ratio-operator').hidden = calculation !== 'ratio';
   getElement('ratio-format-field').hidden = !SCALABLE.has(calculation);
-  // Summaries can sit beside the same figure for every town (or every row) in the dataset.
+  // A summary can use the whole dataset as its reference.
   getElement('ratio-benchmark-field').hidden = calculation === 'ratio';
   getElement('ratio-benchmark-label').textContent = currentCompareOption()?.kind === 'place'
     ? `Also show the figure for all Connecticut ${pluralize(rowNoun).toLowerCase()}, for comparison`
@@ -1501,7 +1659,7 @@ function nextRatioKey() {
   return `ratio_${number}`;
 }
 
-/** A name from the current editor choices, e.g. "Average population per town". */
+/** A name from the current editor choices. */
 function defaultRatioName() {
   const calculation = getElement('ratio-calculation').value;
   const numerator = indicatorsByKey.get(getElement('ratio-numerator').value);
@@ -2073,6 +2231,16 @@ function markPreviewStale() {
   showStatus(getElement('preview-status'), 'Updating…');
 }
 
+function previewChoiceSubject() {
+  const option = currentCompareOption();
+  const label = (option?.id === 'fields' ? option.noun : option?.label)?.trim();
+  if (!label) return 'values';
+  if (option.kind === 'place') return label.toLowerCase();
+  // Simple sentence-case labels read naturally as nouns. Preserve identifiers and units.
+  if (/^\p{Lu}?\p{Ll}+(?: \p{Ll}+)*$/u.test(label)) return pluralize(label.toLowerCase());
+  return 'values for ' + label;
+}
+
 function getPreviewProblem() {
   if (isLoadingOptions || optionsLoadError) {
     return { title: 'Dataset options unavailable', text: optionsLoadError || 'Dataset options are loading.' };
@@ -2093,7 +2261,26 @@ function getPreviewProblem() {
   }
   const comparison = reportSelection.comparison;
   if (comparison && !comparison.groupBy) {
-    return { title: 'No shared rows', text: 'Choose datasets with matching geography or row labels.', tab: 'data', action: 'Choose datasets' };
+    return { title: 'No shared rows', text: 'Choose datasets with matching values in their comparison fields.', tab: 'data', action: 'Choose datasets' };
+  }
+  if (currentCompareOption()?.unavailable) {
+    return {
+      title: 'Matching field unavailable',
+      text: 'Choose another field or use dataset defaults.',
+      tab: 'data',
+      action: 'Choose matching fields',
+    };
+  }
+  if (!availableRowCount) {
+    if (comparison?.groupBy === 'fields') {
+      return {
+        title: 'No shared values',
+        text: 'Choose fields with values shared by every dataset.',
+        tab: 'data',
+        action: 'Choose matching fields',
+      };
+    }
+    return { title: 'No rows to compare', text: 'Choose a dataset with values in its comparison field.', tab: 'data', action: 'Choose a dataset' };
   }
   if (availableIndicators.length === 0) {
     return {
@@ -2104,10 +2291,9 @@ function getPreviewProblem() {
     };
   }
   if (!reportSelection.allRows && reportSelection.rows.length === 0) {
-    const plural = pluralize(rowNoun).toLowerCase();
     return {
-      title: `Choose ${plural}`,
-      text: `Tick one or more ${plural} in the list, or use Select all, to start the report.`,
+      title: 'Choose ' + previewChoiceSubject(),
+      text: 'Select one or more from the list, or use Select all, to start the report.',
       tab: 'data',
       action: 'Choose what to compare',
     };
@@ -2224,13 +2410,12 @@ function hasUnsavedChanges() {
 }
 
 function updateSaveState() {
-  renderSaveSummary();
   const saveState = getElement('save-state');
   if (hasUnsavedChanges()) {
     saveState.textContent = 'Unsaved changes';
     saveState.dataset.kind = 'dirty';
   } else if (savedReport) {
-    saveState.textContent = 'All changes saved';
+    saveState.textContent = savedReport.isLocal ? 'Saved in this browser' : 'Saved';
     saveState.dataset.kind = 'saved';
   } else {
     saveState.textContent = '';
@@ -2265,15 +2450,18 @@ function updateHeading() {
     viewLink.href = savedReport.viewUrl;
   }
   const heading = getElement('builder-heading');
-  heading.textContent = savedReport ? savedReport.title : 'New report';
-  getElement('save').textContent = 'Save report';
-  if (savedReport && savedReport.ownerId !== currentUser.id) {
-    getElement('save').textContent = 'Save as my copy';
+  heading.textContent = savedReport ? 'Edit report' : 'New report';
+  const saveButton = getElement('save');
+  saveButton.textContent = currentUser ? 'Save report' : 'Save in this browser';
+  if (currentUser && savedReport && savedReport.ownerId !== currentUser.id) {
+    saveButton.textContent = 'Save as my copy';
   }
-  document.title = `${heading.textContent} · Report builder · CT Civic Data Explorer`;
+  document.title = `${savedReport?.title ?? heading.textContent} · Report builder · CT Civic Data Explorer`;
 }
 
 async function saveReport() {
+  const saveButton = getElement('save');
+  if (saveButton.disabled) return;
   readFormControls();
   const problem = getPreviewProblem();
   if (problem) {
@@ -2292,20 +2480,23 @@ async function saveReport() {
     return;
   }
 
-  const saveButton = getElement('save');
+  const snapshot = createSnapshot();
+  const { selection } = JSON.parse(snapshot);
+  const requestBody = { title, selection };
   saveButton.disabled = true;
   try {
-    const requestBody = { title, selection: reportSelection };
-    let report;
-    if (savedReport && savedReport.ownerId === currentUser.id) {
-      report = await api(`/reports/${savedReport.id}`, { method: 'PUT', json: requestBody });
+    if (!currentUser) {
+      const { dataset } = await api('/reports/preview', { method: 'POST', json: selection });
+      savedReport = saveGuestReport({ ...requestBody, dataset }, savedReport?.id);
     } else {
-      report = await api('/reports', { method: 'POST', json: requestBody });
+      const report = savedReport?.ownerId === currentUser.id
+        ? await api(`/reports/${savedReport.id}`, { method: 'PUT', json: requestBody })
+        : await api('/reports', { method: 'POST', json: requestBody });
+      savedReport = { id: report.id, ownerId: report.createdBy.id, title: report.title, viewUrl: report.viewUrl };
     }
-    savedReport = { id: report.id, ownerId: report.createdBy.id, title: report.title, viewUrl: report.viewUrl };
-    history.replaceState(null, '', `/builder?report=${report.id}`);
+    history.replaceState(null, '', reportBuilderUrl(savedReport));
     updateHeading();
-    savedSnapshot = createSnapshot();
+    savedSnapshot = snapshot;
     updateSaveState();
     showStatus(getElement('builder-status'), '');
   } catch (error) {

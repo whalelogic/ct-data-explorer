@@ -17,9 +17,13 @@ export const PLACE_GROUPS = Object.freeze({
   region: { label: 'Planning regions', noun: 'planning region' },
 });
 
+export function reportGeography(compareBy) {
+  return Object.hasOwn(PLACE_GROUPS, compareBy) ? compareBy : null;
+}
+
 /** @returns {{ key: string, label: string, role: string } | null} */
 export function rowLabelColumn(dataset) {
-  const columns = dataset.column_definitions ?? dataset.columns ?? [];
+  const columns = rowLabelCandidates(dataset);
   const chosenKey = dataset.row_label_key ?? dataset.rowLabelKey;
   return columns.find((column) => column.key === chosenKey)
     ?? columns.find((column) => column.role === 'town')
@@ -37,10 +41,10 @@ export function isTownKeyed(dataset) {
 
 /** What a row is called in the interface, e.g. "Town" or "Industry". */
 export function rowNoun(dataset) {
-  if (isTownKeyed(dataset)) {
-    return 'Town';
-  }
-  return rowLabelColumn(dataset)?.label ?? 'Row';
+  const format = dataset.data_format ?? dataset.dataFormat;
+  if (format !== 'records') return 'Town';
+  const column = rowLabelColumn(dataset);
+  return dataset.presentation?.fields?.[column?.key]?.label || column?.label || 'Row';
 }
 
 /**
@@ -58,7 +62,7 @@ export function recordRowName(record, labelColumn, townKeyed) {
   return String(value).trim();
 }
 
-/** Columns that may label rows: the town column, the upload's label column, or an approved text field. */
+/** A visible source column can label rows, including numeric identifiers and categories. */
 export function rowLabelCandidates(dataset) {
   const columns = dataset.column_definitions ?? dataset.columns ?? [];
   const approvedKeys = dataset.approved_fields !== undefined ? dataset.approved_fields : dataset.approvedFields;
@@ -67,7 +71,7 @@ export function rowLabelCandidates(dataset) {
     if (column.role === 'town' || column.role === 'label') {
       return true;
     }
-    return column.type === 'text' && (approved === null || approved.has(column.key));
+    return approved === null || approved.has(column.key);
   });
 }
 
@@ -85,8 +89,11 @@ export function describePlaces(places, allRows = false) {
   const names = [...new Set(local.map((place) => place.name))];
   const types = new Set(local.map((place) => place.geoType));
   const noun = types.size === 1 ? PLACE_NOUNS[[...types][0]] ?? 'places' : 'places';
+  if (!local.length) {
+    return places[0]?.name ?? 'Connecticut';
+  }
   if (allRows) {
-    return `All Connecticut ${local.length ? noun : 'towns'}`;
+    return `All Connecticut ${noun}`;
   }
   if (names.length <= 1) {
     return names[0] ?? 'Connecticut';
@@ -104,12 +111,20 @@ export function isSummaryGeography(geoType) {
 
 /**
  * The column one report compares rows by. `compareBy` is a column key chosen in the report
- * builder; place groups (town, county, region) and an empty value use the dataset default.
- * Only identifier columns and approved text fields qualify, so a report can never reveal
+ * builder. A geography choice uses the matched geography column even if the dataset has
+ * a different default. Only identifier columns and approved fields qualify, so a report can never reveal
  * an unapproved column through its row names.
  * @returns {{ labelColumn: object | null, townKeyed: boolean }}
  */
 export function reportRowLabel(dataset, compareBy) {
+  if (reportGeography(compareBy)) {
+    const columns = dataset.column_definitions ?? dataset.columns ?? [];
+    const labelColumn = columns.find((column) => column.role === 'town');
+    if (!labelColumn) {
+      throw new HttpError(400, 'This dataset does not offer comparison by Connecticut geography. Choose a field to compare.');
+    }
+    return { labelColumn, townKeyed: true };
+  }
   if (!/^c\d+$/.test(compareBy ?? '')) {
     return { labelColumn: rowLabelColumn(dataset), townKeyed: dataset.townKeyed ?? isTownKeyed(dataset) };
   }
