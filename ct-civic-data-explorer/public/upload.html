@@ -12,8 +12,8 @@
     <header class="site"><a class="brand" href="/">CT Civic Data Explorer</a></header>
     <main id="main" class="container narrow-container">
       <nav id="admin-nav" class="sub-nav" aria-label="Administration"></nav>
-      <h1>Add a dataset</h1>
-      <p class="page-intro">
+      <h1 id="upload-heading">Add a dataset</h1>
+      <p id="upload-intro" class="page-intro">
         Upload a spreadsheet. Nothing is shown to anyone until you choose its fields and publish it on the next screen.
       </p>
       <p id="page-status" class="status" role="alert" hidden></p>
@@ -70,7 +70,7 @@
             <label class="check">
               <input type="checkbox" id="ds-label-is-town" />
               <span>
-                These are Connecticut places (towns, counties or planning regions)
+                These are Connecticut places (state, counties, planning regions or towns)
                 <span class="field-label-unit">Names are matched to the official list, which allows a statewide comparison. Leave unticked for industries, programs, people or other records.</span>
               </span>
             </label>
@@ -80,7 +80,7 @@
         <input type="hidden" name="activate" value="false" />
         <div id="upload-actions" class="button-row" hidden>
           <button type="submit">Upload and choose fields</button>
-          <a class="button secondary" href="/admin">Cancel</a>
+          <a id="cancel-upload" class="button secondary" href="/admin">Cancel</a>
         </div>
         <p id="upload-status" class="status" role="status" hidden></p>
         <ul id="upload-errors" class="errors" hidden></ul>

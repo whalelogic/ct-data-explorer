@@ -1,345 +1,222 @@
-/**
- * The data assistant: a chat button in the bottom-right corner of every signed-in page.
- * It answers questions about published data and, for staff and administrators, sets up
- * reports that can be applied to the report builder.
- *
- * Pages tell it what the person is looking at with setAssistantContext(), and the builder
- * receives proposed reports through setAssistantApply(). The conversation is kept for this
- * tab only (sessionStorage), so it survives moving between pages but not closing the tab.
- */
-import { api, currentSession } from './api.js';
+import { api, loadSession } from './api.js';
+import { savePendingProposal } from './chat-proposal.js';
 import { h } from './dom.js';
+import { boot, renderHeader, showStatus } from './layout.js';
 
-const STORAGE_KEY = 'ctde-assistant';
-/** A proposal waiting for the builder to open, when it was made on another page. */
-export const PENDING_PROPOSAL_KEY = 'ctde-assistant-proposal';
-const MAX_SENT_TURNS = 30;
+const MAX_DATASETS = 8;
+const MAX_HISTORY = 29;
+const byId = (id) => document.getElementById(id);
 
-let contextProvider = () => ({});
-let applyHandler = null;
-let state = { open: false, messages: [] };
-let elements = null;
-let isSending = false;
-
-/** @param {() => { page?: string, datasetId?: number, selection?: object }} provider */
-export function setAssistantContext(provider) {
-  contextProvider = provider;
-}
-
-/** @param {(proposal: { datasetId: number, selection: object }) => void | Promise<void>} handler */
-export function setAssistantApply(handler) {
-  applyHandler = handler;
-}
-
-/** Read and clear a proposal that was made on another page. */
-export function takePendingProposal() {
-  try {
-    const stored = sessionStorage.getItem(PENDING_PROPOSAL_KEY);
-    sessionStorage.removeItem(PENDING_PROPOSAL_KEY);
-    return stored ? JSON.parse(stored) : null;
-  } catch {
-    return null;
-  }
-}
-
-export function mountAssistant() {
-  const features = currentSession()?.features;
-  if (!features?.assistant || elements) {
+async function initializeChat() {
+  const { user, features } = await loadSession();
+  renderHeader(user);
+  if (!features.assistant) {
+    showStatus(byId('page-status'), 'AI chat is unavailable. An administrator can enable it in AI settings.');
     return;
   }
-  loadState();
-  elements = buildWidget(features);
-  document.body.append(elements.launcher, elements.panel);
-  renderMessages();
-  setOpen(state.open, { focus: false });
-}
 
-// ---- State ----------------------------------------------------------------------------------
+  const chat = byId('chat');
+  const picker = byId('chat-dataset');
+  const selectedList = byId('chat-datasets');
+  const privateConsent = byId('chat-include-private');
+  const startOver = byId('new-chat');
+  const log = byId('chat-log');
+  const input = byId('chat-message');
+  const sendButton = byId('chat-send');
+  const status = byId('chat-status');
+  const datasets = new Map((await api('/datasets')).filter((dataset) => dataset.isActive)
+    .map((dataset) => [dataset.id, dataset]));
+  const params = new URLSearchParams(location.search);
+  const selected = new Set(params.getAll('dataset').map(Number).filter((id) => datasets.has(id)).slice(0, MAX_DATASETS));
+  const messages = [];
+  let sending = false;
 
-function loadState() {
-  try {
-    const stored = JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? 'null');
-    if (stored && Array.isArray(stored.messages)) {
-      state = { open: Boolean(stored.open), messages: stored.messages.slice(-60) };
-    }
-  } catch {
-    // Storage can be unavailable (private windows); the chat still works for this page.
+  function hasPrivateData() {
+    return [...selected].some((id) => datasets.get(id).isPrivate);
   }
-}
 
-function saveState() {
-  try {
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch {
-    // Not saved; nothing else depends on it.
+  function updateControls() {
+    picker.disabled = sending || selected.size >= MAX_DATASETS;
+    startOver.disabled = sending || !messages.length;
+    privateConsent.disabled = sending;
+    sendButton.disabled = sending || (hasPrivateData() && !privateConsent.checked);
+    input.readOnly = sending;
+    selectedList.querySelectorAll('button').forEach((button) => { button.disabled = sending; });
   }
-}
 
-// ---- Layout ---------------------------------------------------------------------------------
-
-const CHAT_ICON = '<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M4 4h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-5 4v-4H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Zm3 6.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Zm5 0a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Zm5 0a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z" transform="translate(0 1.5)"/></svg>';
-
-function buildWidget(features) {
-  const launcher = h('button', {
-    type: 'button',
-    class: 'assistant-launcher',
-    'aria-expanded': 'false',
-    'aria-controls': 'assistant-panel',
-    onClick: () => setOpen(!state.open),
-  });
-  launcher.innerHTML = CHAT_ICON;
-  launcher.append(h('span', { class: 'assistant-launcher-label' }, 'Ask about the data'));
-
-  const log = h('div', { class: 'assistant-log', role: 'log', 'aria-live': 'polite', 'aria-relevant': 'additions' });
-  const input = h('textarea', {
-    id: 'assistant-input',
-    class: 'assistant-input',
-    rows: 1,
-    maxlength: 4000,
-    placeholder: 'Ask a question about the data…',
-    onKeydown: handleInputKeydown,
-    onInput: autosize,
-  });
-  const send = h('button', { type: 'submit', class: 'assistant-send', 'aria-label': 'Send' }, '↑');
-  const form = h('form', { class: 'assistant-form', onSubmit: handleSubmit },
-    h('label', { for: 'assistant-input', class: 'sr-only' }, 'Message the data assistant'), input, send);
-
-  const header = h('div', { class: 'assistant-header' },
-    h('div', {},
-      h('h2', { id: 'assistant-title' }, 'Data assistant'),
-      h('p', {}, features.assistantReports ? 'Ask about the data or have it set up a report' : 'Ask about the published data')),
-    h('div', { class: 'assistant-header-actions' },
-      h('button', { type: 'button', class: 'link', onClick: startNewChat }, 'New chat'),
-      h('button', { type: 'button', class: 'assistant-close', 'aria-label': 'Close the assistant', onClick: () => setOpen(false) }, '×')));
-
-  const panel = h('section', {
-    id: 'assistant-panel',
-    class: 'assistant-panel',
-    role: 'dialog',
-    'aria-labelledby': 'assistant-title',
-    hidden: true,
-    onKeydown: (event) => {
-      if (event.key === 'Escape') {
-        setOpen(false);
+  function renderScope() {
+    picker.replaceChildren(h('option', { value: '' }, 'Add a dataset…'));
+    const choices = [...datasets.values()].filter((dataset) => !selected.has(dataset.id));
+    for (const [label, isPrivate] of [['Published', false], ['My datasets', true]]) {
+      const group = choices.filter((dataset) => Boolean(dataset.isPrivate) === isPrivate);
+      if (group.length) {
+        picker.append(h('optgroup', { label }, group.map((dataset) =>
+          h('option', { value: dataset.id }, datasetLabel(dataset)))));
       }
-    },
-  }, header, log, form, h('p', { class: 'assistant-footnote' }, 'Answers use published figures only. Check important numbers in the report.'));
+    }
 
-  return { launcher, panel, log, input, send, features };
+    selectedList.replaceChildren(...[...selected].map((id) => {
+      const dataset = datasets.get(id);
+      return h('li', {}, datasetLabel(dataset), h('button', {
+        class: 'link',
+        type: 'button',
+        'aria-label': `Remove ${datasetLabel(dataset)}`,
+        onClick: () => {
+          changeScope(id, false);
+          picker.focus();
+        },
+      }, '×'));
+    }));
+    selectedList.hidden = selected.size === 0;
+    byId('chat-default-scope').hidden = selected.size > 0;
+    byId('chat-private-consent').hidden = !hasPrivateData();
+    updateControls();
+  }
+
+  function changeScope(id, add) {
+    if (sending || !datasets.has(id)) return;
+    if (add) selected.add(id);
+    else selected.delete(id);
+    if (datasets.get(id).isPrivate) {
+      privateConsent.checked = false;
+      resetConversation();
+    } else if (!messages.length) {
+      showSuggestions();
+    }
+    renderScope();
+  }
+
+  function showSuggestions() {
+    const suggestions = selected.size > 1
+      ? ['What do these datasets have in common?', 'How can I compare these by county?']
+      : selected.size
+        ? ['What does this dataset cover?', 'Which indicators are available?']
+        : ['What datasets are available?', 'Which towns have the highest household income?'];
+    if (features.assistantReports) suggestions.push('Help me build a report');
+    log.replaceChildren(h('div', { class: 'assistant-suggestions' }, suggestions.map((question) =>
+      h('button', { type: 'button', class: 'assistant-suggestion', onClick: () => {
+        input.value = question;
+        if (hasPrivateData() && !privateConsent.checked) privateConsent.focus();
+        else send();
+      } }, question))));
+  }
+
+  function resetConversation() {
+    messages.length = 0;
+    showStatus(status, '');
+    showSuggestions();
+    updateControls();
+  }
+
+  function addProposal(message, proposal) {
+    message.append(h('button', {
+      type: 'button',
+      class: 'assistant-apply',
+      onClick: () => {
+        try {
+          savePendingProposal(user.id, proposal);
+          location.assign(`/builder?dataset=${proposal.datasetId}&proposal=1`);
+        } catch {
+          showStatus(status, 'Enable browser session storage to open the report.', 'error');
+        }
+      },
+    }, 'Open in report builder'));
+  }
+
+  async function send() {
+    const question = input.value.trim();
+    if (!question || sendButton.disabled) return;
+    if (!messages.length) log.replaceChildren();
+    const prompt = { role: 'user', content: question };
+    const bubble = h('div', { class: 'assistant-message is-user' }, question);
+    log.append(bubble);
+    input.value = '';
+    sending = true;
+    updateControls();
+    showStatus(status, 'Working…');
+    log.scrollTop = log.scrollHeight;
+    try {
+      const history = messages.slice(-MAX_HISTORY);
+      if (history[0]?.role === 'assistant') history.shift();
+      const { reply, proposal } = await api('/assistant', {
+        method: 'POST',
+        json: {
+          messages: [...history, prompt],
+          context: { page: 'chat', datasetIds: [...selected], includePrivate: privateConsent.checked },
+        },
+      });
+      messages.push(prompt, { role: 'assistant', content: reply.slice(0, 4000) });
+      const answer = h('div', { class: 'assistant-message' }, renderRichText(reply));
+      if (proposal) addProposal(answer, proposal);
+      log.append(answer);
+      showStatus(status, '');
+    } catch (error) {
+      bubble.remove();
+      if (!messages.length) showSuggestions();
+      input.value = question;
+      showStatus(status, error.message, 'error');
+    } finally {
+      sending = false;
+      updateControls();
+      log.scrollTop = log.scrollHeight;
+      if (document.activeElement === document.body || document.activeElement === sendButton) input.focus();
+    }
+  }
+
+  picker.addEventListener('change', () => changeScope(Number(picker.value), true));
+  privateConsent.addEventListener('change', () => {
+    if (!privateConsent.checked) resetConversation();
+    updateControls();
+  });
+  startOver.addEventListener('click', () => {
+    privateConsent.checked = false;
+    resetConversation();
+    input.value = '';
+    input.focus();
+  });
+  byId('chat-form').addEventListener('submit', (event) => {
+    event.preventDefault();
+    send();
+  });
+  input.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+      event.preventDefault();
+      send();
+    }
+  });
+  renderScope();
+  showSuggestions();
+  startOver.hidden = false;
+  chat.hidden = false;
 }
 
-function setOpen(open, { focus = true } = {}) {
-  state.open = open;
-  saveState();
-  elements.panel.hidden = !open;
-  elements.launcher.setAttribute('aria-expanded', String(open));
-  elements.launcher.classList.toggle('is-open', open);
-  if (open && focus) {
-    elements.input.focus();
-    scrollToEnd();
-  } else if (!open && focus) {
-    elements.launcher.focus();
-  }
+function datasetLabel(dataset) {
+  return `${dataset.displayName || dataset.name} · ${dataset.vintage}`;
 }
 
-function startNewChat() {
-  state.messages = [];
-  saveState();
-  renderMessages();
-  elements.input.focus();
-}
-
-// ---- Messages -------------------------------------------------------------------------------
-
-function renderMessages() {
-  const log = elements.log;
-  log.replaceChildren();
-  if (state.messages.length === 0) {
-    log.append(renderWelcome());
-    return;
-  }
-  for (const message of state.messages) {
-    log.append(renderMessage(message));
-  }
-  scrollToEnd();
-}
-
-function renderWelcome() {
-  const welcome = h('div', { class: 'assistant-welcome' },
-    h('p', {}, elements.features.assistantReports
-      ? 'Hi! I can answer questions about the published data, or set up a report for you to review.'
-      : 'Hi! I can answer questions about the published data.'));
-  const list = h('div', { class: 'assistant-suggestions' });
-  for (const suggestion of suggestionsForPage()) {
-    list.append(h('button', { type: 'button', class: 'assistant-suggestion', onClick: () => send(suggestion) }, suggestion));
-  }
-  welcome.append(list);
-  return welcome;
-}
-
-function suggestionsForPage() {
-  const page = currentContext().page;
-  const canBuild = elements.features.assistantReports;
-  if (page === 'builder') {
-    return [
-      ...(canBuild ? ['Set up a report comparing Hartford, New Haven and Bridgeport'] : []),
-      'Which fields can I use in this dataset?',
-      'What is the average population of a Connecticut town?',
-    ];
-  }
-  if (page === 'dataset') {
-    return ['What does this dataset cover?', 'Which fields can I report on?', ...(canBuild ? ['Build a report with this data'] : [])];
-  }
-  return [
-    'What data is available?',
-    'Which towns have the highest median household income?',
-    ...(canBuild ? ['Help me build a report about housing'] : []),
-  ];
-}
-
-function renderMessage(message) {
-  if (message.role === 'user') {
-    return h('div', { class: 'assistant-message is-user' }, message.content);
-  }
-  const bubble = h('div', { class: `assistant-message${message.error ? ' is-error' : ''}` }, ...renderRichText(message.content));
-  if (message.proposal) {
-    bubble.append(renderProposal(message.proposal));
-  }
-  return bubble;
-}
-
-/** Paragraphs, "- " bullet lists and **bold**, built from text nodes only (never HTML). */
+/** Render paragraphs, bullets and emphasis as text nodes. */
 function renderRichText(text) {
-  const nodes = [];
+  const children = [];
   let list = null;
   for (const line of text.split('\n')) {
     const bullet = /^\s*[-•*]\s+(.*)$/.exec(line);
     if (bullet) {
-      list ??= h('ul');
-      list.append(h('li', {}, ...inline(bullet[1])));
-      continue;
-    }
-    if (list) {
-      nodes.push(list);
-      list = null;
-    }
-    if (line.trim()) {
-      nodes.push(h('p', {}, ...inline(line)));
-    }
-  }
-  if (list) {
-    nodes.push(list);
-  }
-  return nodes;
-}
-
-function inline(text) {
-  return text.split(/(\*\*[^*]+\*\*)/g).filter(Boolean)
-    .map((part) => (/^\*\*[^*]+\*\*$/.test(part) ? h('strong', {}, part.slice(2, -2)) : part));
-}
-
-function renderProposal(proposal) {
-  const onBuilder = Boolean(applyHandler);
-  const button = h('button', { type: 'button', class: 'assistant-apply' }, onBuilder ? 'Apply to my report' : 'Open in report builder');
-  button.addEventListener('click', async () => {
-    if (onBuilder) {
-      button.disabled = true;
-      try {
-        await applyHandler(proposal);
-        button.textContent = 'Applied ✓';
-      } catch (error) {
-        button.disabled = false;
-        button.textContent = 'Try again';
-        console.error(error);
+      if (!list) {
+        list = h('ul');
+        children.push(list);
       }
-      return;
+      list.append(h('li', {}, emphasis(bullet[1])));
+    } else {
+      list = null;
+      if (line.trim()) children.push(h('p', {}, emphasis(line)));
     }
-    try {
-      sessionStorage.setItem(PENDING_PROPOSAL_KEY, JSON.stringify(proposal));
-    } catch {
-      // Without storage the builder still opens on the right dataset.
-    }
-    location.assign(`/builder?dataset=${encodeURIComponent(proposal.datasetId)}`);
-  });
-  return h('div', { class: 'assistant-proposal' },
-    h('span', { class: 'assistant-proposal-label' }, 'Report ready to review'),
-    button);
-}
-
-function scrollToEnd() {
-  elements.log.scrollTop = elements.log.scrollHeight;
-}
-
-// ---- Sending --------------------------------------------------------------------------------
-
-function currentContext() {
-  const page = location.pathname.startsWith('/builder') ? 'builder'
-    : location.pathname.startsWith('/dataset') ? 'dataset'
-      : location.pathname === '/' ? 'dashboard'
-        : location.pathname.startsWith('/explore/') ? 'report'
-          : location.pathname.startsWith('/explore') ? 'reports'
-            : location.pathname.startsWith('/admin') ? 'admin' : 'other';
-  try {
-    return { page, ...contextProvider() };
-  } catch {
-    return { page };
   }
+  return children;
 }
 
-function handleInputKeydown(event) {
-  if (event.key === 'Enter' && !event.shiftKey) {
-    event.preventDefault();
-    handleSubmit(event);
-  }
+function emphasis(text) {
+  return text.split(/(\*\*[^*]+\*\*)/g).filter(Boolean)
+    .map((part) => /^\*\*[^*]+\*\*$/.test(part) ? h('strong', {}, part.slice(2, -2)) : part);
 }
 
-function autosize() {
-  const input = elements.input;
-  input.style.height = 'auto';
-  input.style.height = `${Math.min(input.scrollHeight, 140)}px`;
-}
-
-function handleSubmit(event) {
-  event.preventDefault();
-  const text = elements.input.value.trim();
-  if (text) {
-    elements.input.value = '';
-    autosize();
-    send(text);
-  }
-}
-
-async function send(text) {
-  if (isSending) {
-    return;
-  }
-  isSending = true;
-  elements.send.disabled = true;
-  state.messages.push({ role: 'user', content: text });
-  saveState();
-  renderMessages();
-  const typing = h('div', { class: 'assistant-message is-typing', 'aria-label': 'The assistant is looking at the data' },
-    h('span'), h('span'), h('span'));
-  elements.log.append(typing);
-  scrollToEnd();
-
-  try {
-    // Only the text of earlier turns is sent; errors shown to the person are not part of the conversation.
-    const turns = state.messages.filter((message) => !message.error)
-      .map(({ role, content }) => ({ role, content }))
-      .slice(-MAX_SENT_TURNS);
-    while (turns.length && turns[0].role !== 'user') {
-      turns.shift();
-    }
-    const { reply, proposal } = await api('/assistant', { method: 'POST', json: { messages: turns, context: currentContext() } });
-    state.messages.push({ role: 'assistant', content: reply, proposal: proposal ?? undefined });
-  } catch (error) {
-    state.messages.push({ role: 'assistant', content: error.message, error: true });
-  } finally {
-    isSending = false;
-    elements.send.disabled = false;
-    saveState();
-    renderMessages();
-    elements.input.focus();
-  }
-}
+boot(initializeChat);

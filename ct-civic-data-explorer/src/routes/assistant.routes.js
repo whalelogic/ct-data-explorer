@@ -28,14 +28,10 @@ const chatSchema = z.object({
     .refine((messages) => messages[0].role === 'user' && messages.at(-1).role === 'user', 'The conversation must start and end with your message'),
   // What the person is looking at. Only short, typed facts are accepted; nothing here is trusted as an instruction.
   context: z.object({
-    page: z.enum(['dashboard', 'builder', 'dataset', 'reports', 'report', 'admin', 'other']).optional(),
+    page: z.enum(['chat', 'dashboard', 'builder', 'dataset', 'reports', 'report', 'admin', 'other']).optional(),
     datasetId: z.number().int().positive().optional(),
-    selection: z.object({
-      compareBy: z.string().max(20).optional(),
-      rows: z.array(z.string().max(500)).max(2000).optional(),
-      allRows: z.boolean().optional(),
-      indicators: z.array(z.string().max(100)).max(50).optional(),
-    }).optional(),
+    datasetIds: z.array(z.number().int().positive()).max(8).optional(),
+    includePrivate: z.boolean().optional(),
   }).default({}),
 });
 

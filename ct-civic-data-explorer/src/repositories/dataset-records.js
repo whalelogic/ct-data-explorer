@@ -12,12 +12,17 @@ export async function insertMany(datasetId, rows, db = pool) {
  * Rows in source order. `townIds` narrows town-keyed datasets in SQL; rows of other
  * datasets are narrowed by label in the service, since the label column can change.
  */
-export async function list(datasetId, { offset = 0, limit = 10000, townIds } = {}, db = pool) {
+export async function list(datasetId, { offset = 0, limit = 10000, townIds, cellKeys } = {}, db = pool) {
   if (townIds && !townIds.length) return [];
-  const { rows } = await db.query(`SELECT r.id, r.source_row, r.cell_values, t.id AS town_id,
+  // Comparisons only need approved selected measures and the row label on wide files.
+  const projection = cellKeys
+    ? `JSON_OBJECT(${cellKeys.map(() => '?, JSON_EXTRACT(r.cell_values, ?)').join(', ')}) AS cell_values`
+    : 'r.cell_values';
+  const fields = cellKeys?.flatMap((key) => [key, `$.${JSON.stringify(key)}`]) ?? [];
+  const { rows } = await db.query(`SELECT r.id, r.source_row, ${projection}, t.id AS town_id,
       t.name AS town_name, t.name, COALESCE(t.geo_type, 'row') AS geo_type
     FROM dataset_records r LEFT JOIN towns t ON t.id = r.town_id
     WHERE r.dataset_id = ? ${townIds ? 'AND r.town_id IN (?)' : ''}
-    ORDER BY r.source_row LIMIT ? OFFSET ?`, [datasetId, ...(townIds ? [townIds] : []), limit, offset]);
+    ORDER BY r.source_row LIMIT ? OFFSET ?`, [...fields, datasetId, ...(townIds ? [townIds] : []), limit, offset]);
   return rows;
 }

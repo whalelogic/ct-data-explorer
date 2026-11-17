@@ -26,16 +26,23 @@ import { applyFieldPresentation, datasetPresentationSchema } from './presentatio
 
 export { datasetIndicators } from './field-curation.js';
 
-export function listDatasets({ activeOnly }) {
-  return datasets.list({ activeOnly });
+export function listDatasets({ activeOnly = true, scope, user } = {}) {
+  return datasets.list({ activeOnly, scope, ownerId: user?.id });
+}
+
+/** Private data is visible only to the uploader. Admin access to public drafts is optional. */
+export async function requireAccessibleDataset(datasetId, user, { activeOnly = false, database } = {}) {
+  const dataset = await datasets.findById(datasetId, database);
+  if (!dataset || (dataset.is_private && dataset.uploaded_by !== user?.id)
+      || (!dataset.is_active && (activeOnly || user?.role !== 'admin'))) {
+    throw new HttpError(404, 'Dataset not found');
+  }
+  return dataset;
 }
 
 /** Admins inspect source fields before approval; staff previews use only approved fields. */
 export async function getDatasetOverview(datasetId, { offset = 0, limit = 25 }, user) {
-  const dataset = await datasets.findById(datasetId);
-  if (!dataset || (!dataset.is_active && user.role !== 'admin')) {
-    throw new HttpError(404, 'Dataset not found');
-  }
+  const dataset = await requireAccessibleDataset(datasetId, user);
 
   const previewApprovals = user.role === 'admin' ? null : dataset.approved_fields;
   if (dataset.data_format === 'records') {
@@ -141,7 +148,7 @@ async function buildIndicatorOverview(dataset, approvedFields, { offset, limit }
   };
 }
 
-async function availableFields(dataset, database) {
+export async function availableFields(dataset, database) {
   if (dataset.data_format === 'records') {
     const columns = dataset.column_definitions ?? [];
     return columns.filter((column) => !isRowIdentity(column));
@@ -182,7 +189,7 @@ export async function getDatasetCuration(datasetId, user) {
     throw new HttpError(403, 'Administrator access is required');
   }
   const dataset = await datasets.findById(datasetId);
-  if (!dataset) {
+  if (!dataset || dataset.is_private) {
     throw new HttpError(404, 'Dataset not found');
   }
   const fields = await availableFields(dataset);
@@ -197,7 +204,7 @@ export async function updateDatasetCuration(datasetId, approvedFields, user) {
   return withTransaction(async (client) => {
     await client.lock(`dataset-curation:${datasetId}`);
     const dataset = await datasets.findById(datasetId, client);
-    if (!dataset) {
+    if (!dataset || dataset.is_private) {
       throw new HttpError(404, 'Dataset not found');
     }
 
@@ -224,8 +231,9 @@ export async function inspectUpload({ file, filename, worksheet }) {
 }
 
 /** Reject the whole upload if validation fails; accepted uploads create a new version. */
-export async function uploadDataset({ file, filename, worksheet, name, source, vintage, activate, labelColumn, labelIsTown }, user) {
-  if (activate) {
+export async function uploadDataset({ file, filename, worksheet, name, source, vintage, activate, labelColumn, labelIsTown }, user,
+  { privateUpload = false } = {}) {
+  if (!privateUpload && activate) {
     throw new HttpError(400, 'Upload the dataset for review, approve its fields, then publish it.');
   }
 
@@ -243,9 +251,10 @@ export async function uploadDataset({ file, filename, worksheet, name, source, v
   }
 
   return withTransaction(async (client) => {
-    await datasets.lockNameVintage(name, vintage, client);
-    const version = await datasets.nextVersion(name, vintage, client);
-    const sourceId = await sources.findOrCreate(source, client);
+    const ownerScope = privateUpload ? user.id : 0;
+    await datasets.lockNameVintage(name, vintage, ownerScope, client);
+    const version = await datasets.nextVersion(name, vintage, ownerScope, client);
+    const sourceId = await sources.findOrCreate(privateUpload ? 'Private upload' : source, client);
     const datasetDetails = {
       name,
       sourceId,
@@ -253,6 +262,7 @@ export async function uploadDataset({ file, filename, worksheet, name, source, v
       version,
       rowCount: preparedDataset.rowCount,
       uploadedBy: user.id,
+      privateSource: privateUpload ? source : null,
       dataFormat: preparedDataset.dataFormat,
       columns: preparedDataset.columns,
       notes: preparedDataset.notes,
@@ -266,10 +276,7 @@ export async function uploadDataset({ file, filename, worksheet, name, source, v
 }
 
 export async function getReportOptions(datasetId, user) {
-  const dataset = await datasets.findById(datasetId);
-  if (!dataset || (!dataset.is_active && user.role !== 'admin')) {
-    throw new HttpError(404, 'Dataset not found');
-  }
+  const dataset = await requireAccessibleDataset(datasetId, user);
 
   const fields = await availableFields(dataset);
   const approvedFields = applyFieldPresentation(approvedDefinitions(fields, dataset.approved_fields), dataset.presentation);
@@ -407,10 +414,7 @@ function buildCategoryFilters(fields, sourceRows, labelColumn) {
 export async function setDatasetRowLabel(datasetId, rowLabelKey, user) {
   return withTransaction(async (client) => {
     await client.lock(`dataset-curation:${datasetId}`);
-    const dataset = await datasets.findById(datasetId, client);
-    if (!dataset || (!dataset.is_active && user.role !== 'admin')) {
-      throw new HttpError(404, 'Dataset not found');
-    }
+    const dataset = await requireAccessibleDataset(datasetId, user, { database: client });
     if (dataset.data_format !== 'records') {
       throw new HttpError(400, 'This dataset stores one row per town, so its rows are always labeled by town.');
     }
@@ -427,10 +431,7 @@ export async function setDatasetRowLabel(datasetId, rowLabelKey, user) {
 }
 
 export async function getDatasetRowLabel(datasetId, user) {
-  const dataset = await datasets.findById(datasetId);
-  if (!dataset || (!dataset.is_active && user.role !== 'admin')) {
-    throw new HttpError(404, 'Dataset not found');
-  }
+  const dataset = await requireAccessibleDataset(datasetId, user);
   return presentRowLabelSettings(dataset);
 }
 
@@ -452,7 +453,7 @@ export async function setDatasetActive(datasetId, isActive) {
   return withTransaction(async (client) => {
     await client.lock(`dataset-curation:${datasetId}`);
     const dataset = await datasets.findById(datasetId, client);
-    if (!dataset) {
+    if (!dataset || dataset.is_private) {
       throw new HttpError(404, 'Dataset not found');
     }
 
@@ -469,10 +470,7 @@ export async function setDatasetActive(datasetId, isActive) {
 }
 
 async function presentationAccess(datasetId, user, database) {
-  const dataset = await datasets.findById(datasetId, database);
-  if (!dataset || (!dataset.is_active && user.role !== 'admin')) {
-    throw new HttpError(404, 'Dataset not found');
-  }
+  const dataset = await requireAccessibleDataset(datasetId, user, { database });
   const fields = await availableFields(dataset, database);
   return { dataset, fields: user.role === 'admin' ? fields : approvedDefinitions(fields, dataset.approved_fields) };
 }

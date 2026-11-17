@@ -46,6 +46,7 @@ async function initializeViewer() {
 
   getElement('edit-report').href = `/builder?report=${savedReport.id}`;
   getElement('edit-report').textContent = savedReport.createdBy.id === user.id ? 'Edit in builder' : 'Open a copy in builder';
+  getElement('copy-link').hidden = savedReport.isPrivate;
   getElement('copy-link').addEventListener('click', copyLink);
   getElement('viewer-pdf').addEventListener('click', exportPdf);
   getElement('viewer-actions').hidden = isEmbedded;
@@ -59,9 +60,12 @@ async function initializeViewer() {
 
 function renderMeta(user, data) {
   const dataset = `${savedReport.dataset.displayName || savedReport.dataset.name}, ${savedReport.dataset.vintage}`;
+  const additionalCount = new Set(savedReport.selection?.comparison?.sources.map((source) => source.datasetId)).size - 1;
+  const datasets = additionalCount > 0 ? `${dataset} + ${additionalCount} more` : dataset;
   const owner = savedReport.createdBy.id === user.id ? 'you' : savedReport.createdBy.name;
   const rows = savedReport.allRows ? `all ${data.places.length} rows` : `${data.places.length} ${data.places.length === 1 ? 'row' : 'rows'}`;
-  getElement('viewer-meta').textContent = `${dataset} · ${rows} · Saved by ${owner}, ${formatDate(savedReport.updatedAt)}`;
+  getElement('viewer-meta').textContent = [datasets, rows, `Saved by ${owner}, ${formatDate(savedReport.updatedAt)}`,
+    savedReport.isPrivate && 'Private'].filter(Boolean).join(' · ');
 }
 
 async function copyLink() {

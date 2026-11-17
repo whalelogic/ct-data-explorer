@@ -42,6 +42,7 @@ export function presentDataset(dataset) {
     version: dataset.version,
     rowCount: dataset.row_count,
     isActive: dataset.is_active,
+    isPrivate: Boolean(dataset.is_private),
     uploadedAt: dataset.uploaded_at,
     uploadedBy: dataset.uploaded_by_name,
     dataFormat: dataset.data_format ?? 'indicators',
@@ -80,6 +81,7 @@ export function presentReport(report) {
     selection,
     rows: selection?.rows ?? [],
     allRows: Boolean(selection?.allRows),
+    isPrivate: Boolean(report.is_private),
     createdBy: { id: report.created_by, name: report.creator_name },
     dataset: {
       name: report.dataset_name,

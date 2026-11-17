@@ -1,0 +1,16 @@
+{
+	admin off
+	default_sni {$CTDE_HOST}
+}
+
+https://{$CTDE_HOST} {
+	tls {
+		issuer acme https://acme-v02.api.letsencrypt.org/directory {
+			profile shortlived
+			disable_tlsalpn_challenge
+		}
+	}
+	header Strict-Transport-Security "max-age=31536000"
+	encode zstd gzip
+	reverse_proxy app:3000
+}

@@ -17,7 +17,7 @@ export class MySqlSessionStore extends session.Store {
     this.db = db;
     if (pruneIntervalMs) {
       this.pruneTimer = setInterval(() => {
-        this.prune().catch((err) => console.error('[session] could not prune expired sessions', err));
+        this.prune().catch((err) => console.error('[session] could not prune expired sessions', err.code ?? err.name));
       }, pruneIntervalMs);
       this.pruneTimer.unref(); // never keeps the process alive on its own
     }

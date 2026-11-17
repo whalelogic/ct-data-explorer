@@ -24,6 +24,8 @@ import { indicatorsRouter } from './routes/indicators.routes.js';
 import { townsRouter } from './routes/towns.routes.js';
 import { usersRouter } from './routes/users.routes.js';
 import { assistantRouter } from './routes/assistant.routes.js';
+import { aiSettingsRouter } from './routes/ai-settings.routes.js';
+import { usageRouter } from './routes/usage.routes.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
@@ -40,7 +42,7 @@ export function createApp({ sessionStore, logRequests = config.env !== 'test' } 
 
   // Keep filenames private to routing; old bookmarks retain their query strings.
   const publicDirectory = path.join(here, '..', 'public');
-  const pages = ['login', 'set-password', 'explore', 'builder', 'dataset', 'town', 'admin', 'users'];
+  const pages = ['login', 'set-password', 'explore', 'builder', 'dataset', 'town', 'admin', 'users', 'chat', 'ai-settings'];
   for (const page of ['index', ...pages]) {
     const pageUrl = page === 'index' ? '/' : `/${page}`;
     app.get(`/${page}.html`, (req, res) => {
@@ -51,8 +53,9 @@ export function createApp({ sessionStore, logRequests = config.env !== 'test' } 
     app.get(pageUrl, (_req, res) => res.sendFile(`${page}.html`, { root: publicDirectory }));
   }
 
-  // Adding a dataset has its own page; the admin page is for finding and managing datasets.
-  app.get('/admin/datasets/new', (_req, res) => res.sendFile('upload.html', { root: publicDirectory }));
+  app.get(['/admin/datasets/new', '/datasets/new'], (_req, res) => res.sendFile('upload.html', { root: publicDirectory }));
+  app.get('/datasets/mine', (_req, res) => res.sendFile('my-datasets.html', { root: publicDirectory }));
+  app.get('/admin/usage', (_req, res) => res.sendFile('usage.html', { root: publicDirectory }));
 
   // Saved reports have readable addresses. The page loads the report through the API,
   // which requires sign-in, so the address alone reveals nothing.
@@ -76,6 +79,10 @@ export function createApp({ sessionStore, logRequests = config.env !== 'test' } 
 
   app.use(
     '/api',
+    (_req, res, next) => {
+      res.set('Cache-Control', 'private, no-store');
+      next();
+    },
     express.json({ limit: '200kb' }),
     session({
       name: config.session.cookieName,
@@ -101,6 +108,8 @@ export function createApp({ sessionStore, logRequests = config.env !== 'test' } 
   app.use('/api/reports', reportsRouter);
   app.use('/api/users', usersRouter);
   app.use('/api/assistant', assistantRouter);
+  app.use('/api/ai-settings', aiSettingsRouter);
+  app.use('/api/admin/usage', usageRouter);
   app.use('/api', apiNotFound);
 
   app.use(errorHandler);

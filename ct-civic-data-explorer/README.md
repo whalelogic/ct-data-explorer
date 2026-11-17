@@ -15,11 +15,22 @@ Older links to `/explore?dataset=…` open the builder with that dataset. Saved 
 
 ### Data assistant
 
-With `AI_PROVIDER=anthropic`, every signed-in page shows an **Ask about the data** button in the bottom-right corner. The assistant answers questions about published data and, for staff and administrators, sets up reports: it replies with **Apply to my report** in the builder, or **Open in report builder** elsewhere.
+Open **AI chat** to explore authorized datasets. Select datasets to focus the conversation and compare their indicators. Staff and administrators can open an assistant-proposed report in the builder.
 
-It runs on the server (`services/ai/assistant.js`, `POST /api/assistant`) with read-only tools that call the same services as the app, as the signed-in user: listing published datasets, describing their approved fields, reading figures and summaries, and proposing a report setup (checked by building it). Figures come only from those tools, never from the model's memory. Values from uploaded record datasets never leave the server; only their field names and Connecticut place names do. Requests are limited to 40 per person per 10 minutes, and the conversation is kept in the browser tab only. Who may generate reports is decided in one place, `canGenerateReports()`.
+The assistant uses the signed-in account's dataset permissions for every lookup. To analyze a personal upload in chat, select it and allow the configured AI provider to process its data for that conversation. Chat history stays in the browser tab and requests are limited to 40 per account per 10 minutes.
 
-Credentials resolve like the Anthropic SDK: `ANTHROPIC_API_KEY`, or an `ant auth login` profile. The model is `AI_MODEL` (default `claude-opus-5-5`) at `AI_EFFORT` (default `low`), with Anthropic's server-side refusal fallback enabled.
+### AI settings
+
+Administrators choose the provider and model in **AI settings**. Each environment stores its choice in its own database and loads credentials from its server environment.
+
+| Provider | Server variables | Default model |
+| --- | --- | --- |
+| Google Gemini (`google`) | `GEMINI_API_KEY` | `gemini-3.5-flash-lite` |
+| OpenAI (`openai`) | `OPENAI_API_KEY` | `gpt-5-mini` |
+| Anthropic (`anthropic`) | `ANTHROPIC_API_KEY` | `claude-haiku-5-5` |
+| OpenAI-compatible (`compatible`) | `AI_COMPATIBLE_API_KEY`, `AI_COMPATIBLE_BASE_URL` | Enter a model ID |
+
+For a compatible provider, use a trusted HTTPS API base URL such as `https://provider.example/v1`. The application calls its Chat Completions endpoint. Choose a model that supports function calling for chat. Set `AI_PROVIDER` and optionally `AI_MODEL` to override the initial Gemini settings, or choose **Disabled** to turn AI off.
 
 ### Calculated fields
 
@@ -136,7 +147,7 @@ Use descriptive camelCase names for variables and functions, and UPPER_SNAKE_CAS
 
 **PDF.** `services/pdf/index.js` is the boundary. The current renderer draws with pdfkit vector primitives, needs no headless browser, and gives the same bytes for the same report data. Swap the renderer there if faithful HTML-to-PDF output is ever needed (SRS OQ-4).
 
-**AI summary (optional).** `services/ai/` drafts two to four sentences, which the user can add to the report as a text block. It is outside the render path: figures, tables and charts always come from the database. Only public aggregate figures and labels are sent. Every number in the draft is checked against the report's computed values, and mismatches are flagged before the user accepts the text. With `AI_PROVIDER=none` (the default), the button is hidden and text is written by hand. With `AI_PROVIDER=anthropic`, the server calls Claude (`claude-opus-5` by default, with server-side refusal fallback enabled) using `ANTHROPIC_API_KEY`. To add another provider, add a module exposing `draft(facts) => Promise<string>` and register it in `services/ai/index.js`.
+**AI summary (optional).** Draft two to four sentences from public geographic figures, then review the draft and accept it as a text block. The app checks numbers in the draft against report figures. Report generation and PDF export can run without AI.
 
 **Accounts and security.**
 - Accounts are invite-only; there is no self-registration. Passwords are hashed with bcrypt (cost 12, 12 characters to 72 bytes).
@@ -157,8 +168,8 @@ Use descriptive camelCase names for variables and functions, and UPPER_SNAKE_CAS
 | `SESSION_SECRET` | random per start (dev only) | Required when `NODE_ENV=production` |
 | `COOKIE_SECURE` | `true` in production | Set `false` only for plain-HTTP local development |
 | `TRUST_PROXY` | `false` | Set `true` behind Nginx |
-| `AI_PROVIDER` | `none` | `none` or `anthropic` |
-| `ANTHROPIC_API_KEY`, `AI_MODEL`, `AI_EFFORT` | –, `claude-opus-5`, `low` | Used only when `AI_PROVIDER=anthropic` |
+| `AI_PROVIDER` | `google` | Initial provider. See [AI settings](#ai-settings). |
+| `AI_MODEL` | Provider default | Optional initial model override |
 
 ## Extending
 
@@ -171,8 +182,8 @@ Use descriptive camelCase names for variables and functions, and UPPER_SNAKE_CAS
 These choices go beyond, or resolve ambiguity in, SRS draft v1.0:
 
 - **No email is sent.** Admins choose **People** in the header to copy invite and password-reset links. The SRS assumes emailed reset tokens.
-- **Dataset upload is admin-only.** This follows SRS §4.2 (CRUD), although US003 says "staff member".
-- **Duplicating reports.** Any signed-in user can duplicate any report, and the copy belongs to them. Only the creator can rename, edit or delete a report.
+- **Dataset uploads.** Administrators curate shared datasets. Signed-in users can upload their own private datasets from My datasets.
+- **Duplicating reports.** Signed-in users can duplicate reports they can access. Only the creator can rename, edit or delete a report.
 - **Source footer is mandatory.** It appears on every report and PDF page and cannot be removed from the layout.
 - **One unit per chart.** Mixed-unit selections produce separate charts automatically, so counts, percentages and currency keep their own scales.
 - **New unit and schema columns.** An `area` unit was added for land area. `users.password_hash` is nullable until an invite is accepted, and lockout state lives on `users`.
@@ -181,3 +192,7 @@ These choices go beyond, or resolve ambiguity in, SRS draft v1.0:
 ## Planned
 
 - **AI-written text between charts.** The AI would write headings, paragraphs and lists from the report's own figures and place them between the user's charts and tables, as a proposal to review. Not built yet; see [docs/ai-assisted-reports.md](docs/ai-assisted-reports.md).
+
+## Google Cloud
+
+See [deployment instructions](deploy/README.md) for staging and production.

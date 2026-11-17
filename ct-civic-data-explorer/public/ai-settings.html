@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AI settings · CT Civic Data Explorer</title>
+    <link rel="stylesheet" href="/css/app.css" />
+    <script type="module" src="/js/ai-settings.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site"><a class="brand" href="/">CT Civic Data Explorer</a></header>
+    <main id="main" class="container narrow-container">
+      <nav id="admin-nav" class="sub-nav" aria-label="Administration"></nav>
+      <div class="page-intro">
+        <h1>AI settings</h1>
+        <p>Choose the provider and model for chat and report summaries.</p>
+      </div>
+      <p id="page-status" class="status" role="alert" hidden></p>
+      <p id="settings-loading" class="muted" role="status">Loading AI settings…</p>
+
+      <form id="ai-settings-form" class="panel" hidden>
+        <fieldset id="ai-settings-fields">
+          <div class="grid-form">
+            <div>
+              <label for="ai-provider">Provider</label>
+              <select id="ai-provider" aria-describedby="ai-provider-status"></select>
+            </div>
+            <div id="ai-model-field">
+              <label for="ai-model">Model ID</label>
+              <input id="ai-model" maxlength="200" autocomplete="off" spellcheck="false" />
+            </div>
+          </div>
+          <div class="button-row">
+            <button id="save-ai-settings" type="submit">Save settings</button>
+            <span id="ai-provider-status" class="muted small" role="status"></span>
+          </div>
+        </fieldset>
+        <p id="ai-settings-status" class="status" role="status" hidden></p>
+      </form>
+    </main>
+  </body>
+</html>

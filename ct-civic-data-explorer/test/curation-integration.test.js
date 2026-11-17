@@ -38,8 +38,8 @@ function sendWriteRequest(client, method, path, body) {
     .send(body);
 }
 
-function uploadDataset(client, sourceName, datasetName, csv, extraFields = {}) {
-  const upload = client.agent.post('/api/datasets')
+function uploadDataset(client, sourceName, datasetName, csv, extraFields = {}, path = '/api/datasets') {
+  const upload = client.agent.post(path)
     .set('X-CSRF-Token', client.csrfToken)
     .field('name', datasetName)
     .field('source', sourceName)
@@ -557,6 +557,126 @@ test('town files with county and planning region rows upload and report those ro
   }
 });
 
+test('geographic comparisons align source formats and protect private secondary sources', {
+  skip: process.env.CT_CURATION_INTEGRATION !== '1',
+}, async () => {
+  const testTag = `comparison-test-${crypto.randomUUID()}`;
+  const userIds = [];
+  const app = createApp({ sessionStore: new session.MemoryStore(), logRequests: false });
+  try {
+    const { admin, staff } = await createTestClients(app, testTag, userIds);
+    const original = await uploadDataset(admin, testTag, `${testTag}-public`,
+      'Town,pop\nAndover,100\nBolton,200\nHartford,300\nTolland County,900\n').expect(201);
+    const base = original.body;
+    await sendWriteRequest(admin, 'put', `/api/datasets/${base.id}/curation`, { approvedFields: ['pop'] }).expect(200);
+    await sendWriteRequest(admin, 'patch', `/api/datasets/${base.id}`, { isActive: true }).expect(200);
+
+    const second = await staff.agent.post('/api/datasets/private')
+      .set('X-CSRF-Token', staff.csrfToken)
+      .field('name', `${testTag}-private`)
+      .field('source', testTag)
+      .field('vintage', '2026')
+      .attach('file', Buffer.from('Town,Jobs\nAndover,10\nBolton,20\nHartford,30\n'), 'jobs.csv')
+      .expect(201);
+    const related = second.body;
+    const optionsInput = { datasetIds: [base.id, related.id] };
+    const options = await sendWriteRequest(staff, 'post', '/api/reports/comparison-options', optionsInput).expect(200);
+    assert.deepEqual(options.body.groupBy.map(({ id }) => id), ['town', 'county', 'region', 'state']);
+    assert.deepEqual(options.body.groupBy.find(({ id }) => id === 'county').values, ['Hartford County', 'Tolland County']);
+    await sendWriteRequest(admin, 'post', '/api/reports/comparison-options', optionsInput).expect(404);
+
+    const sources = [
+      { datasetId: base.id, indicator: 'pop', aggregation: 'sum' },
+      { datasetId: related.id, indicator: 'c1', aggregation: 'sum' },
+    ];
+    const selection = {
+      dataset: { id: base.id, name: base.name, vintage: base.vintage },
+      benchmark: false,
+      rows: ['Tolland County'],
+      indicators: sources.map(({ datasetId, indicator }) => `d${datasetId}:${indicator}`),
+      comparison: { groupBy: 'county', sources },
+    };
+    const preview = await sendWriteRequest(staff, 'post', '/api/reports/preview', selection).expect(200);
+    assert.deepEqual(preview.body.indicators.map(({ role, cells }) => [role, cells[0].value, cells[0].rollupFrom]), [
+      ['primary', 900, undefined], ['secondary', 30, 'town'],
+    ]);
+    const byRegion = await sendWriteRequest(staff, 'post', '/api/reports/preview', {
+      ...selection, rows: ['Capitol Planning Region'], comparison: { ...selection.comparison, groupBy: 'region' },
+    }).expect(200);
+    assert.deepEqual(byRegion.body.indicators.map(({ cells }) => cells[0].value), [600, 60]);
+    const byState = await sendWriteRequest(staff, 'post', '/api/reports/preview', {
+      ...selection, rows: ['Connecticut'], comparison: { ...selection.comparison, groupBy: 'state' },
+    }).expect(200);
+    assert.deepEqual(byState.body.indicators.map(({ cells }) => cells[0].value), [600, 60]);
+    const byTown = await sendWriteRequest(staff, 'post', '/api/reports/preview', {
+      ...selection, rows: [], allRows: true, comparison: { ...selection.comparison, groupBy: 'town' },
+    }).expect(200);
+    assert.equal(byTown.body.comparison.relationships[0].pairedRows, 3);
+    assert.ok(byTown.body.comparison.relationships[0].correlation > 0.99);
+    await sendWriteRequest(admin, 'post', '/api/reports/preview', selection).expect(404);
+
+    const saved = await sendWriteRequest(staff, 'post', '/api/reports', { title: testTag, selection }).expect(201);
+    assert.equal(saved.body.isPrivate, true);
+    assert.ok(!saved.body.slug.includes(testTag));
+    await staff.agent.get(`/api/reports/${saved.body.id}/pdf`).expect(200).expect('Content-Type', /pdf/);
+    await admin.agent.get(`/api/reports/${saved.body.id}`).expect(404);
+    await admin.agent.get(`/api/reports/by-slug/${saved.body.slug}`).expect(404);
+    assert.deepEqual((await admin.agent.get(`/api/reports?q=${testTag}`).expect(200)).body, []);
+    await sendWriteRequest(admin, 'post', `/api/reports/${saved.body.id}/duplicate`, {}).expect(404);
+  } finally {
+    await removeTestData(userIds, testTag);
+  }
+});
+
+test('non-geographic comparisons align shared labels and indicators across different columns', {
+  skip: process.env.CT_CURATION_INTEGRATION !== '1',
+}, async () => {
+  const testTag = `label-comparison-test-${crypto.randomUUID()}`;
+  const userIds = [];
+  const app = createApp({ sessionStore: new session.MemoryStore(), logRequests: false });
+  try {
+    const { admin, staff } = await createTestClients(app, testTag, userIds);
+    const fixtures = [
+      ['first', 'Program,Clients\nFood aid,100\nHousing,80\nFirst only,25\n,99\n', 'c1'],
+      ['second', 'Program,Staff,Clients\nfood  aid,5,25\nFood aid,2,40\nHousing,4,90\nSecond only,1,50\n,3,99\n', 'c2'],
+    ];
+    const datasets = [];
+    for (const [name, csv, indicator] of fixtures) {
+      const result = await uploadDataset(admin, testTag, `${testTag}-${name}`, csv, {
+        labelColumn: 'Program', labelIsTown: 'false',
+      }).expect(201);
+      const { id } = result.body;
+      await sendWriteRequest(admin, 'put', `/api/datasets/${id}/curation`, { approvedFields: [indicator] }).expect(200);
+      await sendWriteRequest(admin, 'patch', `/api/datasets/${id}`, { isActive: true }).expect(200);
+      datasets.push(result.body);
+    }
+    const [first, second] = datasets;
+    const options = await sendWriteRequest(staff, 'post', '/api/reports/comparison-options', {
+      datasetIds: [first.id, second.id],
+    }).expect(200);
+    assert.deepEqual(options.body.groupBy.map(({ id, values }) => [id, values]), [['label', ['Food aid', 'Housing']]]);
+    const sources = [{ datasetId: first.id, indicator: 'c1' }, { datasetId: second.id, indicator: 'c2' }];
+    const selection = {
+      dataset: { id: first.id, name: first.name, vintage: first.vintage },
+      benchmark: false,
+      allRows: true,
+      indicators: [`d${first.id}:c1`, `d${second.id}:c2`],
+      comparison: { groupBy: 'label', sources },
+    };
+    const preview = await sendWriteRequest(staff, 'post', '/api/reports/preview', selection).expect(200);
+    assert.deepEqual(preview.body.indicators.map(({ cells }) => cells.map(({ value }) => value)), [[100, 80], [null, 90]]);
+    assert.deepEqual(preview.body.comparison.sharedIndicators[0].datasets.map(({ indicator }) => indicator), ['c1', 'c2']);
+    assert.equal(preview.body.comparison.relationships[0].correlation, null);
+    const byAverage = await sendWriteRequest(staff, 'post', '/api/reports/preview', {
+      ...selection,
+      comparison: { groupBy: 'label', sources: [sources[0], { ...sources[1], aggregation: 'average' }] },
+    }).expect(200);
+    assert.deepEqual(byAverage.body.indicators[1].cells.map(({ value, display }) => [value, display]), [[32.5, '32.5'], [90, '90']]);
+  } finally {
+    await removeTestData(userIds, testTag);
+  }
+});
+
 /** A stand-in for the Claude client that plays back tool calls and records what it was sent. */
 function scriptedClaude(steps) {
   const requests = [];
@@ -639,6 +759,121 @@ test('the data assistant reads published figures, keeps record values private an
     await sendWriteRequest(staff, 'post', '/api/assistant', { messages: [{ role: 'assistant', content: 'Hi' }] }).expect(400);
     await staff.agent.post('/api/assistant').send({ messages: [{ role: 'user', content: 'Hi' }] }).expect(403);
     assert.equal(canGenerateReports({ role: 'viewer' }), false);
+  } finally {
+    setAssistantClientForTests(undefined);
+    await removeTestData(userIds, testTag);
+  }
+});
+
+test('only the uploader can access a private dataset or any report using it', {
+  skip: process.env.CT_CURATION_INTEGRATION !== '1',
+}, async () => {
+  const testTag = `private-test-${crypto.randomUUID()}`;
+  const userIds = [];
+  const app = createApp({ sessionStore: new session.MemoryStore(), logRequests: false });
+
+  try {
+    const { admin, staff } = await createTestClients(app, testTag, userIds);
+    const csv = 'Town,Clients,Category\nAndover,54321,unshared-label\n';
+    const published = await uploadDataset(admin, testTag, testTag, 'Town,Clients\nAndover,19\n').expect(201);
+    await sendWriteRequest(admin, 'put', `/api/datasets/${published.body.id}/curation`, { approvedFields: ['c1'] }).expect(200);
+    await sendWriteRequest(admin, 'patch', `/api/datasets/${published.body.id}`, { isActive: true }).expect(200);
+
+    const first = await uploadDataset(staff, testTag, testTag, csv, {}, '/api/datasets/private').expect(201);
+    const second = await uploadDataset(staff, testTag, testTag, csv, {}, '/api/datasets/private').expect(201);
+    const { id, isPrivate, isActive } = first.body;
+    assert.equal(isPrivate, true);
+    assert.equal(isActive, true);
+    assert.equal(first.body.version, 1);
+    assert.equal(second.body.version, 2);
+    const datasetPath = `/api/datasets/${id}`;
+    const uploaded = await staff.agent.get('/api/datasets?scope=private').expect(200);
+    assert.deepEqual(uploaded.body.map((dataset) => dataset.id), [second.body.id, id]);
+    const curated = await staff.agent.get('/api/datasets?scope=public').expect(200);
+    assert.ok(curated.body.some((dataset) => dataset.id === published.body.id && dataset.isActive));
+    assert.ok(curated.body.every((dataset) => !dataset.isPrivate));
+
+    const ownerPreview = await staff.agent.get(datasetPath).expect(200);
+    assert.equal(ownerPreview.body.preview.rows[0].cells[1].value, 54321);
+    await staff.agent.get(`${datasetPath}/report-options`).expect(200);
+    const unrelated = await admin.agent.get('/api/datasets').expect(200);
+    assert.ok(unrelated.body.every((dataset) => dataset.id !== id));
+    for (const suffix of ['', '/curation', '/presentation', '/row-label', '/report-options']) {
+      await admin.agent.get(datasetPath + suffix).expect(404);
+    }
+    await sendWriteRequest(admin, 'patch', datasetPath, { isActive: false }).expect(404);
+
+    const selection = {
+      dataset: { id, name: testTag, vintage: '2026' },
+      compareBy: 'town',
+      rows: ['Andover'],
+      benchmark: false,
+      indicators: ['c1'],
+    };
+    await sendWriteRequest(admin, 'post', '/api/reports/preview', selection).expect(404);
+    const preview = await sendWriteRequest(staff, 'post', '/api/reports/preview', selection).expect(200);
+    assert.equal(preview.body.indicators[0].cells[0].value, 54321);
+    const secondary = {
+      ...selection,
+      dataset: { id: published.body.id, name: testTag, vintage: '2026' },
+      comparison: {
+        groupBy: 'town',
+        sources: [published.body.id, id].map((datasetId) => ({ datasetId, indicator: 'c1' })),
+      },
+      indicators: [`d${published.body.id}:c1`, `d${id}:c1`],
+    };
+    await sendWriteRequest(admin, 'post', '/api/reports/preview', secondary).expect(404);
+    for (const reportSelection of [selection, secondary]) {
+      const saved = await sendWriteRequest(staff, 'post', '/api/reports', { title: testTag, selection: reportSelection }).expect(201);
+      assert.equal(saved.body.isPrivate, true);
+      const reportPath = `/api/reports/${saved.body.id}`;
+      const slugPath = `/api/reports/by-slug/${saved.body.slug}`;
+      await staff.agent.get(reportPath).expect(200);
+      await staff.agent.get(slugPath).expect(200);
+      await staff.agent.get(`${reportPath}/pdf`).expect(200).expect('Content-Type', /pdf/);
+      await admin.agent.get(reportPath).expect(404);
+      await admin.agent.get(slugPath).expect(404);
+      await admin.agent.get(`${reportPath}/pdf`).expect(404);
+      await sendWriteRequest(admin, 'post', `${reportPath}/duplicate`, {}).expect(404);
+    }
+    const found = await admin.agent.get('/api/reports').query({ q: testTag }).expect(200);
+    assert.deepEqual(found.body, []);
+
+    const scripted = scriptedClaude([
+      { tool: 'describe_dataset', input: { dataset_id: id } },
+      { text: 'That dataset is unavailable.' },
+    ]);
+    setAssistantClientForTests(scripted);
+    await sendWriteRequest(admin, 'post', '/api/assistant', {
+      messages: [{ role: 'user', content: 'Describe this dataset' }],
+    }).expect(200);
+    assert.equal(lastToolResult(scripted).is_error, true);
+    assert.ok(!JSON.stringify(scripted.requests).includes(testTag));
+
+    const ownerChat = scriptedClaude([
+      { tool: 'compare_datasets', input: {
+        sources: [{ dataset_id: id, indicator: 'c1', aggregation: 'source' }],
+        group_by: 'town',
+        rows: ['Andover'],
+        create_report: false,
+        title: '',
+      } },
+      { text: 'Andover has 54,321 clients.' },
+    ]);
+    setAssistantClientForTests(ownerChat);
+    await sendWriteRequest(staff, 'post', '/api/assistant', {
+      messages: [{ role: 'user', content: 'How many clients does Andover have?' }],
+      context: { page: 'chat', datasetIds: [id] },
+    }).expect(404);
+    assert.equal(ownerChat.requests.length, 0);
+    await sendWriteRequest(staff, 'post', '/api/assistant', {
+      messages: [{ role: 'user', content: 'How many clients does Andover have?' }],
+      context: { page: 'chat', datasetIds: [id], includePrivate: true },
+    }).expect(200);
+    assert.deepEqual(JSON.parse(lastToolResult(ownerChat).content).values, {
+      [`d${id}:c1`]: { Andover: '54,321' },
+    });
+    assert.ok(!JSON.stringify(ownerChat.requests).includes('unshared-label'));
   } finally {
     setAssistantClientForTests(undefined);
     await removeTestData(userIds, testTag);

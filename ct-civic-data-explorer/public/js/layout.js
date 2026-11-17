@@ -1,13 +1,20 @@
 /** Page header and UI helpers shared by signed-in pages. */
 import { api } from './api.js';
 import { h as createElement } from './dom.js';
-import { mountAssistant } from './assistant.js';
+import { clearPendingProposal } from './chat-proposal.js';
+
+// Restored pages must recheck the session before showing account data.
+window.addEventListener('pageshow', (event) => {
+  if (event.persisted) location.reload();
+});
 
 export function renderHeader(user) {
   const navigationLinks = [
     ['/', 'Dashboard'],
     ['/explore', 'Explore reports'],
     ['/builder', 'Report builder'],
+    ['/chat', 'AI chat'],
+    ['/datasets/mine', 'My datasets'],
   ];
   if (user.role === 'admin') {
     navigationLinks.push(['/admin', 'Datasets']);
@@ -38,8 +45,6 @@ export function renderHeader(user) {
   );
   brandLink.href = '/';
   header.append(navigation, account);
-  // The data assistant appears on every signed-in page when the server has AI set up.
-  mountAssistant();
 }
 
 /** Admin pages share one sub-navigation: datasets, adding one, and people. */
@@ -47,6 +52,8 @@ const ADMIN_LINKS = [
   ['/admin', 'Datasets'],
   ['/admin/datasets/new', 'Add dataset'],
   ['/users', 'People'],
+  ['/admin/usage', 'Usage'],
+  ['/ai-settings', 'AI settings'],
 ];
 
 export function renderAdminNav(container) {
@@ -106,6 +113,8 @@ function showPageSetupError(error) {
 }
 
 function isCurrentPage(url) {
+  if (url === '/datasets/mine' && location.pathname === '/datasets/new') return true;
+  if (url === '/admin' && location.pathname === '/ai-settings') return true;
   if (url === '/') {
     return location.pathname === '/';
   }
@@ -114,6 +123,7 @@ function isCurrentPage(url) {
 }
 
 async function signOut() {
+  clearPendingProposal();
   try {
     await api('/auth/logout', { method: 'POST' });
   } catch {

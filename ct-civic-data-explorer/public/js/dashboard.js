@@ -45,7 +45,7 @@ async function loadDatasets() {
   document.getElementById('retry-datasets').hidden = true;
   showStatus(datasetStatus, 'Loading datasets…');
   try {
-    const datasets = await api('/datasets');
+    const datasets = await api('/datasets?scope=public');
     publishedDatasets = datasets.filter((dataset) => dataset.isActive);
     publishedDatasets.sort((first, second) => (first.displayName || first.name).localeCompare(second.displayName || second.name));
     renderDatasets();

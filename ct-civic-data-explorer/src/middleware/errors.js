@@ -27,6 +27,8 @@ export function errorHandler(err, req, res, next) {
     const context = `${req.method} ${req.originalUrl.split('?')[0]} user=${req.user?.id ?? '-'}`;
     // Expected server-side conditions (e.g. an unconfigured AI provider) get one line; anything unexpected gets the stack.
     if (err instanceof HttpError) console.error(`[error] ${context} ${status} ${err.message}`);
+    // MySQL errors can contain an expanded statement or values from a user's data.
+    else if (err?.sql || err?.sqlState) console.error(`[error] ${context} database failure`, err.code ?? err.name);
     else console.error(`[error] ${context}`, err);
   }
   if (res.headersSent) return next(err);

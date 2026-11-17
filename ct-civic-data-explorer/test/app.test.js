@@ -9,7 +9,7 @@ const { createApp } = await import('../src/app.js');
 const app = createApp({ sessionStore: new session.MemoryStore() });
 
 test('API routes require a session', async () => {
-  for (const path of ['/api/reports', '/api/towns', '/api/users', '/api/not-a-route']) {
+  for (const path of ['/api/reports', '/api/towns', '/api/users', '/api/ai-settings', '/api/admin/usage', '/api/not-a-route']) {
     const res = await request(app).get(path).expect(401);
     assert.equal(res.body.error, 'Please sign in');
   }
@@ -34,12 +34,15 @@ test('pages, shared modules and Chart.js are served locally with security header
 
 
 test('clean page URLs serve HTML and legacy URLs preserve query parameters', async () => {
-  for (const page of ['index', 'login', 'set-password', 'explore', 'builder', 'dataset', 'town', 'admin', 'users']) {
+  for (const page of ['index', 'login', 'set-password', 'explore', 'builder', 'dataset', 'town', 'admin', 'users', 'chat', 'ai-settings']) {
     const cleanPath = page === 'index' ? '/' : `/${page}`;
     await request(app).get(cleanPath).expect(200).expect('Content-Type', /html/);
     const query = '?dataset=1&town=New%20Haven&field=pop&field=households&embed=1';
     await request(app).get(`/${page}.html${query}`)
       .expect(308).expect('Location', cleanPath + query);
+  }
+  for (const path of ['/datasets/mine', '/datasets/new', '/admin/usage']) {
+    await request(app).get(path).expect(200).expect('Content-Type', /html/);
   }
   await request(app).get('/missing-page').expect(404);
   await request(app).get('/js/dashboard.js').expect(200).expect('Content-Type', /javascript/);

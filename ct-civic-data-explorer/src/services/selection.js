@@ -25,6 +25,23 @@ export const RATIO_FORMATS = Object.freeze({
 
 const requiredText = (label, max) => z.string().trim().min(1, `${label} is required`).max(max);
 
+export const MAX_COMPARISON_SOURCES = 8;
+const datasetId = z.number().int().positive();
+const comparisonSchema = z.object({
+  groupBy: z.enum(['town', 'county', 'region', 'state', 'label']),
+  sources: z.array(z.object({
+    datasetId,
+    indicator: requiredText('Indicator', 100),
+    aggregation: z.enum(['source', 'sum', 'average']).default('source'),
+  })).min(1).max(MAX_COMPARISON_SOURCES),
+});
+
+export const comparisonOptionsSchema = z.object({
+  datasetIds: z.array(datasetId).min(1).max(MAX_COMPARISON_SOURCES),
+});
+
+export const comparisonIndicatorKey = ({ datasetId, indicator }) => `d${datasetId}:${indicator}`;
+
 const textBlock = z.object({
   type: z.literal('text'),
   text: z.string().trim().max(MAX_TEXT_LENGTH, `A text block can hold at most ${MAX_TEXT_LENGTH} characters`).default(''),
@@ -81,9 +98,10 @@ export const selectionSchema = z.preprocess(
   z
     .object({
       dataset: z.object(
-        { name: requiredText('Dataset name', 200), vintage: requiredText('Dataset vintage', 50) },
+        { id: datasetId.optional(), name: requiredText('Dataset name', 200), vintage: requiredText('Dataset vintage', 50) },
         { error: 'Choose a dataset' },
       ),
+      comparison: comparisonSchema.optional(),
       // Row names: towns in town-keyed datasets, otherwise values of the row label column.
       rows: z.array(requiredText('Row', 500)).max(MAX_NAMED_ROWS, `Name at most ${MAX_NAMED_ROWS} rows, or include all rows`).default([]),
       allRows: z.boolean().default(false),
@@ -104,10 +122,23 @@ export const selectionSchema = z.preprocess(
         .default(() => DEFAULT_LAYOUT.map((block) => ({ ...block, indicators: [] }))),
     })
     .superRefine((s, ctx) => {
+      if (s.comparison) {
+        const comparisonKeys = s.comparison.sources.map(comparisonIndicatorKey);
+        if (s.dataset.id && !s.comparison.sources.some((source) => source.datasetId === s.dataset.id)) {
+          ctx.addIssue({ code: 'custom', path: ['dataset'], message: 'Choose a dataset used in this comparison' });
+        }
+        if (s.indicators.length !== comparisonKeys.length || comparisonKeys.some((key, i) => s.indicators[i] !== key)) {
+          ctx.addIssue({ code: 'custom', path: ['indicators'], message: 'Choose comparison indicators in report order' });
+        }
+        if (s.customIndicators.length || Object.keys(s.recordFilters).length) {
+          ctx.addIssue({ code: 'custom', path: ['comparison'], message: 'Use source indicators for this comparison' });
+        }
+      }
       if (!s.allRows && s.rows.length === 0) {
         ctx.addIssue({ code: 'custom', path: ['rows'], message: 'Choose at least one row, or include all rows' });
       }
-      const duplicateRow = findDuplicate(s.rows.map((row) => row.toLowerCase()));
+      const rowNames = s.rows.map((row) => s.comparison ? row.replace(/\s+/g, ' ').toLowerCase() : row.toLowerCase());
+      const duplicateRow = findDuplicate(rowNames);
       if (duplicateRow) ctx.addIssue({ code: 'custom', path: ['rows'], message: `"${duplicateRow}" is selected more than once` });
 
       const customKeys = s.customIndicators.map((custom) => custom.key);

@@ -2,8 +2,8 @@
 import { pool } from '../db/pool.js';
 
 const DATASET_SELECT_SQL = `
-  SELECT d.id, d.name, d.source_id, s.name AS source, d.vintage, d.version, d.row_count, d.uploaded_at,
-         d.is_active, d.uploaded_by, d.data_format, d.column_definitions, d.import_notes,
+  SELECT d.id, d.name, d.source_id, COALESCE(d.private_source, s.name) AS source, d.vintage, d.version, d.row_count, d.uploaded_at,
+         d.is_active, d.is_private, d.uploaded_by, d.data_format, d.column_definitions, d.import_notes,
          d.approved_fields, d.curation_reviewed_at, d.curation_reviewed_by, d.presentation, d.presentation_revision,
          d.row_label_key,
          CONCAT(u.first_name, ' ', u.last_name) AS uploaded_by_name
@@ -11,10 +11,22 @@ const DATASET_SELECT_SQL = `
   JOIN sources s ON s.id = d.source_id
   JOIN users u ON u.id = d.uploaded_by`;
 
-export async function list({ activeOnly = false } = {}, database = pool) {
-  const activeFilter = activeOnly ? 'WHERE d.is_active' : '';
+export async function list({ activeOnly = false, ownerId = null, scope } = {}, database = pool) {
+  const where = [];
+  const params = [];
+  if (scope === 'private') {
+    where.push('d.is_private AND d.uploaded_by = ?');
+    params.push(ownerId);
+  } else if (scope === 'public' || ownerId === null) {
+    where.push('NOT d.is_private');
+  } else {
+    where.push('(NOT d.is_private OR d.uploaded_by = ?)');
+    params.push(ownerId);
+  }
+  if (activeOnly) where.push('d.is_active');
   const { rows } = await database.query(
-    `${DATASET_SELECT_SQL} ${activeFilter} ORDER BY d.name, d.vintage DESC, d.version DESC`,
+    `${DATASET_SELECT_SQL} WHERE ${where.join(' AND ')} ORDER BY d.name, d.vintage DESC, d.version DESC`,
+    params,
   );
   return rows;
 }
@@ -26,21 +38,22 @@ export async function findById(id, database = pool) {
 
 export async function findActive(name, vintage, database = pool) {
   const { rows } = await database.query(
-    `${DATASET_SELECT_SQL} WHERE d.is_active AND d.name = ? AND d.vintage = ?`,
+    `${DATASET_SELECT_SQL} WHERE d.is_active AND NOT d.is_private AND d.name = ? AND d.vintage = ?`,
     [name, vintage],
   );
   return rows[0] ?? null;
 }
 
-/** Serialize version numbering for one name + vintage until the transaction ends. Needs a withTransaction() client. */
-export async function lockNameVintage(name, vintage, database) {
-  await database.lock(`dataset:${name}\u001f${vintage}`);
+/** Serialize version numbering within a public or owner-only namespace. */
+export async function lockNameVintage(name, vintage, ownerScope, database) {
+  await database.lock(`dataset:${JSON.stringify([name, vintage, ownerScope])}`);
 }
 
-export async function nextVersion(name, vintage, database = pool) {
+export async function nextVersion(name, vintage, ownerScope, database = pool) {
   const { rows } = await database.query(
-    'SELECT COALESCE(MAX(version), 0) + 1 AS version FROM datasets WHERE name = ? AND vintage = ?',
-    [name, vintage],
+    `SELECT COALESCE(MAX(version), 0) + 1 AS version FROM datasets
+     WHERE name = ? AND vintage = ? AND IF(is_private, uploaded_by, 0) = ?`,
+    [name, vintage, ownerScope],
   );
   return rows[0].version;
 }
@@ -53,17 +66,20 @@ export async function insert(dataset, database = pool) {
     version,
     rowCount,
     uploadedBy,
+    privateSource = null,
     dataFormat = 'indicators',
     columns = [],
     notes = [],
     rowLabelKey = null,
   } = dataset;
+  const isPrivate = privateSource !== null;
   const { insertId } = await database.query(
     `INSERT INTO datasets (
        name, source_id, vintage, version, row_count, uploaded_by,
-       data_format, column_definitions, import_notes, approved_fields, row_label_key
+       data_format, column_definitions, import_notes, approved_fields, row_label_key,
+       is_active, is_private, private_source
      )
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, JSON_ARRAY(), ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, IF(?, NULL, JSON_ARRAY()), ?, ?, ?, ?)`,
     [
       name,
       sourceId,
@@ -74,7 +90,11 @@ export async function insert(dataset, database = pool) {
       dataFormat,
       JSON.stringify(columns),
       JSON.stringify(notes),
+      isPrivate,
       rowLabelKey,
+      isPrivate,
+      isPrivate,
+      privateSource,
     ],
   );
   return { id: insertId };
@@ -101,11 +121,12 @@ export async function setActive(id, isActive, database) {
     await database.query(
       `UPDATE datasets d JOIN datasets target ON target.id = ?
        SET d.is_active = FALSE
-       WHERE d.is_active AND d.id <> target.id AND d.name = target.name AND d.vintage = target.vintage`,
+       WHERE d.is_active AND NOT d.is_private AND NOT target.is_private
+         AND d.id <> target.id AND d.name = target.name AND d.vintage = target.vintage`,
       [id],
     );
   }
-  const { rowCount } = await database.query('UPDATE datasets SET is_active = ? WHERE id = ?', [isActive, id]);
+  const { rowCount } = await database.query('UPDATE datasets SET is_active = ? WHERE id = ? AND NOT is_private', [isActive, id]);
   return rowCount > 0;
 }
 

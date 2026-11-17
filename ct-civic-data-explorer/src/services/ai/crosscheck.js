@@ -27,7 +27,10 @@ export function crossCheckFigures(text, report) {
   const allowed = [
     ...report.indicators.flatMap((row) => row.cells.map((cell) => cell.value)).filter((v) => v != null),
     // Numbers that legitimately appear in prose about the dataset, e.g. "2024" or "5-Year".
-    ...`${report.dataset.name} ${report.dataset.vintage}`.match(/\d+/g)?.map(Number) ?? [],
+    ...(report.datasets ?? [report.dataset]).flatMap(({ name, vintage }) =>
+      (`${name} ${vintage}`.match(/\d+/g) ?? []).map(Number)),
+    ...(report.summaries ?? []).flatMap((summary) =>
+      [summary.value, summary.benchmark?.value].filter(Number.isFinite)),
   ];
   return extractFigures(text)
     .filter((figure) => !allowed.some((value) => Math.abs(value - figure.value) <= figure.tolerance + 1e-9))

@@ -29,7 +29,7 @@ cd ct-data-explorer/ct-civic-data-explorer
 cp .env.example .env        # Windows PowerShell: copy .env.example .env
 ```
 
-Open `.env` and set `DB_PASSWORD` to anything you like. It is only for your local database. Leave `AI_PROVIDER=none`.
+Open `.env` and set `DB_PASSWORD` for your local database. Add `GEMINI_API_KEY` to enable AI chat and report summaries.
 
 ```sh
 npm install                        # includes the mysql2 driver
@@ -95,7 +95,7 @@ CI runs the same checks, plus `npm audit`, on every pull request.
 - **To start the database over:** `docker compose down -v` deletes all local data. Then run `migrate`, `create-admin` and `seed` again.
 - **Schema changes go in a new file** `migrations/NNN_description.sql`. Never edit a migration that has already been pushed.
 - **On Windows,** `npm run reset-password` is a bash script, so run it from Git Bash or WSL.
-- **AI summaries are optional.** To try them, set `AI_PROVIDER=anthropic` and your own `ANTHROPIC_API_KEY` in `.env`. Never commit `.env`.
+- **AI settings.** Gemini 3.5 Flash-Lite is the default. Administrators can choose a configured provider and model under **AI settings**. Keep API keys in environment variables or a secrets manager. [Provider setup](ct-civic-data-explorer/README.md#ai-settings)
 
 
 ### DB Tables 

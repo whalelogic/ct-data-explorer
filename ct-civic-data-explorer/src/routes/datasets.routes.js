@@ -22,6 +22,7 @@ import {
 } from '../services/datasets.service.js';
 import { presentDataset } from '../services/presenters.js';
 import { datasetPresentationSchema } from '../services/presentation.js';
+import { trackDatasetUsage } from '../services/dataset-usage.js';
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -52,6 +53,8 @@ const previewQuery = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(25),
 });
 
+const listQuery = z.object({ scope: z.enum(['public', 'private']).optional() });
+
 const curationFields = z.object({
   approvedFields: z.array(z.string().trim().min(1).max(100)).max(250),
 });
@@ -62,10 +65,14 @@ const publicationFields = z.object({
 
 export const datasetsRouter = Router();
 
-/** Staff see active versions (what reports can use); admins see every version. */
-datasetsRouter.get('/', async (request, response) => {
-  const activeOnly = request.user.role !== 'admin';
-  const datasets = await listDatasets({ activeOnly });
+/** Administrators also see public drafts. Private uploads belong to the current user. */
+datasetsRouter.get('/', validate(listQuery, 'query'), async (request, response) => {
+  const user = request.user;
+  const datasets = await listDatasets({
+    activeOnly: user.role !== 'admin',
+    scope: request.valid.query.scope,
+    user,
+  });
   response.json(datasets.map(presentDataset));
 });
 
@@ -75,6 +82,7 @@ datasetsRouter.get(
   validate(previewQuery, 'query'),
   async (request, response) => {
     const overview = await getDatasetOverview(request.valid.params.id, request.valid.query, request.user);
+    if (request.valid.query.offset === 0) await trackDatasetUsage('view', overview.dataset.id);
     response.json(overview);
   },
 );
@@ -84,6 +92,7 @@ datasetsRouter.get(
   validate(idParams, 'params'),
   async (request, response) => {
     const options = await getReportOptions(request.valid.params.id, request.user);
+    await trackDatasetUsage('access', request.valid.params.id);
     response.json(options);
   },
 );
@@ -116,37 +125,37 @@ datasetsRouter.post(
   requireRole('admin'),
   upload.single('file'),
   validate(inspectFields),
-  async (request, response) => {
-    if (!request.file) {
-      throw new HttpError(400, 'Choose a CSV or Excel (.xlsx) file to upload');
-    }
-    const inspection = await inspectUpload({
-      file: request.file.buffer,
-      filename: request.file.originalname,
-      worksheet: request.valid.body.worksheet,
-    });
-    response.json(inspection);
-  },
+  sendInspection,
 );
+
+datasetsRouter.post('/private/inspect', upload.single('file'), validate(inspectFields), sendInspection);
 
 datasetsRouter.post(
   '/',
   requireRole('admin'),
   upload.single('file'),
   validate(uploadFields),
-  async (request, response) => {
-    if (!request.file) {
-      throw new HttpError(400, 'Choose a CSV or Excel (.xlsx) file to upload');
-    }
-    const uploadDetails = {
-      file: request.file.buffer,
-      filename: request.file.originalname,
-      ...request.valid.body,
-    };
-    const dataset = await uploadDataset(uploadDetails, request.user);
-    response.status(201).json(presentDataset(dataset));
-  },
+  (request, response) => sendUpload(request, response),
 );
+
+datasetsRouter.post('/private', upload.single('file'), validate(uploadFields), (request, response) => (
+  sendUpload(request, response, { privateUpload: true })
+));
+
+function uploadedFile(request) {
+  if (!request.file) throw new HttpError(400, 'Choose a CSV or Excel (.xlsx) file to upload');
+  return { file: request.file.buffer, filename: request.file.originalname };
+}
+
+async function sendInspection(request, response) {
+  const inspection = await inspectUpload({ ...uploadedFile(request), ...request.valid.body });
+  response.json(inspection);
+}
+
+async function sendUpload(request, response, options) {
+  const dataset = await uploadDataset({ ...uploadedFile(request), ...request.valid.body }, request.user, options);
+  response.status(201).json(presentDataset(dataset));
+}
 
 datasetsRouter.patch(
   '/:id',

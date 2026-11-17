@@ -12,7 +12,6 @@ import { mountIndicatorEditor } from './indicator-editor.js';
 import { boot, formatDate, renderHeader, showStatus } from './layout.js';
 import { mountTabs } from './tabs.js';
 import { renderShapePanel } from './data-shape.js';
-import { setAssistantContext } from './assistant.js';
 import { fieldUnitLabel } from '/shared/field-groups.js';
 
 const PAGE_SIZE = 25;
@@ -41,7 +40,6 @@ async function initializeDatasetPage() {
   }
 
   isAdmin = user.role === 'admin';
-  setAssistantContext(() => ({ page: 'dataset', datasetId: Number(datasetId) }));
   getElement('back-link').href = isAdmin ? '/admin' : '/';
   getElement('previous').addEventListener('click', loadPreviousPage);
   getElement('next').addEventListener('click', loadNextPage);
@@ -57,15 +55,24 @@ async function initializeDatasetPage() {
     getElement('save-row-label').disabled = event.target.value === event.target.dataset.saved;
   });
 
-  // Everyone may rename fields and set the default comparison; approval and publishing are admin-only.
+  await loadWorkspace();
+}
+
+function canCurateDataset() {
+  return isAdmin && currentOverview && !currentOverview.dataset.isPrivate;
+}
+
+async function loadWorkspace() {
+  await loadDataset();
+  if (!currentOverview) return;
+
   getElement('tab-settings').hidden = false;
-  getElement('step-approve').hidden = !isAdmin;
-  getElement('step-publish').hidden = !isAdmin;
-  if (isAdmin) {
+  getElement('step-approve').hidden = !canCurateDataset();
+  getElement('step-publish').hidden = !canCurateDataset();
+  if (canCurateDataset()) {
     initializeAdminControls();
   }
 
-  await loadDataset();
   tabs = mountTabs(document.querySelector('.page-tabs'), { fallback: 'data' });
   await loadFieldCuration();
   await loadRowLabel();
@@ -108,11 +115,14 @@ function renderDatasetHeader(dataset) {
     `${dataset.rowCount.toLocaleString('en-US')} ${dataset.rowCount === 1 ? 'row' : 'rows'}`,
     `${fieldCount} ${fieldCount === 1 ? 'field' : 'fields'}`,
   ];
-  if (isAdmin) {
+  if (isAdmin || dataset.isPrivate) {
     parts.push(`version ${dataset.version}`);
   }
-  const status = createElement('span', { class: dataset.isActive ? 'tag active' : 'tag' }, dataset.isActive ? 'Published' : 'Draft');
+  const status = dataset.isPrivate
+    ? createElement('span', { class: 'tag' }, 'Private')
+    : createElement('span', { class: dataset.isActive ? 'tag active' : 'tag' }, dataset.isActive ? 'Published' : 'Draft');
   getElement('dataset-summary').replaceChildren(parts.filter(Boolean).join(' · '), ' ', status);
+  if (dataset.isPrivate) getElement('back-link').href = '/datasets/mine';
 
   const description = getElement('dataset-description');
   description.textContent = dataset.description;
@@ -122,9 +132,12 @@ function renderDatasetHeader(dataset) {
   const reportLink = getElement('make-report');
   reportLink.hidden = !canReport;
   reportLink.href = `/builder?dataset=${dataset.id}`;
-  getElement('finish-setup').hidden = !isAdmin || dataset.isActive;
+  const askAiLink = getElement('ask-ai');
+  askAiLink.hidden = !canReport;
+  askAiLink.href = `/chat?dataset=${dataset.id}`;
+  getElement('finish-setup').hidden = !canCurateDataset() || dataset.isActive;
   const badge = getElement('settings-badge');
-  badge.hidden = !isAdmin || dataset.isActive;
+  badge.hidden = !canCurateDataset() || dataset.isActive;
   badge.textContent = 'Needs setup';
 }
 
@@ -167,13 +180,13 @@ function renderFieldCards(indicators) {
   }
   const empty = getElement('fields-empty');
   empty.hidden = ordered.some(isUsableField);
-  empty.textContent = isAdmin ? 'No fields are approved yet. Choose them in Settings.' : 'No fields are available yet.';
+  empty.textContent = canCurateDataset() ? 'No fields are approved yet. Choose them in Settings.' : 'No fields are available yet.';
   renderUnapprovedNote();
 }
 
 function renderUnapprovedNote() {
   const note = getElement('unapproved-note');
-  if (!isAdmin || !fieldCuration) {
+  if (!canCurateDataset() || !fieldCuration) {
     note.hidden = true;
     return;
   }
@@ -206,7 +219,7 @@ async function loadRowLabel() {
   );
 
   const canChoose = settings.candidates.length > 1;
-  getElement('row-label-only').hidden = canChoose || !isAdmin;
+  getElement('row-label-only').hidden = canChoose || !canCurateDataset();
   getElement('row-label-change').hidden = !canChoose;
   const select = getElement('row-label-select');
   select.replaceChildren();
@@ -343,7 +356,7 @@ function changeVisibleFieldApproval(isApproved) {
 }
 
 async function loadFieldCuration() {
-  if (!isAdmin) {
+  if (!canCurateDataset()) {
     return;
   }
   fieldCuration = await api(`/datasets/${datasetId}/curation`);
@@ -383,7 +396,7 @@ async function saveFieldCuration() {
 
 /** Publish stays disabled until fields are chosen and saved, and says why. */
 function renderPublishStep() {
-  if (!isAdmin || !currentOverview) {
+  if (!canCurateDataset()) {
     return;
   }
   const { dataset } = currentOverview;
@@ -461,7 +474,7 @@ function renderDataset({ dataset, shape, indicators, preview }) {
   renderShapePanel(getElement('data-shape'), {
     shape,
     fields: indicators.filter(isUsableField),
-    emptyFieldsText: isAdmin ? 'Choose which columns reports may use in Settings.' : 'No columns are available yet.',
+    emptyFieldsText: canCurateDataset() ? 'Choose which columns reports may use in Settings.' : 'No columns are available yet.',
   });
   renderFieldCards(indicators);
   renderDataPreview(dataset, shape, indicators, preview);
@@ -555,7 +568,7 @@ function loadNextPage() {
 }
 
 function reloadDataset() {
-  return loadDataset();
+  return tabs ? loadDataset() : loadWorkspace();
 }
 
 boot(initializeDatasetPage);

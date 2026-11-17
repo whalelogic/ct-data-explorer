@@ -6,8 +6,8 @@ import { emailSchema, newPasswordSchema } from '../lib/schemas.js';
 import { destroySession, regenerateSession, requireAuth } from '../middleware/auth.js';
 import { csrfProtection, csrfTokenFor } from '../middleware/csrf.js';
 import { validate } from '../middleware/validate.js';
-import { isSummaryAvailable } from '../services/ai/index.js';
 import { canGenerateReports, isAssistantAvailable } from '../services/ai/assistant.js';
+import { isAiAvailable } from '../services/ai/providers.js';
 import * as auth from '../services/auth.service.js';
 import { presentUser } from '../services/presenters.js';
 
@@ -32,7 +32,7 @@ export const authRouter = Router();
 authRouter.post('/login', credentialLimiter, validate(loginSchema), async (req, res) => {
   const user = await auth.authenticate(req.valid.body.email, req.valid.body.password);
   await startSession(req, user);
-  res.json(sessionPayload(req, user));
+  res.json(await sessionPayload(req, user));
 });
 
 authRouter.post('/logout', requireAuth, csrfProtection, async (req, res) => {
@@ -41,8 +41,8 @@ authRouter.post('/logout', requireAuth, csrfProtection, async (req, res) => {
   res.status(204).end();
 });
 
-authRouter.get('/me', requireAuth, (req, res) => {
-  res.json(sessionPayload(req, req.user));
+authRouter.get('/me', requireAuth, async (req, res) => {
+  res.json(await sessionPayload(req, req.user));
 });
 
 /** Who a set-password link belongs to, so the page can greet them. */
@@ -54,7 +54,7 @@ authRouter.post('/token', credentialLimiter, validate(tokenSchema), async (req, 
 authRouter.post('/set-password', credentialLimiter, validate(setPasswordSchema), async (req, res) => {
   const user = await auth.setPasswordWithToken(req.valid.body.token, req.valid.body.password);
   await startSession(req, user);
-  res.json(sessionPayload(req, user));
+  res.json(await sessionPayload(req, user));
 });
 
 async function startSession(req, user) {
@@ -63,14 +63,16 @@ async function startSession(req, user) {
   req.session.createdAt = Date.now();
 }
 
-function sessionPayload(req, user) {
+async function sessionPayload(req, user) {
+  const aiAvailable = await isAiAvailable();
+  const assistantAvailable = await isAssistantAvailable(aiAvailable);
   return {
     user: presentUser(user),
     csrfToken: csrfTokenFor(req.session),
     features: {
-      aiSummary: isSummaryAvailable(),
-      assistant: isAssistantAvailable(),
-      assistantReports: isAssistantAvailable() && canGenerateReports(user),
+      aiSummary: aiAvailable,
+      assistant: assistantAvailable,
+      assistantReports: assistantAvailable && canGenerateReports(user),
     },
   };
 }

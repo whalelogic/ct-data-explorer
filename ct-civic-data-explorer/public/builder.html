@@ -64,9 +64,19 @@
 
           <!-- 1. Which dataset and which of its rows the report covers. -->
           <section id="panel-data" class="builder-tab-panel" role="tabpanel" aria-labelledby="tab-data" tabindex="0">
-            <label for="dataset">Dataset</label>
+            <label for="dataset" id="dataset-label">Dataset</label>
             <select id="dataset"></select>
             <p id="dataset-caption" class="muted small builder-hint"></p>
+            <label class="check builder-check" data-no-preview>
+              <input type="checkbox" id="comparison-mode" aria-controls="comparison-datasets" disabled />
+              <span>Compare datasets or aggregate by geography</span>
+            </label>
+            <div id="comparison-datasets" class="builder-subsection" data-no-preview hidden>
+              <label for="comparison-dataset">Add a dataset (optional)</label>
+              <select id="comparison-dataset"></select>
+              <div id="comparison-chips" class="row-chips" aria-label="Additional datasets"></div>
+              <p id="comparison-status" class="status small" role="status" hidden></p>
+            </div>
 
             <!-- 1a. What the report compares: towns, counties, or a column such as Program. -->
             <fieldset id="compare-section" class="builder-subsection compare-section" data-no-preview>
@@ -111,7 +121,7 @@
           <section id="panel-fields" class="builder-tab-panel" role="tabpanel" aria-labelledby="tab-fields" tabindex="0" hidden>
             <fieldset class="builder-subsection compare-section">
               <legend class="builder-subhead">What do you want to show?</legend>
-              <p class="muted small builder-hint">Tick each piece of information to include. Each one becomes a column in tables and a bar in charts.</p>
+              <p id="field-hint" class="muted small builder-hint">Choose the fields to include in charts and tables.</p>
               <div class="choice-toolbar">
                 <button id="select-all-fields" type="button" class="link">Select all</button>
                 <button id="clear-fields" type="button" class="link">Clear</button>

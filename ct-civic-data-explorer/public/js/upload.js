@@ -1,7 +1,7 @@
 /**
  * Add a dataset: choose a file → describe it → say what each row is → upload.
  * Steps after the first appear once a file is chosen; the server reads the file's columns
- * so the row question offers real choices. Uploads start as drafts.
+ * so the row question offers real choices.
  */
 import { api, loadSession } from './api.js';
 import { h as createElement } from './dom.js';
@@ -10,6 +10,8 @@ import { boot, renderAdminNav, renderHeader, showStatus } from './layout.js';
 
 /** Share of a column's values that must be Connecticut places before that box is pre-ticked. */
 const TOWN_MATCH_SHARE = 0.8;
+const privateUpload = location.pathname === '/datasets/new';
+const uploadPath = privateUpload ? '/datasets/private' : '/datasets';
 
 let inspectedColumns = [];
 let previewRows = [];
@@ -21,13 +23,23 @@ function getElement(id) {
 
 async function initializeUploadPage() {
   const { user } = await loadSession();
-  if (user.role !== 'admin') {
+  if (!privateUpload && user.role !== 'admin') {
     location.assign('/');
     return;
   }
   renderHeader(user);
-  renderAdminNav(getElement('admin-nav'));
-  mountIndicatorEditor(getElement('upload-indicator-editor'), 'upload-indicator');
+  if (privateUpload) {
+    getElement('admin-nav').hidden = true;
+    getElement('upload-heading').textContent = 'Upload a private dataset';
+    getElement('upload-intro').textContent = 'Only your account can open this dataset and reports that use it.';
+    getElement('ds-source').value = 'My upload';
+    getElement('cancel-upload').href = '/datasets/mine';
+    getElement('upload-form').querySelector('button[type="submit"]').textContent = 'Upload dataset';
+    document.title = 'Upload a private dataset · CT Civic Data Explorer';
+  } else {
+    renderAdminNav(getElement('admin-nav'));
+    mountIndicatorEditor(getElement('upload-indicator-editor'), 'upload-indicator');
+  }
 
   getElement('ds-file').addEventListener('change', handleFileSelection);
   getElement('upload-form').addEventListener('submit', uploadDataset);
@@ -38,9 +50,10 @@ async function initializeUploadPage() {
 
 function handleFileSelection() {
   const selectedFile = getElement('ds-file').files[0];
-  for (const id of ['details-step', 'upload-actions', 'column-setup']) {
+  for (const id of ['details-step', 'upload-actions']) {
     getElement(id).hidden = !selectedFile;
   }
+  getElement('column-setup').hidden = privateUpload || !selectedFile;
 
   const isExcelFile = selectedFile && /\.xlsx$/i.test(selectedFile.name);
   getElement('worksheet-field').hidden = !isExcelFile;
@@ -72,7 +85,7 @@ async function inspectSelectedFile() {
   }
   showStatus(getElement('inspect-status'), 'Reading the file…');
   try {
-    const inspection = await api('/datasets/inspect', { method: 'POST', form: formData });
+    const inspection = await api(`${uploadPath}/inspect`, { method: 'POST', form: formData });
     if (requestNumber !== inspectRequestNumber) {
       return;
     }
@@ -170,9 +183,8 @@ async function uploadDataset(event) {
   showStatus(getElement('upload-status'), 'Uploading and checking the file…');
 
   try {
-    const dataset = await api('/datasets', { method: 'POST', form: formData });
-    // Land on the next step: choosing which fields people can use.
-    location.assign(`/dataset?id=${dataset.id}#settings`);
+    const dataset = await api(uploadPath, { method: 'POST', form: formData });
+    location.assign(`/dataset?id=${dataset.id}${privateUpload ? '' : '#settings'}`);
   } catch (error) {
     showStatus(getElement('upload-status'), error.message, 'error');
     if (Array.isArray(error.details)) {

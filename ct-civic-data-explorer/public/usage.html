@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Usage · CT Civic Data Explorer</title>
+    <link rel="stylesheet" href="/css/app.css" />
+    <script type="module" src="/js/usage.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site"><a class="brand" href="/">CT Civic Data Explorer</a></header>
+    <main id="main" class="container">
+      <nav id="admin-nav" class="sub-nav" aria-label="Administration"></nav>
+      <div class="workspace-heading">
+        <div>
+          <h1>Usage</h1>
+          <p class="page-intro">Last 30 days</p>
+        </div>
+      </div>
+      <p id="page-status" class="status" role="status">Loading usage…</p>
+      <div id="usage-data" hidden>
+        <section class="panel" aria-labelledby="activity-heading">
+          <h2 id="activity-heading">Activity</h2>
+          <div class="table-wrap">
+            <table class="data">
+              <thead><tr><th scope="col">Action</th><th scope="col" class="num">Count</th></tr></thead>
+              <tbody id="usage-activity"></tbody>
+            </table>
+          </div>
+        </section>
+        <section class="panel" aria-labelledby="datasets-heading">
+          <h2 id="datasets-heading">Popular datasets</h2>
+          <div class="table-wrap">
+            <table class="data">
+              <thead><tr><th scope="col">Dataset</th><th scope="col" class="num">Uses</th></tr></thead>
+              <tbody id="usage-datasets"></tbody>
+            </table>
+          </div>
+        </section>
+        <section class="panel" aria-labelledby="indicators-heading">
+          <h2 id="indicators-heading">Popular indicators</h2>
+          <div class="table-wrap">
+            <table class="data">
+              <thead><tr><th scope="col">Indicator</th><th scope="col">Dataset</th><th scope="col" class="num">Selections</th></tr></thead>
+              <tbody id="usage-indicators"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </main>
+  </body>
+</html>

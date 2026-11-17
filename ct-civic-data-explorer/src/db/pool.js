@@ -42,7 +42,7 @@ const mysqlPool = mysql.createPool({
 });
 mysqlPool.pool.on('connection', (connection) => {
   connection.query(SESSION_SETUP, (err) => {
-    if (err) console.error('Could not configure a MySQL connection', err);
+    if (err) console.error('Could not configure a MySQL connection', err.code ?? err.name);
   });
 });
 

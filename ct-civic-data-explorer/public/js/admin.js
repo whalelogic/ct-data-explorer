@@ -25,7 +25,7 @@ async function initializeAdminPage() {
   renderHeader(user);
   renderAdminNav(getElement('admin-nav'));
 
-  allDatasets = await api('/datasets');
+  allDatasets = await api('/datasets?scope=public');
   renderPeriodFilter();
   for (const id of ['dataset-search', ...FILTER_IDS]) {
     getElement(id).addEventListener('input', renderDatasets);

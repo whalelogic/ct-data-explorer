@@ -5,6 +5,7 @@
  * object is returned as JSON for the live preview and handed to the PDF renderer,
  * so both always show the same figures.
  */
+import { randomUUID } from 'node:crypto';
 import { resolveReportStyle } from '../shared/report-style.js';
 import { HttpError } from '../lib/http-error.js';
 import { formatValue } from '../shared/format.js';
@@ -16,7 +17,7 @@ import * as towns from '../repositories/towns.js';
 import { computeValue } from './compute.js';
 import { parseMarkup } from './markup.js';
 import { presentDataset, presentIndicator, presentPlace } from './presenters.js';
-import { selectionSchema } from './selection.js';
+import { comparisonIndicatorKey, selectionSchema } from './selection.js';
 import { buildRecordReport } from './record-reports.js';
 import { approvedDefinitions, datasetIndicators, requireApprovedSelection } from './field-curation.js';
 import { applyFieldPresentation, appendFieldNotes } from './presentation.js';
@@ -26,15 +27,19 @@ import {
 } from './custom-indicators.js';
 import { createSlug } from './slugs.js';
 import { PLACE_GROUPS, benchmarkWording, describePlaces } from './row-labels.js';
+import { requireAccessibleDataset } from './datasets.service.js';
+import { compareDatasets } from './dataset-comparison.js';
+import { trackReportUsage } from './dataset-usage.js';
 
 const TIME_ZONE = 'America/New_York';
 
 /**
  * @param {import('zod').infer<typeof selectionSchema>} selection already validated
- * @param {{ now?: Date }} [options]
+ * @param {{ now?: Date, user?: object }} [options]
  */
-export async function buildReport(fullSelection, { now = new Date() } = {}) {
-  const dataset = await requireActiveDataset(fullSelection.dataset);
+export async function buildReport(fullSelection, { now = new Date(), user } = {}) {
+  if (fullSelection.comparison) return buildComparisonReport(fullSelection, user, now);
+  const dataset = await requireActiveDataset(fullSelection.dataset, user);
   if (dataset.data_format === 'records') {
     return buildRecordReport(fullSelection, dataset, now);
   }
@@ -90,6 +95,49 @@ export async function buildReport(fullSelection, { now = new Date() } = {}) {
   };
 }
 
+async function buildComparisonReport(selection, user, now) {
+  const { dataset, datasets, places, indicators, rowNoun, comparison } = await compareDatasets(selection, user);
+  const siteLabels = datasets.map((item) => `${item.displayName}, ${item.vintage} (v${item.version})`);
+  const generatedOn = now.toLocaleDateString('en-CA', { timeZone: TIME_ZONE });
+  const blocks = selection.layout.flatMap((block) => buildBlocks(block, indicators, places));
+  appendFieldNotes(blocks, indicators);
+
+  const details = [...comparison.notes];
+  const labels = new Map(indicators.map((indicator) => [indicator.key, indicator.label]));
+  const shared = comparison.sharedIndicators
+    .filter(({ datasets }) => datasets.some(({ id, indicator }) => labels.has(comparisonIndicatorKey({ datasetId: id, indicator }))))
+    .map(({ label }) => label);
+  if (shared.length) details.push(`Multiple datasets include ${shared.join(', ')}.`);
+  for (const { primary, secondary, correlation, pairedRows } of comparison.relationships) {
+    if (correlation == null) continue;
+    details.push(`${labels.get(primary)} and ${labels.get(secondary)} have Pearson r = ${correlation.toFixed(2)} (${pairedRows} matched rows).`);
+  }
+  if (details.length) {
+    blocks.push({ type: 'text', nodes: [
+      { type: 'heading', level: 2, runs: [{ text: 'Comparison notes' }] },
+      ...details.map((line) => ({ type: 'paragraph', runs: [{ text: line }] })),
+    ] });
+  }
+  return {
+    dataset,
+    datasets,
+    places,
+    indicators,
+    comparison,
+    rowNoun,
+    rowBased: comparison.groupBy === 'label',
+    containsPrivateData: datasets.some((item) => item.isPrivate),
+    summaries: [],
+    blocks,
+    style: resolveReportStyle(dataset.reportStyle, selection.styleOverrides),
+    showTitle: selection.showTitle,
+    title: selection.title || (comparison.groupBy === 'label' ? `${rowNoun} comparison` : describePlaces(places, selection.allRows && comparison.groupBy !== 'state')),
+    subtitle: selection.subtitle || siteLabels.join(' · '),
+    generatedOn,
+    sourceLine: `Sources: ${datasets.map((item, index) => `${item.source} (${siteLabels[index]})`).join(' · ')}. Generated ${generatedOn}.`,
+  };
+}
+
 function buildIndicatorRows(selectedIndicators, places, valuesByPlace) {
   const rows = [];
   for (const indicator of selectedIndicators) {
@@ -112,12 +160,12 @@ export function parseStoredSelection(storedSelection) {
   return parsedSelection.data;
 }
 
-export function listReports(query) {
-  return reports.list(query);
+export function listReports(query, user) {
+  return reports.list(query, user);
 }
 
-export async function getReport(id) {
-  const report = await reports.findById(id);
+export async function getReport(id, user) {
+  const report = await reports.findById(id, user);
   if (!report) {
     throw new HttpError(404, 'Report not found');
   }
@@ -125,55 +173,66 @@ export async function getReport(id) {
 }
 
 export async function createReport({ title, selection }, user) {
-  const builtReport = await buildReport(selection);
+  const builtReport = await buildReport(selection, { user });
+  const isPrivate = usesPrivateData(builtReport);
   const id = await reports.insert({
     title,
-    slug: await uniqueSlug(title),
+    slug: isPrivate ? privateSlug() : await uniqueSlug(title),
     selection,
     createdBy: user.id,
     datasetId: builtReport.dataset.id,
+    isPrivate,
   });
-  return reports.findById(id);
+  await trackReportUsage('report_created', builtReport, selection);
+  return reports.findById(id, user);
 }
 
 export async function updateReport(id, { title, selection }, user) {
   const report = await getOwnedReport(id, user);
   const nextSelection = selection ?? parseStoredSelection(report.selection);
-  const builtReport = await buildReport(nextSelection);
+  const builtReport = await buildReport(nextSelection, { user });
   const nextTitle = title ?? report.title;
+  const isPrivate = Boolean(report.is_private) || usesPrivateData(builtReport);
   await reports.update(id, {
     title: nextTitle,
     // The address follows the name; an unchanged name keeps its address.
-    slug: nextTitle === report.title && report.slug ? report.slug : await uniqueSlug(nextTitle, id),
+    slug: isPrivate
+      ? (report.is_private && report.slug ? report.slug : privateSlug())
+      : (nextTitle === report.title && report.slug ? report.slug : await uniqueSlug(nextTitle, id)),
     selection: nextSelection,
     datasetId: builtReport.dataset.id,
+    isPrivate,
   });
-  return reports.findById(id);
+  await trackReportUsage('report_updated', builtReport, nextSelection);
+  return reports.findById(id, user);
 }
 
 /** Any signed-in user may duplicate a report; the copy belongs to them. */
 export async function duplicateReport(id, user) {
-  const report = await getReport(id);
+  const report = await getReport(id, user);
   const selection = parseStoredSelection(report.selection);
-  const builtReport = await buildReport(selection);
+  const builtReport = await buildReport(selection, { user });
   const title = `${report.title} (copy)`.slice(0, 200);
+  const isPrivate = Boolean(report.is_private) || usesPrivateData(builtReport);
   const copyId = await reports.insert({
     title,
-    slug: await uniqueSlug(title),
+    slug: isPrivate ? privateSlug() : await uniqueSlug(title),
     selection,
     createdBy: user.id,
     datasetId: builtReport.dataset.id,
+    isPrivate,
   });
-  return reports.findById(copyId);
+  await trackReportUsage('report_created', builtReport, selection);
+  return reports.findById(copyId, user);
 }
 
 /** A saved report with its current figures, for the interactive viewer at /explore/<slug>.html. */
-export async function getReportView(slug) {
-  const report = await reports.findBySlug(slug);
+export async function getReportView(slug, user) {
+  const report = await reports.findBySlug(slug, user);
   if (!report) {
     throw new HttpError(404, 'Report not found');
   }
-  const data = await buildReport(parseStoredSelection(report.selection));
+  const data = await buildReport(parseStoredSelection(report.selection), { user });
   return { report, data };
 }
 
@@ -195,14 +254,27 @@ export async function deleteReport(id, user) {
 }
 
 async function getOwnedReport(id, user) {
-  const report = await getReport(id);
+  const report = await getReport(id, user);
   if (report.created_by !== user.id) {
     throw new HttpError(403, 'Only the person who created this report can change it');
   }
   return report;
 }
 
-async function requireActiveDataset({ name, vintage }) {
+function usesPrivateData(report) {
+  return Boolean(report.containsPrivateData || report.dataset.isPrivate);
+}
+
+function privateSlug() {
+  return `report-${randomUUID()}`;
+}
+
+async function requireActiveDataset({ id, name, vintage }, user) {
+  if (id) {
+    const dataset = await requireAccessibleDataset(id, user, { activeOnly: true });
+    if (dataset.name !== name || dataset.vintage !== vintage) throw new HttpError(400, 'Choose the dataset again');
+    return dataset;
+  }
   const dataset = await datasets.findActive(name, vintage);
   if (!dataset) {
     throw new HttpError(404, `No active version of "${name}" (${vintage}) is available`);

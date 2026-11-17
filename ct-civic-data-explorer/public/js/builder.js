@@ -7,7 +7,7 @@ import { resolveReportStyle } from '/shared/report-style.js';
 import { mountReportStyleEditor } from './report-style-editor.js';
 import { api, loadSession } from './api.js';
 import { clearReport, renderReport } from './report-view.js';
-import { setAssistantApply, setAssistantContext, takePendingProposal } from './assistant.js';
+import { takePendingProposal } from './chat-proposal.js';
 import { h as createElement } from './dom.js';
 import { boot, debounce, downloadBlob, renderHeader, showStatus } from './layout.js';
 
@@ -22,13 +22,17 @@ const RANGE_WARNING_FACTOR = 20;
 const TAB_NAMES = ['data', 'fields', 'content', 'style'];
 const RATIO_UNITS = { ratio: 'ratio', percent: 'percent', per_1000: 'per_1000' };
 const RATIO_SYMBOLS = { ratio: '', percent: ' × 100', per_1000: ' × 1,000' };
+const MAX_COMPARISON_FIELDS = 8;
+const COMPARISON_NOUNS = { town: 'town', county: 'county', region: 'planning region', state: 'state', label: 'row' };
 
 let styleEditor;
 let currentUser = null;
+let aiSummaryEnabled = false;
 let activeDatasets = [];
 let datasetOptions = [];
 /** What the report can compare (towns, counties, a column such as Program), with their values. */
 let compareOptions = [];
+let additionalDatasetIds = [];
 let defaultCompare = null;
 let hasStatewideRow = false;
 let availableRows = [];
@@ -46,6 +50,7 @@ let reportSelection = null;
 let optionsRequestNumber = 0;
 let previewRequestNumber = 0;
 let isLoadingOptions = false;
+let optionsLoadError = '';
 let defaultChartType = 'grouped_bar';
 let lastPreviewReport = null;
 let savedSnapshot = '';
@@ -61,29 +66,47 @@ function getElement(id) {
 }
 
 function isSameDataset(firstDataset, secondDataset) {
-  return firstDataset.name === secondDataset.name && firstDataset.vintage === secondDataset.vintage;
+  return secondDataset.id != null
+    ? firstDataset.id === secondDataset.id
+    : !firstDataset.isPrivate && firstDataset.name === secondDataset.name && firstDataset.vintage === secondDataset.vintage;
+}
+
+function datasetReference({ id, name, vintage }) {
+  return { id, name, vintage };
+}
+
+function datasetLabel(dataset) {
+  if (!dataset) return 'Unavailable dataset';
+  return `${dataset.displayName || dataset.name}, ${dataset.vintage}${dataset.isPrivate ? ' · Private' : ''}`;
 }
 
 async function initializeBuilder() {
   const session = await loadSession();
   currentUser = session.user;
+  aiSummaryEnabled = session.features.aiSummary;
   renderHeader(currentUser);
 
   const datasets = await api('/datasets');
   activeDatasets = datasets.filter((dataset) => dataset.isActive);
   await loadInitialSelection();
-  // A report the assistant set up on another page, for this dataset.
-  const pending = takePendingProposal();
+  const pending = new URLSearchParams(location.search).get('proposal') === '1' && takePendingProposal(currentUser.id);
   if (pending && !savedReport && activeDatasets.some((dataset) => dataset.id === pending.datasetId)) {
-    reportSelection = assistantSelection(pending.selection);
+    reportSelection = { ...reportSelection, ...pending.selection };
   }
+  reportSelection.fieldOverrides ??= {};
+  reportSelection.styleOverrides ??= {};
+  reportSelection.customIndicators ??= [];
+  reportSelection.rows ??= [];
+  reportSelection.recordFilters ??= {};
+  const primaryDataset = findSelectedDataset();
+  additionalDatasetIds = [...new Set((reportSelection.comparison?.sources ?? []).map((source) => source.datasetId))]
+    .filter((id) => id !== primaryDataset?.id);
 
   renderDatasetOptions();
   fillFormControls();
-  getElement('draft-summary').hidden = !session.features.aiSummary;
   updateHeading();
 
-  await loadDatasetColumns();
+  await loadDatasetColumns().catch((error) => showStatus(getElement('builder-status'), error.message, 'error'));
   styleEditor = mountReportStyleEditor(getElement('report-style'), {
     prefix: 'report-style',
     overrides: true,
@@ -103,45 +126,7 @@ async function initializeBuilder() {
   updateTabCounts();
   savedSnapshot = createSnapshot();
   updateSaveState();
-  setAssistantContext(() => ({
-    page: 'builder',
-    datasetId: findSelectedDataset()?.id,
-    selection: {
-      compareBy: reportSelection.compareBy,
-      rows: reportSelection.rows.slice(0, 200),
-      allRows: reportSelection.allRows,
-      indicators: reportSelection.indicators.slice(0, 50),
-    },
-  }));
-  setAssistantApply(applyAssistantProposal);
   await refreshPreview();
-}
-
-/** A selection from the assistant, with the builder's per-report settings filled in. */
-function assistantSelection(selection) {
-  return {
-    ...selection,
-    fieldOverrides: selection.fieldOverrides ?? {},
-    styleOverrides: selection.styleOverrides ?? {},
-    recordFilters: selection.recordFilters ?? {},
-    customIndicators: selection.customIndicators ?? [],
-    rows: selection.rows ?? [],
-  };
-}
-
-/** Replace the report being built with the assistant's proposal; the report name and save state stay. */
-async function applyAssistantProposal(proposal) {
-  reportSelection = assistantSelection(proposal.selection);
-  renderDatasetOptions();
-  fillFormControls();
-  getElement('report-name').value = savedReport?.title ?? '';
-  await loadDatasetColumns();
-  expandedBlocks.clear();
-  updateStyleEditor();
-  renderFields();
-  renderLayout();
-  selectTab('fields', { focus: false });
-  selectionChanged();
 }
 
 async function loadInitialSelection() {
@@ -173,7 +158,7 @@ async function loadInitialSelection() {
   };
 
   if (initialDataset) {
-    reportSelection.dataset = { name: initialDataset.name, vintage: initialDataset.vintage };
+    reportSelection.dataset = datasetReference(initialDataset);
   }
   if (queryParameters.get('town')) {
     reportSelection.rows = [queryParameters.get('town')];
@@ -184,11 +169,6 @@ async function loadInitialSelection() {
     savedReport = { id: report.id, ownerId: report.createdBy.id, title: report.title, viewUrl: report.viewUrl };
     reportSelection = { ...reportSelection, ...report.selection };
   }
-  reportSelection.fieldOverrides ??= {};
-  reportSelection.styleOverrides ??= {};
-  reportSelection.customIndicators ??= [];
-  reportSelection.rows ??= [];
-  reportSelection.recordFilters ??= {};
 }
 
 function chooseInitialTab() {
@@ -204,11 +184,7 @@ function chooseInitialTab() {
 function renderDatasetOptions() {
   datasetOptions = [];
   for (const dataset of activeDatasets) {
-    datasetOptions.push({
-      name: dataset.name,
-      vintage: dataset.vintage,
-      label: `${dataset.displayName || dataset.name}, ${dataset.vintage}`,
-    });
+    datasetOptions.push({ ...dataset, label: datasetLabel(dataset) });
   }
 
   const selectedDataset = reportSelection.dataset;
@@ -246,7 +222,7 @@ function readFormControls() {
   const selectedOption = datasetOptions[Number(getElement('dataset').value)];
   reportSelection.dataset = null;
   if (selectedOption) {
-    reportSelection.dataset = { name: selectedOption.name, vintage: selectedOption.vintage };
+    reportSelection.dataset = datasetReference(selectedOption);
   }
 
   reportSelection.benchmark = getElement('benchmark').checked;
@@ -260,6 +236,7 @@ function readFormControls() {
     }
   }
   reportSelection.recordFilters = Object.fromEntries(filterEntries);
+  syncComparisonSources();
   // Field, block and style editors update reportSelection directly.
 }
 
@@ -269,6 +246,8 @@ function registerEventHandlers() {
   form.addEventListener('input', handleFormChange);
   form.addEventListener('change', handleFormChange);
   getElement('dataset').addEventListener('change', handleDatasetChange);
+  getElement('comparison-mode').addEventListener('change', handleComparisonMode);
+  getElement('comparison-dataset').addEventListener('change', handleAddComparisonDataset);
   getElement('compare-options').addEventListener('change', handleCompareChange);
   getElement('row-checklist').addEventListener('change', handleRowCheck);
   getElement('row-search').addEventListener('input', renderRowChecklist);
@@ -455,7 +434,8 @@ function pluralize(noun, count = 2) {
 
 /** The compare choice currently shown, falling back to the dataset's default. */
 function currentCompareOption() {
-  return compareOptions.find((option) => option.id === reportSelection.compareBy)
+  const groupBy = reportSelection.comparison?.groupBy ?? reportSelection.compareBy;
+  return compareOptions.find((option) => option.id === groupBy)
     ?? compareOptions.find((option) => option.id === defaultCompare)
     ?? compareOptions[0]
     ?? null;
@@ -466,7 +446,8 @@ function currentCompareOption() {
  * rows (reports saved before this choice existed), else the dataset default.
  */
 function chooseCompareOption() {
-  const saved = compareOptions.find((option) => option.id === reportSelection.compareBy);
+  const groupBy = reportSelection.comparison?.groupBy ?? reportSelection.compareBy;
+  const saved = compareOptions.find((option) => option.id === groupBy);
   const holdingRows = reportSelection.rows.length
     ? compareOptions.find((option) => reportSelection.rows.every((row) => option.values.includes(row)))
     : null;
@@ -475,7 +456,12 @@ function chooseCompareOption() {
 }
 
 function applyCompareOption(option) {
-  reportSelection.compareBy = option?.id;
+  if (reportSelection.comparison) {
+    reportSelection.comparison.groupBy = option?.id;
+    delete reportSelection.compareBy;
+  } else {
+    reportSelection.compareBy = option?.id;
+  }
   availableRows = option?.values ?? [];
   rowNoun = option ? option.noun.charAt(0).toUpperCase() + option.noun.slice(1) : 'Row';
   // The statewide figure compares places with Connecticut; it means nothing for programs.
@@ -512,6 +498,7 @@ function renderCompareOptions() {
 }
 
 function renderRowSelection() {
+  getElement('row-section').hidden = availableRows.length === 0;
   const plural = pluralize(rowNoun).toLowerCase();
   getElement('rows-heading').textContent = `Which ${plural}?`;
   const search = getElement('row-search');
@@ -586,8 +573,14 @@ function handleCompareChange(event) {
   reportSelection.rows = [];
   reportSelection.allRows = false;
   applyCompareOption(option);
+  if (option.id === 'state' && availableRows.length === 1) {
+    reportSelection.rows = [...availableRows];
+  }
   getElement('row-search').value = '';
   renderRowSelection();
+  if (reportSelection.comparison) {
+    renderFields();
+  }
   showStatus(getElement('builder-status'), hadRows ? `Now comparing ${option.label.toLowerCase()}. Choose which ones below.` : '');
   selectionChanged();
 }
@@ -648,6 +641,11 @@ async function handleDatasetChange() {
   reportSelection.recordFilters = {};
   reportSelection.fieldOverrides = {};
   reportSelection.styleOverrides = {};
+  additionalDatasetIds = additionalDatasetIds.filter((id) => id !== reportSelection.dataset?.id);
+  await refreshDatasetControls();
+}
+
+async function refreshDatasetControls() {
   const previousFieldCount = reportSelection.indicators.length;
   markPreviewStale();
   try {
@@ -676,23 +674,30 @@ async function handleDatasetChange() {
     selectionChanged();
   } catch (error) {
     showStatus(getElement('builder-status'), error.message, 'error');
+    await refreshPreview();
   }
 }
 
 async function loadDatasetColumns() {
   const requestNumber = ++optionsRequestNumber;
   isLoadingOptions = true;
+  optionsLoadError = '';
   const selectedDataset = findSelectedDataset();
+  renderComparisonControls(selectedDataset);
   let options = { columns: [], filters: [], compareOptions: [], defaultCompare: null, hasState: false };
 
   if (selectedDataset) {
     try {
-      options = await api(`/datasets/${selectedDataset.id}/report-options`);
+      options = reportSelection.comparison
+        ? await loadComparisonOptions(selectedDataset)
+        : await api(`/datasets/${selectedDataset.id}/report-options`);
     } catch (error) {
       if (requestNumber !== optionsRequestNumber) {
         return false;
       }
       isLoadingOptions = false;
+      optionsLoadError = error.message;
+      renderComparisonControls(selectedDataset);
       throw error;
     }
     // Only the most recently selected dataset may update the form.
@@ -707,6 +712,9 @@ async function loadDatasetColumns() {
   defaultCompare = options.defaultCompare;
   hasStatewideRow = Boolean(options.hasState);
   chooseCompareOption();
+  if (reportSelection.comparison?.groupBy === 'state' && availableRows.length === 1) {
+    reportSelection.rows = [...availableRows];
+  }
   renderCompareOptions();
   renderRowSelection();
   // Calculated fields whose fields this dataset does not have cannot be kept. Summaries
@@ -718,6 +726,7 @@ async function loadDatasetColumns() {
   });
   rebuildFieldIndex();
   reportSelection.indicators = reportSelection.indicators.filter((key) => indicatorsByKey.has(key));
+  syncComparisonSources();
   removeUnselectedBlockIndicators();
   renderDatasetCaption(selectedDataset);
   if (selectedDataset && availableIndicators.length === 0) {
@@ -726,12 +735,120 @@ async function loadDatasetColumns() {
 
   getElement('benchmark').checked = reportSelection.benchmark;
   renderRecordFilters(options.filters);
+  updateDraftSummaryAvailability(selectedDataset);
+  showStatus(getElement('comparison-status'), reportSelection.comparison && compareOptions.length === 0
+    ? 'No shared geography or row labels. Choose different datasets.' : '', 'error');
   isLoadingOptions = false;
+  renderComparisonControls(selectedDataset);
   return true;
 }
 
 function findSelectedDataset() {
   return activeDatasets.find((dataset) => reportSelection.dataset && isSameDataset(dataset, reportSelection.dataset));
+}
+
+function updateDraftSummaryAvailability(primary) {
+  const datasets = [primary, ...additionalDatasetIds.map((id) => activeDatasets.find((dataset) => dataset.id === id))];
+  const eligible = aiSummaryEnabled && datasets.every((dataset) => dataset && !dataset.isPrivate && dataset.dataFormat !== 'records');
+  getElement('draft-summary').hidden = !eligible;
+  if (!eligible) {
+    getElement('draft').hidden = true;
+    getElement('draft-text').value = '';
+  }
+}
+
+async function loadComparisonOptions(primary) {
+  const datasetIds = [primary.id, ...additionalDatasetIds];
+  const alignment = await api('/reports/comparison-options', { method: 'POST', json: { datasetIds } });
+  const columns = alignment.datasets.flatMap(({ id: datasetId, columns }) =>
+    columns.map((column) => ({
+      ...column, datasetId, indicator: column.key, key: `d${datasetId}:${column.key}`,
+    })));
+  const compareOptions = alignment.groupBy.map((option) => ({
+    ...option, noun: option.id === 'label' ? option.label : COMPARISON_NOUNS[option.id] ?? 'row',
+  }));
+  return {
+    columns, compareOptions, filters: [], defaultCompare: primary.townKeyed ? 'town' : 'label', defaultChartType: primary.defaultChartType,
+  };
+}
+
+function renderComparisonControls(primary) {
+  const enabled = Boolean(reportSelection.comparison);
+  const mode = getElement('comparison-mode');
+  mode.checked = enabled;
+  mode.disabled = isLoadingOptions || !primary;
+  getElement('comparison-datasets').hidden = !enabled;
+  getElement('dataset-label').textContent = enabled ? 'Base dataset' : 'Dataset';
+  const picker = getElement('comparison-dataset');
+  picker.replaceChildren(createElement('option', { value: '' }, 'Choose a dataset'));
+  for (const dataset of activeDatasets) {
+    if (dataset.id !== primary?.id && !additionalDatasetIds.includes(dataset.id)) {
+      picker.append(createElement('option', { value: dataset.id }, datasetLabel(dataset)));
+    }
+  }
+  picker.disabled = isLoadingOptions || picker.options.length < 2 || additionalDatasetIds.length >= MAX_COMPARISON_FIELDS - 1;
+  const chips = getElement('comparison-chips');
+  chips.replaceChildren(...additionalDatasetIds.map((id) => {
+    const dataset = activeDatasets.find((candidate) => candidate.id === id);
+    const label = datasetLabel(dataset);
+    return createElement('button', {
+      type: 'button', class: 'row-chip', 'aria-label': `Remove ${label}`, disabled: isLoadingOptions,
+      onClick: async () => {
+        additionalDatasetIds = additionalDatasetIds.filter((datasetId) => datasetId !== id);
+        await refreshDatasetControls();
+        if (!picker.disabled) picker.focus();
+      },
+    }, label, createElement('span', { 'aria-hidden': 'true' }, '×'));
+  }));
+}
+
+async function handleAddComparisonDataset(event) {
+  const input = event.currentTarget;
+  if (!input.value) return;
+  additionalDatasetIds.push(Number(input.value));
+  await refreshDatasetControls();
+}
+
+async function handleComparisonMode(event) {
+  const primary = findSelectedDataset();
+  if (!primary) return;
+  const enabled = event.currentTarget.checked;
+  const prefix = `d${primary.id}:`;
+  if (enabled) {
+    reportSelection.comparison = { groupBy: reportSelection.compareBy, sources: [] };
+    remapIndicatorKeys((key) => availableIndicators.some((field) => field.key === key && field.type !== 'text') ? `${prefix}${key}` : null);
+    reportSelection.customIndicators = [];
+  } else {
+    const groupBy = reportSelection.comparison.groupBy;
+    delete reportSelection.comparison;
+    additionalDatasetIds = [];
+    reportSelection.compareBy = groupBy;
+    remapIndicatorKeys((key) => key.startsWith(prefix) ? key.slice(prefix.length) : null);
+  }
+  openOverrideKeys.clear();
+  await refreshDatasetControls();
+}
+
+function remapIndicatorKeys(remap) {
+  const remapList = (keys) => keys.map(remap).filter(Boolean);
+  const remapValues = (values) => Object.fromEntries(Object.entries(values)
+    .map(([key, value]) => [remap(key), value]).filter(([key]) => key));
+  reportSelection.indicators = remapList(reportSelection.indicators);
+  reportSelection.fieldOverrides = remapValues(reportSelection.fieldOverrides);
+  for (const block of reportSelection.layout) {
+    if (block.indicators) block.indicators = remapList(block.indicators);
+    if (block.colors) block.colors = remapValues(block.colors);
+  }
+}
+
+function syncComparisonSources() {
+  const comparison = reportSelection.comparison;
+  if (!comparison) return;
+  const previousMethods = new Map(comparison.sources.map((source) => [`d${source.datasetId}:${source.indicator}`, source.aggregation]));
+  comparison.sources = reportSelection.indicators.filter((key) => indicatorsByKey.has(key)).map((key) => {
+    const { datasetId, indicator } = indicatorsByKey.get(key);
+    return { datasetId, indicator, aggregation: previousMethods.get(key) ?? 'source' };
+  });
 }
 
 function renderDatasetCaption(dataset) {
@@ -795,6 +912,47 @@ function renderFields(focusId) {
   restoreFocus(focusId, 'button:not(:disabled), input');
 }
 
+function getAggregationOptions(field) {
+  const source = currentCompareOption()?.datasets?.find((dataset) => dataset.id === field.datasetId);
+  const options = [];
+  if (source?.hasSource) options.push(['source', 'Use source value']);
+  if (source && (source.hasSource || source.hasRollup)) {
+    options.push(['average', 'Average rows']);
+    if (['count', 'area', 'number'].includes(field.unit ?? 'number') && field.derivation !== 'ratio') {
+      options.push(['sum', 'Sum rows']);
+    }
+  }
+  return options;
+}
+
+function renderAggregationPicker(field) {
+  const id = `aggregation-${field.key}`;
+  const getSource = () => reportSelection.comparison.sources.find((source) =>
+    source.datasetId === field.datasetId && source.indicator === field.indicator);
+  const aggregation = getSource()?.aggregation;
+  const options = getAggregationOptions(field);
+  if (!options.length) return createElement('p', { class: 'muted small' }, 'No source values at this level.');
+  if (options.length === 1 && options[0][0] === aggregation) return null;
+  const select = createElement('select', {
+    id, 'data-no-preview': true,
+    onChange: (event) => {
+      const source = getSource();
+      if (source) source.aggregation = event.currentTarget.value || 'source';
+      selectionChanged();
+    },
+  });
+  const hasAggregation = options.some(([value]) => value === aggregation);
+  if (!hasAggregation) {
+    select.append(createElement('option', { value: '', disabled: true }, 'Choose how to combine rows'));
+  }
+  for (const [value, label] of options) {
+    select.append(createElement('option', { value }, label));
+  }
+  select.value = hasAggregation ? aggregation : '';
+  return createElement('div', { class: 'override-grid' }, createElement('div', { class: 'override-wide' },
+    createElement('label', { for: id }, 'Value for each row'), select));
+}
+
 /** The ordered list of chosen fields, with per-report renaming tucked into each row. */
 function renderSelectedFields() {
   const list = getElement('selected-fields');
@@ -817,6 +975,11 @@ function renderSelectedFields() {
       unit.textContent = `${fieldUnitLabel(field)} · renamed from ${field.label}`;
     }
     const nameColumn = createElement('span', { class: 'selected-field-copy' }, name, unit);
+    if (reportSelection.comparison) {
+      const dataset = activeDatasets.find((dataset) => dataset.id === field.datasetId);
+      nameColumn.append(createElement('span', { class: 'field-label-unit' },
+        [position === 0 ? 'Primary' : 'Secondary', dataset && datasetLabel(dataset)].filter(Boolean).join(' · ')));
+    }
 
     const controls = createElement('span', { class: 'order' });
     if (!field.custom) {
@@ -846,6 +1009,10 @@ function renderSelectedFields() {
     );
     head.append(positionBadge, nameColumn, controls);
     row.append(head);
+    if (reportSelection.comparison) {
+      const aggregation = renderAggregationPicker(field);
+      if (aggregation) row.append(aggregation);
+    }
     if (!field.custom) {
       row.append(createOverrideEditor(field, override));
     }
@@ -854,7 +1021,6 @@ function renderSelectedFields() {
 
   getElement('selected-section').hidden = chosenKeys.length === 0;
   getElement('clear-fields').disabled = chosenKeys.length === 0;
-  getElement('select-all-fields').disabled = availableIndicators.every((field) => chosenKeys.includes(field.key));
   getElement('reset-overrides').hidden = Object.keys(reportSelection.fieldOverrides ?? {}).length === 0;
 }
 
@@ -929,10 +1095,20 @@ function renderAvailableFields() {
 
   const indicatorList = getElement('indicator-list');
   indicatorList.replaceChildren();
-  const groups = isLongList ? groupFieldsByUnit(visibleFields) : [{ label: null, fields: visibleFields }];
+  const comparison = Boolean(reportSelection.comparison);
+  getElement('field-hint').textContent = comparison
+    ? 'Choose an indicator from each dataset. The first is primary.'
+    : 'Choose the fields to include in charts and tables.';
+  getElement('select-all-fields').hidden = comparison;
+  const groups = comparison
+    ? [findSelectedDataset()?.id, ...additionalDatasetIds].map((id) => ({
+      label: datasetLabel(activeDatasets.find((dataset) => dataset.id === id)),
+      fields: visibleFields.filter((field) => field.datasetId === id),
+    })).filter((group) => group.fields.length)
+    : isLongList ? groupFieldsByUnit(visibleFields) : [{ label: null, fields: visibleFields }];
   for (const group of groups) {
     const section = createElement('div', { class: 'unit-field-group' });
-    if (group.label && groups.length > 1) {
+    if (group.label && (comparison || groups.length > 1)) {
       section.append(createElement('h3', { class: 'unit-field-heading' }, group.label));
     }
     const choices = createElement('div', { class: 'field-choice-grid' });
@@ -958,6 +1134,7 @@ function createFieldChoice(field) {
     id: inputId,
     checked: isChosen,
     'data-indicator': field.key,
+    'data-no-preview': true,
     onChange: handleIndicatorChange,
   });
   const copy = createElement('span', { class: 'field-copy' });
@@ -1009,15 +1186,25 @@ function handleIndicatorChange(event) {
   }
   checkbox.closest('.field-choice').dataset.selected = String(checkbox.checked);
   removeUnselectedBlockIndicators();
+  syncComparisonSources();
   // Re-render only the selected list; the checkbox the user just used stays in place.
   renderSelectedFields();
   renderAvailableFieldCount();
   renderLayout();
+  selectionChanged();
 }
 
 function renderAvailableFieldCount() {
   const chosenCount = reportSelection.indicators.filter((key) => availableIndicators.some((field) => field.key === key)).length;
-  getElement('field-count').textContent = `${chosenCount} of ${availableIndicators.length} selected`;
+  const comparison = reportSelection.comparison;
+  const limit = comparison ? Math.min(MAX_COMPARISON_FIELDS, availableIndicators.length) : availableIndicators.length;
+  getElement('field-count').textContent = `${chosenCount} of ${limit} selected`;
+  if (comparison) {
+    for (const checkbox of getElement('indicator-list').querySelectorAll('input[type="checkbox"]')) {
+      const available = getAggregationOptions(indicatorsByKey.get(checkbox.dataset.indicator)).length > 0;
+      checkbox.disabled = !checkbox.checked && (!available || chosenCount >= limit);
+    }
+  }
   getElement('clear-fields').disabled = chosenCount === 0;
   getElement('select-all-fields').disabled = availableIndicators.length === 0 || chosenCount === availableIndicators.length;
 }
@@ -1038,7 +1225,7 @@ function clearFields() {
   reportSelection.indicators = [];
   openOverrideKeys.clear();
   removeUnselectedBlockIndicators();
-  renderFields('select-all-fields');
+  renderFields(reportSelection.comparison ? 'field-search' : 'select-all-fields');
   renderLayout();
   selectionChanged();
 }
@@ -1056,6 +1243,7 @@ function handleMoveIndicator(event) {
   indicatorKeys[currentIndex] = indicatorKeys[nextIndex];
   indicatorKeys[nextIndex] = indicatorKey;
   reportSelection.indicators = indicatorKeys;
+  syncComparisonSources();
 
   const focusDirection = direction < 0 ? 'up' : 'down';
   renderSelectedFields();
@@ -1178,7 +1366,7 @@ function numericFields() {
 
 function renderRatioList() {
   const section = getElement('ratio-section');
-  section.hidden = numericFields().length === 0;
+  section.hidden = Boolean(reportSelection.comparison) || numericFields().length === 0;
   // Calculated fields are optional; keep them folded away until a report has one.
   if (reportSelection.customIndicators.length) {
     section.open = true;
@@ -1407,7 +1595,10 @@ function getEligibleFields(block) {
 }
 
 function getFieldLabel(field) {
-  return reportSelection.fieldOverrides?.[field.key]?.label || field.label;
+  const label = reportSelection.fieldOverrides?.[field.key]?.label || field.label;
+  if (!field.datasetId || !additionalDatasetIds.length) return label;
+  const dataset = activeDatasets.find((option) => option.id === field.datasetId);
+  return `${label} · ${datasetLabel(dataset)}`;
 }
 
 function describeBlock(block) {
@@ -1883,6 +2074,9 @@ function markPreviewStale() {
 }
 
 function getPreviewProblem() {
+  if (isLoadingOptions || optionsLoadError) {
+    return { title: 'Dataset options unavailable', text: optionsLoadError || 'Dataset options are loading.' };
+  }
   if (!reportSelection.dataset) {
     return {
       title: 'No published dataset',
@@ -1896,6 +2090,10 @@ function getPreviewProblem() {
       tab: 'data',
       action: 'Choose a dataset',
     };
+  }
+  const comparison = reportSelection.comparison;
+  if (comparison && !comparison.groupBy) {
+    return { title: 'No shared rows', text: 'Choose datasets with matching geography or row labels.', tab: 'data', action: 'Choose datasets' };
   }
   if (availableIndicators.length === 0) {
     return {
@@ -1921,6 +2119,22 @@ function getPreviewProblem() {
       tab: 'fields',
       action: 'Choose what to show',
     };
+  }
+  if (comparison) {
+    const selectedDatasetIds = new Set(comparison.sources.map((source) => source.datasetId));
+    if ([reportSelection.dataset.id, ...additionalDatasetIds].some((id) => !selectedDatasetIds.has(id))) {
+      return { title: 'Choose an indicator from each dataset', text: 'Select an indicator from every dataset you want to compare.', tab: 'fields', action: 'Choose indicators' };
+    }
+    if (reportSelection.indicators.length > MAX_COMPARISON_FIELDS) {
+      return { title: 'Too many indicators', text: `Choose up to ${MAX_COMPARISON_FIELDS} indicators.`, tab: 'fields', action: 'Choose indicators' };
+    }
+    const missingAggregation = comparison.sources.some((source) => {
+      const field = indicatorsByKey.get(`d${source.datasetId}:${source.indicator}`);
+      return !getAggregationOptions(field).some(([value]) => value === source.aggregation);
+    });
+    if (missingAggregation) {
+      return { title: 'Choose how to combine rows', text: 'Select a method for each indicator at this level.', tab: 'fields', action: 'Choose a method' };
+    }
   }
   if (reportSelection.layout.length === 0) {
     return {
@@ -2061,6 +2275,11 @@ function updateHeading() {
 
 async function saveReport() {
   readFormControls();
+  const problem = getPreviewProblem();
+  if (problem) {
+    showStatus(getElement('builder-status'), problem.text, 'error');
+    return;
+  }
   const nameInput = getElement('report-name');
   // An unnamed report takes its displayed title, which the preview always has.
   if (!nameInput.value.trim() && lastPreviewReport?.title) {
@@ -2121,6 +2340,11 @@ async function downloadPdf(event) {
 
 async function draftSummary() {
   readFormControls();
+  const problem = getPreviewProblem();
+  if (problem) {
+    showStatus(getElement('builder-status'), problem.text, 'error');
+    return;
+  }
   const buttons = [getElement('draft-summary'), getElement('draft-regenerate')];
   for (const button of buttons) {
     button.disabled = true;

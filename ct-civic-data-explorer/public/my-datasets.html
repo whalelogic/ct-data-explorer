@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>My datasets · CT Civic Data Explorer</title>
+    <link rel="stylesheet" href="/css/app.css" />
+    <script type="module" src="/js/my-datasets.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site"><a class="brand" href="/">CT Civic Data Explorer</a></header>
+    <main id="main" class="container">
+      <div class="dataset-header">
+        <div class="dataset-header-copy">
+          <h1>My datasets</h1>
+          <p class="muted">Your private uploads.</p>
+        </div>
+        <div class="dataset-header-actions">
+          <a class="button" href="/datasets/new">Upload dataset</a>
+        </div>
+      </div>
+      <p id="page-status" class="status" role="status">Loading datasets…</p>
+      <ul id="private-datasets" class="report-grid"></ul>
+    </main>
+  </body>
+</html>
