@@ -15,6 +15,11 @@ async function initializeChat() {
   }
 
   const chat = byId('chat');
+  const heading = byId('chat-title');
+  const historyPanel = byId('chat-history');
+  const scroller = byId('chat-scroll');
+  const latestButton = byId('chat-latest');
+  const suggestionsPanel = byId('chat-suggestions');
   const privateConsent = byId('chat-include-private');
   privateConsent.checked = false;
   const startOver = byId('new-chat');
@@ -31,7 +36,7 @@ async function initializeChat() {
   let sending = false;
 
   function updateControls() {
-    startOver.disabled = sending || !messages.length;
+    startOver.disabled = sending;
     privateConsent.disabled = sending;
     sendButton.disabled = sending;
     input.readOnly = sending;
@@ -40,25 +45,49 @@ async function initializeChat() {
   function showSuggestions() {
     const hasDatasetContext = datasetId && (!linkedPrivateDataset || privateConsent.checked);
     const suggestions = hasDatasetContext
-      ? ['What does this dataset cover?', 'Which indicators are available?']
-      : ['What data is available?', 'Compare Hartford and New Haven by population'];
-    if (features.assistantReports) suggestions.push('Help me build a report');
-    log.replaceChildren(h('div', { class: 'assistant-suggestions' }, suggestions.map((question) =>
+      ? [['About this dataset', 'What does this dataset cover?'], ['Explore indicators', 'Which indicators are available?']]
+      : [['Find datasets', 'What data is available?'], ['Compare towns', 'Compare Hartford and New Haven by population.']];
+    if (features.assistantReports) suggestions.push(['Build a report', 'Help me build a report.']);
+    suggestionsPanel.replaceChildren(...suggestions.map(([label, question]) =>
       h('button', { type: 'button', class: 'assistant-suggestion', onClick: () => {
         input.value = question;
-        send();
-      } }, question))));
+        input.focus();
+      } }, label)));
+  }
+
+  function setConversation(open) {
+    document.body.classList.toggle('has-conversation', open);
+    heading.textContent = open ? 'AI chat' : 'Ask about Connecticut data';
+    startOver.hidden = !open;
+    historyPanel.hidden = !open;
+    suggestionsPanel.hidden = open;
+    latestButton.hidden = true;
+  }
+
+  function atLatest() {
+    return scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 48;
+  }
+
+  function updateLatestButton() {
+    latestButton.hidden = historyPanel.hidden || atLatest();
+  }
+
+  function scrollToLatest() {
+    scroller.scrollTop = scroller.scrollHeight;
+    updateLatestButton();
   }
 
   function resetConversation() {
     messages.length = 0;
+    log.replaceChildren();
+    setConversation(false);
     showStatus(status, '');
     showSuggestions();
     updateControls();
   }
 
-  function addProposal(message, proposal) {
-    message.append(h('button', {
+  function proposalButton(proposal) {
+    return h('button', {
       type: 'button',
       class: 'assistant-apply',
       onClick: () => {
@@ -69,21 +98,36 @@ async function initializeChat() {
           showStatus(status, 'Enable browser session storage to open the report.', 'error');
         }
       },
-    }, 'Open in report builder'));
+    }, 'Open in report builder');
+  }
+
+  function replyActions(reply, proposal) {
+    const copy = h('button', { type: 'button', class: 'link', 'aria-label': 'Copy reply' }, 'Copy');
+    copy.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(reply);
+        copy.textContent = 'Copied';
+        setTimeout(() => { copy.textContent = 'Copy'; }, 1600);
+      } catch {
+        showStatus(status, 'Could not copy the reply.', 'error');
+      }
+    });
+    return h('div', { class: 'chat-reply-actions' }, copy, proposal && proposalButton(proposal));
   }
 
   async function send() {
     const question = input.value.trim();
     if (!question || sendButton.disabled) return;
-    if (!messages.length) log.replaceChildren();
     const prompt = { role: 'user', content: question };
     const bubble = h('div', { class: 'assistant-message is-user' }, question);
-    log.append(bubble);
+    const pending = h('div', { class: 'assistant-message is-pending' }, 'Looking up data…');
     input.value = '';
     sending = true;
+    if (historyPanel.hidden) setConversation(true);
+    log.append(bubble, pending);
     updateControls();
-    showStatus(status, 'Working…');
-    log.scrollTop = log.scrollHeight;
+    showStatus(status, '');
+    scrollToLatest();
     try {
       const history = messages.slice(-MAX_HISTORY);
       if (history[0]?.role === 'assistant') history.shift();
@@ -95,20 +139,22 @@ async function initializeChat() {
         },
       });
       messages.push(prompt, { role: 'assistant', content: reply.slice(0, 4000) });
-      const answer = h('div', { class: 'assistant-message' }, renderRichText(reply));
-      if (proposal) addProposal(answer, proposal);
-      log.append(answer);
-      showStatus(status, '');
+      const follow = atLatest();
+      const answer = h('div', { class: 'assistant-message' }, renderRichText(reply), replyActions(reply, proposal));
+      pending.replaceWith(answer);
+      if (follow) scrollToLatest();
+      else updateLatestButton();
     } catch (error) {
+      pending.remove();
       bubble.remove();
-      if (!messages.length) showSuggestions();
+      if (!messages.length) setConversation(false);
+      else updateLatestButton();
       input.value = question;
       showStatus(status, error.message, 'error');
     } finally {
       sending = false;
       updateControls();
-      log.scrollTop = log.scrollHeight;
-      if (document.activeElement === document.body || document.activeElement === sendButton) input.focus();
+      if (document.activeElement === document.body || document.activeElement === sendButton) input.focus({ preventScroll: true });
     }
   }
 
@@ -122,6 +168,12 @@ async function initializeChat() {
     input.value = '';
     input.focus();
   });
+  scroller.addEventListener('scroll', updateLatestButton, { passive: true });
+  new ResizeObserver(updateLatestButton).observe(scroller);
+  latestButton.addEventListener('click', () => {
+    scrollToLatest();
+    scroller.focus({ preventScroll: true });
+  });
   byId('chat-form').addEventListener('submit', (event) => {
     event.preventDefault();
     send();
@@ -134,7 +186,6 @@ async function initializeChat() {
   });
   updateControls();
   showSuggestions();
-  startOver.hidden = false;
   chat.hidden = false;
 }
 

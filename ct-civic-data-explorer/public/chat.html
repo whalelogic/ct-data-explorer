@@ -2,31 +2,44 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content" />
     <title>AI chat · CT Civic Data Explorer</title>
     <link rel="stylesheet" href="/css/app.css" />
     <script type="module" src="/js/assistant.js"></script>
   </head>
-  <body>
+  <body class="chat-document">
     <a class="skip-link" href="#main">Skip to content</a>
     <header class="site"><a class="brand" href="/">CT Civic Data Explorer</a></header>
-    <main id="main" class="container chat-page">
-      <div class="workspace-heading">
-        <h1>AI chat</h1>
-        <button id="new-chat" type="button" class="secondary" hidden>New chat</button>
-      </div>
+    <main id="main" class="chat-page">
       <p id="page-status" class="status" role="alert" hidden></p>
-      <section id="chat" class="chat" aria-label="Data assistant" hidden>
-        <div id="chat-log" class="assistant-log" role="log" aria-label="Conversation" aria-live="polite"></div>
-        <p id="chat-status" class="status" role="status" hidden></p>
-        <label id="chat-private-consent" class="check small" hidden>
-          <input id="chat-include-private" type="checkbox" autocomplete="off" /> Allow the AI provider to use my private uploads for this chat.
-        </label>
-        <form id="chat-form" class="assistant-form">
-          <label for="chat-message" class="sr-only">Message</label>
-          <textarea id="chat-message" class="assistant-input" rows="2" maxlength="4000" placeholder="Ask about the data…" required></textarea>
-          <button id="chat-send" type="submit">Send</button>
-        </form>
+      <section id="chat" class="chat" aria-labelledby="chat-title" hidden>
+        <header class="chat-heading">
+          <div class="chat-heading-inner">
+            <h1 id="chat-title">Ask about Connecticut data</h1>
+            <button id="new-chat" type="button" class="secondary" hidden>New chat</button>
+          </div>
+        </header>
+        <div id="chat-history" class="chat-history" hidden>
+          <div id="chat-scroll" class="chat-scroll" tabindex="0" aria-label="Chat messages">
+            <div id="chat-log" class="assistant-log" role="log" aria-label="Conversation"></div>
+          </div>
+          <button id="chat-latest" type="button" class="secondary chat-latest" hidden>Jump to latest</button>
+        </div>
+        <div class="chat-composer">
+          <p id="chat-status" class="status" role="status" hidden></p>
+          <form id="chat-form" class="assistant-form">
+            <label for="chat-message" class="sr-only">Message</label>
+            <textarea id="chat-message" class="assistant-input" rows="2" maxlength="4000" enterkeyhint="send" placeholder="Ask about the data…" aria-describedby="chat-input-hint" required></textarea>
+            <div class="chat-composer-actions">
+              <label id="chat-private-consent" class="check small" hidden>
+                <input id="chat-include-private" type="checkbox" autocomplete="off" /> Allow the AI provider to use my private uploads for this chat
+              </label>
+              <button id="chat-send" type="submit">Send</button>
+            </div>
+          </form>
+          <p id="chat-input-hint" class="small muted">Shift + Enter for a new line</p>
+          <div id="chat-suggestions" class="assistant-suggestions" aria-label="Suggested prompts"></div>
+        </div>
       </section>
     </main>
   </body>
