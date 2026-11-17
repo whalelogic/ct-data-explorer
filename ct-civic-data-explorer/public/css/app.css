@@ -3103,48 +3103,8 @@ button.row-chip:hover span {
   border-radius: 10px;
   background: var(--surface);
 }
-.chat-scope {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: end;
-  gap: 0.65rem 1rem;
-  padding: 1rem;
-  border-bottom: 1px solid var(--rule);
-}
-.chat-dataset-picker {
-  min-width: 0;
-  width: min(100%, 23rem);
-}
-.chat-dataset-picker select {
-  width: 100%;
-}
-.chat-scope p {
-  align-self: center;
-  margin: 0;
-}
-.chat-datasets {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.45rem;
-  width: 100%;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.chat-datasets li {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  min-width: 0;
-  padding: 0.1rem 0.55rem 0.1rem 0.7rem;
-  border-radius: 6px;
-  background: var(--ground);
-  overflow-wrap: anywhere;
-}
-.chat-datasets button {
-  padding: 0.2rem 0.3rem;
-  min-height: 28px;
-  font-size: 1rem;
+#chat-private-consent {
+  padding: 0.65rem 1rem;
 }
 .assistant-log {
   flex: 1 0 230px;

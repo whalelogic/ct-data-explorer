@@ -17,19 +17,11 @@
       </div>
       <p id="page-status" class="status" role="alert" hidden></p>
       <section id="chat" class="chat" aria-label="Data assistant" hidden>
-        <div class="chat-scope">
-          <div class="chat-dataset-picker">
-            <label for="chat-dataset">Datasets</label>
-            <select id="chat-dataset" aria-describedby="chat-default-scope"></select>
-          </div>
-          <p id="chat-default-scope" class="small muted">Uses published datasets by default.</p>
-          <ul id="chat-datasets" class="chat-datasets" aria-label="Selected datasets" hidden></ul>
-          <label id="chat-private-consent" class="check small" hidden>
-            <input id="chat-include-private" type="checkbox" /> Allow the AI provider to process the selected private datasets for this chat.
-          </label>
-        </div>
         <div id="chat-log" class="assistant-log" role="log" aria-label="Conversation" aria-live="polite"></div>
         <p id="chat-status" class="status" role="status" hidden></p>
+        <label id="chat-private-consent" class="check small" hidden>
+          <input id="chat-include-private" type="checkbox" autocomplete="off" /> Allow the AI provider to use my private uploads for this chat.
+        </label>
         <form id="chat-form" class="assistant-form">
           <label for="chat-message" class="sr-only">Message</label>
           <textarea id="chat-message" class="assistant-input" rows="2" maxlength="4000" placeholder="Ask about the data…" required></textarea>

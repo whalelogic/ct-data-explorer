@@ -15,9 +15,9 @@ Older links to `/explore?dataset=…` open the builder with that dataset. Saved 
 
 ### Data assistant
 
-Open **AI chat** to explore authorized datasets. Select datasets to focus the conversation and compare their indicators. Staff and administrators can open an assistant-proposed report in the builder.
+Open **AI chat** and ask a question. The assistant finds relevant published datasets and can compare their indicators. Staff and administrators can open a proposed report in the builder.
 
-The assistant uses the signed-in account's dataset permissions for every lookup. To analyze a personal upload in chat, select it and allow the configured AI provider to process its data for that conversation. Chat history stays in the browser tab and requests are limited to 40 per account per 10 minutes.
+The assistant uses the signed-in account's dataset permissions for every lookup. Owners can allow the configured AI provider to use their private uploads for the current chat. Chat history stays in the browser tab and requests are limited to 40 per account per 10 minutes.
 
 ### AI settings
 

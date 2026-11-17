@@ -3,7 +3,6 @@ import { savePendingProposal } from './chat-proposal.js';
 import { h } from './dom.js';
 import { boot, renderHeader, showStatus } from './layout.js';
 
-const MAX_DATASETS = 8;
 const MAX_HISTORY = 29;
 const byId = (id) => document.getElementById(id);
 
@@ -16,88 +15,38 @@ async function initializeChat() {
   }
 
   const chat = byId('chat');
-  const picker = byId('chat-dataset');
-  const selectedList = byId('chat-datasets');
   const privateConsent = byId('chat-include-private');
+  privateConsent.checked = false;
   const startOver = byId('new-chat');
   const log = byId('chat-log');
   const input = byId('chat-message');
   const sendButton = byId('chat-send');
   const status = byId('chat-status');
-  const datasets = new Map((await api('/datasets')).filter((dataset) => dataset.isActive)
-    .map((dataset) => [dataset.id, dataset]));
-  const params = new URLSearchParams(location.search);
-  const selected = new Set(params.getAll('dataset').map(Number).filter((id) => datasets.has(id)).slice(0, MAX_DATASETS));
+  const linkedId = Number(new URLSearchParams(location.search).get('dataset'));
+  const datasetId = Number.isSafeInteger(linkedId) && linkedId > 0 ? linkedId : undefined;
+  const privateDatasets = await api('/datasets?scope=private');
+  byId('chat-private-consent').hidden = !privateDatasets.some((dataset) => dataset.isActive);
+  const linkedPrivateDataset = privateDatasets.some((dataset) => dataset.id === datasetId);
   const messages = [];
   let sending = false;
 
-  function hasPrivateData() {
-    return [...selected].some((id) => datasets.get(id).isPrivate);
-  }
-
   function updateControls() {
-    picker.disabled = sending || selected.size >= MAX_DATASETS;
     startOver.disabled = sending || !messages.length;
     privateConsent.disabled = sending;
-    sendButton.disabled = sending || (hasPrivateData() && !privateConsent.checked);
+    sendButton.disabled = sending;
     input.readOnly = sending;
-    selectedList.querySelectorAll('button').forEach((button) => { button.disabled = sending; });
-  }
-
-  function renderScope() {
-    picker.replaceChildren(h('option', { value: '' }, 'Add a dataset…'));
-    const choices = [...datasets.values()].filter((dataset) => !selected.has(dataset.id));
-    for (const [label, isPrivate] of [['Published', false], ['My datasets', true]]) {
-      const group = choices.filter((dataset) => Boolean(dataset.isPrivate) === isPrivate);
-      if (group.length) {
-        picker.append(h('optgroup', { label }, group.map((dataset) =>
-          h('option', { value: dataset.id }, datasetLabel(dataset)))));
-      }
-    }
-
-    selectedList.replaceChildren(...[...selected].map((id) => {
-      const dataset = datasets.get(id);
-      return h('li', {}, datasetLabel(dataset), h('button', {
-        class: 'link',
-        type: 'button',
-        'aria-label': `Remove ${datasetLabel(dataset)}`,
-        onClick: () => {
-          changeScope(id, false);
-          picker.focus();
-        },
-      }, '×'));
-    }));
-    selectedList.hidden = selected.size === 0;
-    byId('chat-default-scope').hidden = selected.size > 0;
-    byId('chat-private-consent').hidden = !hasPrivateData();
-    updateControls();
-  }
-
-  function changeScope(id, add) {
-    if (sending || !datasets.has(id)) return;
-    if (add) selected.add(id);
-    else selected.delete(id);
-    if (datasets.get(id).isPrivate) {
-      privateConsent.checked = false;
-      resetConversation();
-    } else if (!messages.length) {
-      showSuggestions();
-    }
-    renderScope();
   }
 
   function showSuggestions() {
-    const suggestions = selected.size > 1
-      ? ['What do these datasets have in common?', 'How can I compare these by county?']
-      : selected.size
-        ? ['What does this dataset cover?', 'Which indicators are available?']
-        : ['What datasets are available?', 'Which towns have the highest household income?'];
+    const hasDatasetContext = datasetId && (!linkedPrivateDataset || privateConsent.checked);
+    const suggestions = hasDatasetContext
+      ? ['What does this dataset cover?', 'Which indicators are available?']
+      : ['What data is available?', 'Compare Hartford and New Haven by population'];
     if (features.assistantReports) suggestions.push('Help me build a report');
     log.replaceChildren(h('div', { class: 'assistant-suggestions' }, suggestions.map((question) =>
       h('button', { type: 'button', class: 'assistant-suggestion', onClick: () => {
         input.value = question;
-        if (hasPrivateData() && !privateConsent.checked) privateConsent.focus();
-        else send();
+        send();
       } }, question))));
   }
 
@@ -142,7 +91,7 @@ async function initializeChat() {
         method: 'POST',
         json: {
           messages: [...history, prompt],
-          context: { page: 'chat', datasetIds: [...selected], includePrivate: privateConsent.checked },
+          context: { page: 'chat', datasetId, includePrivate: privateConsent.checked },
         },
       });
       messages.push(prompt, { role: 'assistant', content: reply.slice(0, 4000) });
@@ -163,10 +112,9 @@ async function initializeChat() {
     }
   }
 
-  picker.addEventListener('change', () => changeScope(Number(picker.value), true));
   privateConsent.addEventListener('change', () => {
     if (!privateConsent.checked) resetConversation();
-    updateControls();
+    else if (!messages.length) showSuggestions();
   });
   startOver.addEventListener('click', () => {
     privateConsent.checked = false;
@@ -184,14 +132,10 @@ async function initializeChat() {
       send();
     }
   });
-  renderScope();
+  updateControls();
   showSuggestions();
   startOver.hidden = false;
   chat.hidden = false;
-}
-
-function datasetLabel(dataset) {
-  return `${dataset.displayName || dataset.name} · ${dataset.vintage}`;
 }
 
 /** Render paragraphs, bullets and emphasis as text nodes. */

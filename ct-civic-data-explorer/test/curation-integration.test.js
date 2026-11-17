@@ -719,6 +719,7 @@ test('the data assistant reads published figures, keeps record values private an
     await sendWriteRequest(admin, 'patch', `/api/datasets/${records.body.id}`, { isActive: true }).expect(200);
 
     const figures = scriptedClaude([
+      { tool: 'list_datasets', input: {} },
       { tool: 'get_figures', input: { dataset_id: numeric.body.id, compare_by: 'town', places: ['Andover', 'Bridgewater'], fields: ['pop'], include_statewide: false, summaries: [{ field: 'pop', calculation: 'average' }] } },
       { tool: 'get_figures', input: { dataset_id: records.body.id, compare_by: 'town', places: [], fields: ['c1'], include_statewide: false, summaries: [] } },
       { text: 'The average is **1,617.00** people per town.' },
@@ -728,13 +729,14 @@ test('the data assistant reads published figures, keeps record values private an
     assert.deepEqual(session.body.features, { aiSummary: session.body.features.aiSummary, assistant: true, assistantReports: true });
     const answer = await sendWriteRequest(staff, 'post', '/api/assistant', {
       messages: [{ role: 'user', content: 'What is the average population?' }],
-      context: { page: 'dataset', datasetId: numeric.body.id },
+      context: { page: 'chat' },
     }).expect(200);
     assert.equal(answer.body.reply, 'The average is **1,617.00** people per town.');
     assert.equal(answer.body.proposal, null);
-    // The app context rides along with the question, and the figures come from the report engine.
-    assert.match(figures.requests[0].messages[0].content[0].text, new RegExp(`Open dataset: id ${numeric.body.id}`));
-    const first = JSON.parse(figures.requests[1].messages.at(-1).content[0].content);
+    const catalog = JSON.parse(figures.requests[1].messages.at(-1).content[0].content);
+    assert.ok(catalog.some(({ id }) => id === numeric.body.id));
+    assert.ok(catalog.some(({ id }) => id === records.body.id));
+    const first = JSON.parse(figures.requests[2].messages.at(-1).content[0].content);
     assert.deepEqual(first.values, { Population: { Andover: '1,234', Bridgewater: '2,000' } });
     assert.equal(first.summaries[0].value, '1,617.00');
     const privateResult = lastToolResult(figures);
@@ -749,7 +751,9 @@ test('the data assistant reads published figures, keeps record values private an
     setAssistantClientForTests(proposing);
     const proposal = await sendWriteRequest(staff, 'post', '/api/assistant', {
       messages: [{ role: 'user', content: 'Build a report on Andover' }],
+      context: { page: 'chat', datasetId: records.body.id },
     }).expect(200);
+    assert.match(proposing.requests[0].messages[0].content[0].text, new RegExp(`Open dataset: id ${records.body.id}`));
     assert.equal(proposal.body.proposal.datasetId, numeric.body.id);
     assert.deepEqual(proposal.body.proposal.selection.rows, ['Andover']);
     assert.deepEqual(proposal.body.proposal.selection.indicators, ['pop', 'households', 'ratio_1']);
@@ -846,11 +850,29 @@ test('only the uploader can access a private dataset or any report using it', {
     setAssistantClientForTests(scripted);
     await sendWriteRequest(admin, 'post', '/api/assistant', {
       messages: [{ role: 'user', content: 'Describe this dataset' }],
+      context: { page: 'chat', datasetId: id, includePrivate: true },
     }).expect(200);
     assert.equal(lastToolResult(scripted).is_error, true);
     assert.ok(!JSON.stringify(scripted.requests).includes(testTag));
 
+    const publicChat = scriptedClaude([
+      { tool: 'list_datasets', input: {} },
+      { tool: 'describe_dataset', input: { dataset_id: id } },
+      { text: 'That dataset is unavailable.' },
+    ]);
+    setAssistantClientForTests(publicChat);
+    await sendWriteRequest(staff, 'post', '/api/assistant', {
+      messages: [{ role: 'user', content: 'What data is available?' }],
+      context: { page: 'chat', datasetId: id },
+    }).expect(200);
+    assert.doesNotMatch(publicChat.requests[0].messages[0].content[0].text, /Open dataset:/);
+    const publicCatalog = JSON.parse(publicChat.requests[1].messages.at(-1).content[0].content);
+    assert.ok(publicCatalog.some((dataset) => dataset.id === published.body.id));
+    assert.ok(publicCatalog.every((dataset) => dataset.id !== id && dataset.id !== second.body.id));
+    assert.equal(lastToolResult(publicChat).is_error, true);
+
     const ownerChat = scriptedClaude([
+      { tool: 'list_datasets', input: {} },
       { tool: 'compare_datasets', input: {
         sources: [{ dataset_id: id, indicator: 'c1', aggregation: 'source' }],
         group_by: 'town',
@@ -868,8 +890,11 @@ test('only the uploader can access a private dataset or any report using it', {
     assert.equal(ownerChat.requests.length, 0);
     await sendWriteRequest(staff, 'post', '/api/assistant', {
       messages: [{ role: 'user', content: 'How many clients does Andover have?' }],
-      context: { page: 'chat', datasetIds: [id], includePrivate: true },
+      context: { page: 'chat', includePrivate: true },
     }).expect(200);
+    const ownerCatalog = JSON.parse(ownerChat.requests[1].messages.at(-1).content[0].content);
+    assert.ok(ownerCatalog.some((dataset) => dataset.id === id));
+    assert.ok(ownerCatalog.some((dataset) => dataset.id === second.body.id));
     assert.deepEqual(JSON.parse(lastToolResult(ownerChat).content).values, {
       [`d${id}:c1`]: { Andover: '54,321' },
     });

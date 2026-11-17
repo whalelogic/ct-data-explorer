@@ -99,7 +99,7 @@ Saved reports that use any private dataset are visible only to their creator. Us
 
 | Method | Path | Access | Purpose |
 | --- | --- | --- | --- |
-| POST | `/api/assistant` | Signed in (CSRF) | Send `{ messages: [{ role, content }], context?: { datasetIds, includePrivate } }`. Returns `{ reply, proposal }`. A proposal contains `{ datasetId, selection }` for the builder. Set `includePrivate` only with the owner's consent to process the selected private data. |
+| POST | `/api/assistant` | Signed in (CSRF) | Send `{ messages: [{ role, content }], context?: { datasetId, includePrivate } }`. The assistant discovers published datasets. `datasetId` gives optional page context. Set `includePrivate` only with the owner's consent. Returns `{ reply, proposal }` with `{ datasetId, selection }` in a proposal. |
 
 ## AI settings
 
