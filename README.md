@@ -1,104 +1,45 @@
 # CT Data Explorer
 
-#### A capstone project for the SCSU Computer Science program: CTData staff curate datasets and approved fields, then signed-in users choose Connecticut locations and explore charts and tables. Saved reports and PDF exports are optional next steps.
+Browse Connecticut datasets, compare places, and build reports with charts, tables, and PDF exports. Guests can use published data and save reports in their browser. Signed-in users can upload private data and save reports to their accounts.
 
-#### __Contributors:__
-- [@whalelogic](Keith Thomson) - Systems architecture, configurations, docker, and CI/CD
-- [@pjr8](Paul Robinson) - Backend, database, and API
-- [@marsh-meadows](Kieran Veter) - Frontend, UI/UX, Reports and charts
+An SCSU Computer Science capstone for CTData Collaborative.
 
-| Path | What it is |
-| --- | --- |
-| [`ct-civic-data-explorer/`](ct-civic-data-explorer/) | The application. Its [README](ct-civic-data-explorer/README.md) explains how it works. |
-| [`sample-data/`](sample-data/) | The ACS 2024 sample CSV used by `npm run seed` and the tests |
-| `SRS.docx` | The software requirements specification |
-| [`ct-civic-data-explorer/docs/api-routes.md`](ct-civic-data-explorer/docs/api-routes.md) | All HTTP routes, methods and callers |
+## Run locally
 
-## Local setup
-
-**You need:** Git, Node.js 22 or newer (`node -v`), and Docker Desktop (Windows/macOS) or Docker Engine with Compose v2 (Linux).
-
-The database is **MySQL 8.4**. Docker runs it for you, so you don't install MySQL yourself, and `npm install` adds the `mysql2` driver the app uses to connect. Already have MySQL installed and would rather not use Docker? See [Using your own MySQL](#using-your-own-mysql-instead-of-docker).
-
-Run everything from the `ct-civic-data-explorer/` folder.
+Install Git, Node.js 22 or later, and Docker with Compose v2. These commands use the current feature branch.
 
 ```sh
-git clone -b demo https://github.com/whalelogic/ct-data-explorer.git
+git clone --branch feature/ai-dataset-workspace https://github.com/whalelogic/ct-data-explorer.git
 cd ct-data-explorer/ct-civic-data-explorer
-
-cp .env.example .env        # Windows PowerShell: copy .env.example .env
+cp .env.example .env
 ```
 
-Open `.env` and set `DB_PASSWORD` for your local database. Add `GEMINI_API_KEY` to enable AI chat and report summaries.
+In `.env`, set `DB_PASSWORD` to a local password and `DB_HOST=127.0.0.1`. Add `GEMINI_API_KEY` if you want AI chat and report summaries.
 
 ```sh
-npm install                        # includes the mysql2 driver
-docker compose up -d --wait db     # starts MySQL 8.4 in Docker on port 3307 (first start takes ~20 s)
-npm run migrate                    # creates the tables
-npm run create-admin -- --email you@example.org --first First --last Last
-npm run seed                       # loads the sample ACS data for all 169 towns
-npm run dev                        # http://localhost:3000
-```
-
-`create-admin` prints a one-time link. Open it to set your password, then sign in.
-
-### Using your own MySQL instead of Docker
-
-Any MySQL 8.0.19 or newer works (8.4 recommended). Create the database and a user once, as a MySQL admin:
-
-```sql
-CREATE DATABASE civicdata CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_as_cs;
-CREATE USER 'ctdata'@'localhost' IDENTIFIED BY 'choose-a-password';
-GRANT ALL PRIVILEGES ON civicdata.* TO 'ctdata'@'localhost';
-```
-
-In `.env`, set `DB_HOST=localhost`, `DB_PORT=3306` (or your server's port), and `DB_USER`, `DB_PASSWORD` and `DB_NAME` to match. Then skip the `docker compose` step and run `npm run migrate`, `create-admin`, `seed` and `npm run dev` as above.
-
-### Switching from the PostgreSQL version
-
-Earlier versions of this branch used PostgreSQL. If you set it up before the switch:
-
-```sh
-git pull
-npm install                        # swaps the pg driver for mysql2
-docker compose up -d --wait db     # replaces the PostgreSQL container with MySQL
-npm run migrate
-npm run create-admin -- --email you@example.org --first First --last Last
-npm run seed
-```
-
-The MySQL database starts empty; nothing is copied from PostgreSQL. Your existing `.env` keeps working. Once you no longer need the old data, `docker volume rm ct-civic-data-explorer_pgdata` frees its disk space.
-
-### Every day after that
-
-```sh
-git pull
-npm install                        # only if package.json changed
+npm ci
 docker compose up -d --wait db
-npm run migrate                    # applies any new migrations
+npm run migrate
+npm run create-admin -- --email you@example.org --first Site --last Admin
+npm run seed:samples
 npm run dev
 ```
 
-### Before you open a pull request
+Open [localhost:3000](http://localhost:3000) to try ACS, Industry Jobs, Key Employers, and Population Within 45 Minutes as a guest. To sign in as an administrator, open the one-time setup link printed by `create-admin` after the server starts.
 
-```sh
-npm run lint
-npm test                           # no database needed
-```
+If a port is in use, change `DB_PORT` for MySQL or change both `PORT` and `APP_BASE_URL` for the web app in `.env`.
 
-CI runs the same checks, plus `npm audit`, on every pull request.
+## Work on the app
 
-### Good to know
+Run `npm run lint` and `npm test` from `ct-civic-data-explorer/`. The default tests run without a database.
 
-- **Your database is yours alone.** Accounts, uploads and saved reports live only on your machine, so each person creates their own admin.
-- **Port 3307 already in use?** Change `DB_PORT` in `.env`.
-- **To start the database over:** `docker compose down -v` deletes all local data. Then run `migrate`, `create-admin` and `seed` again.
-- **Schema changes go in a new file** `migrations/NNN_description.sql`. Never edit a migration that has already been pushed.
-- **On Windows,** `npm run reset-password` is a bash script, so run it from Git Bash or WSL.
-- **AI settings.** Gemini 3.5 Flash-Lite is the default. Administrators can choose a configured provider and model under **AI settings**. Keep API keys in environment variables or a secrets manager. [Provider setup](ct-civic-data-explorer/README.md#ai-settings)
+- [Application guide](ct-civic-data-explorer/README.md) covers uploads, reporting, AI, and other local setups.
+- [Google Cloud deployment](ct-civic-data-explorer/deploy/README.md) covers provisioning and releasing your own staging and production sites.
+- [HTTP API](ct-civic-data-explorer/docs/api-routes.md) documents routes and access rules.
+- [Sample data](sample-data/) and the [software requirements](SRS.docx) are included in the repository.
 
+## Contributors
 
-### DB Tables 
-
-<img width="926" height="586" alt="image" src="https://github.com/user-attachments/assets/c4088302-cbd2-4ddd-96b5-656d27e8a23b" />
-
+- [Keith Thomson](https://github.com/whalelogic) · Architecture, infrastructure, and CI
+- [Paul Robinson](https://github.com/pjr8) · Backend, database, and API
+- [Kieran Veter](https://github.com/marsh-meadows) · Frontend, reports, and charts

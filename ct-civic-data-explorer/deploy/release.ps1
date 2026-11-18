@@ -3,13 +3,22 @@ param(
     [Parameter(Mandatory)] [string]$Project,
     [string]$Zone = 'us-central1-a',
     [string]$AdminEmail = '',
-    [string]$HostKey = ''
+    [string]$HostKey = '',
+    [string]$GeminiKeyId = ''
 )
 
 $ErrorActionPreference = 'Stop'
 $app = Split-Path -Parent $PSScriptRoot
-$sample = Join-Path (Split-Path -Parent $app) 'sample-data'
+$repository = Split-Path -Parent $app
+$profiles = 'sample-data/Housing and Town Profiles/Housing and Town Profiles/Town Profiles'
+$samples = @(
+    'sample-data/acs2024_sample.csv',
+    "$profiles/FINAL Town Profiles 2026 - Industry Jobs.xlsx",
+    "$profiles/FINAL Town Profiles 2026 - Key Employers.xlsx",
+    "$profiles/FINAL Town Profiles 2026 - Population Within 45 Minutes.xlsx"
+)
 $instance = "ctde-$Environment"
+if (!$GeminiKeyId) { $GeminiKeyId = "$instance-app" }
 $cloudArgs = @("--project=$Project", "--zone=$Zone", '--tunnel-through-iap', '--quiet',
     '--strict-host-key-checking=yes', '--ssh-key-expire-after=2h')
 $sshArgs = @()
@@ -55,10 +64,10 @@ try {
         Require-Success 'Creating a private transfer directory'
     }
 
-    tar -czf $archive -C $app Dockerfile .dockerignore package.json package-lock.json src public migrations scripts deploy -C $sample acs2024_sample.csv
+    tar -czf $archive -C $app Dockerfile .dockerignore package.json package-lock.json src public migrations scripts deploy -C $repository @samples
     Require-Success 'Packaging the app'
 
-    $key = gcloud services api-keys get-key-string "$instance-app" "--project=$Project" '--format=value(keyString)' --verbosity=error
+    $key = gcloud services api-keys get-key-string $GeminiKeyId "--project=$Project" '--format=value(keyString)' --verbosity=error
     Require-Success 'Getting the Gemini key'
     if ($key -notmatch '^[a-zA-Z0-9_.-]+$') {
         throw 'No Gemini API key was returned.'

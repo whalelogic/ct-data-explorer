@@ -1,34 +1,82 @@
-# Google Cloud deployment
+# Deploy to Google Cloud
 
-Staging and production run on separate Ubuntu Compute Engine `e2-micro` VMs in `us-central1-a`. Each VM has a 15 GB standard persistent disk, a static IPv4 address, MySQL and Caddy volumes, and a root-only `/opt/ctde/runtime.env`. The hosts accept web traffic on ports 80 and 443 and accept SSH only through IAP. MySQL and Node use private Docker networks. Caddy manages Let's Encrypt certificates for the static addresses.
+Use PowerShell 7 with `gcloud`, `tar`, and Node.js 22 or later. Start in `ct-civic-data-explorer/`, or set `$App` to its absolute path if your checkout is in WSL. Staging and production each run on a Compute Engine VM with MySQL and Caddy. Caddy provides public HTTPS, and IAP provides SSH access.
 
-## Provision a new project
+## 1. Provision the project
 
-Use a billing-enabled Google Cloud project. Allow the Compute Engine, IAP, API Keys, and Generative Language APIs. Create a custom VPC with a regional subnet and allow TCP 80/443 from the internet and TCP 22 from `35.235.240.0/20` on the VM tag. Reserve two Standard-tier regional IPv4 addresses and create `ctde-staging` and `ctde-production` using their respective addresses. Use Ubuntu 24.04 with [startup.sh](startup.sh) as the startup script, block project-wide SSH keys, and leave the instances without a service account.
-
-For each environment, create a dedicated service account for Gemini with no other workload roles. Run the following in PowerShell after setting `$Project`, `$Environment`, and `$Ip` to the project, environment name, and corresponding static address.
+Choose a globally unique project ID and a billing account you can use. For an existing billing-enabled project, start at `gcloud services enable`.
 
 ```powershell
-$instance = "ctde-$Environment"
-$null = gcloud beta services api-keys create "--project=$Project" "--key-id=$instance-app" `
-  "--display-name=CT Data Explorer $Environment Gemini" `
-  "--service-account=$instance-gemini@$Project.iam.gserviceaccount.com" `
-  --api-target=service=generativelanguage.googleapis.com "--allowed-ips=$Ip" `
-  --quiet --verbosity=error 2>&1
-if ($LASTEXITCODE) { throw 'Gemini API key creation failed.' }
+$ErrorActionPreference = 'Stop'
+$PSNativeCommandUseErrorActionPreference = $true
+$App = (Get-Location).Path
+$Project = 'your-project-id'
+$BillingAccount = 'your-billing-account-id'
+$Region = 'us-central1'
+$Zone = 'us-central1-a'
+
+gcloud auth login
+gcloud projects create $Project --name='CT Data Explorer'
+gcloud billing projects link $Project "--billing-account=$BillingAccount"
+gcloud services enable compute.googleapis.com iap.googleapis.com iam.googleapis.com `
+  apikeys.googleapis.com generativelanguage.googleapis.com "--project=$Project"
+
+gcloud compute networks create ctde-hosting --subnet-mode=custom "--project=$Project"
+gcloud compute networks subnets create ctde-central --network=ctde-hosting `
+  "--region=$Region" --range=10.27.0.0/24 "--project=$Project"
+gcloud compute firewall-rules create ctde-web --network=ctde-hosting `
+  '--allow=tcp:80,tcp:443' --source-ranges=0.0.0.0/0 --target-tags=ctde-web "--project=$Project"
+gcloud compute firewall-rules create ctde-iap --network=ctde-hosting `
+  --allow=tcp:22 --source-ranges=35.235.240.0/20 --target-tags=ctde-web "--project=$Project"
 ```
 
-## Release
-
-Run [release.ps1](release.ps1) with the authenticated Google Cloud CLI, PowerShell, and `tar`. On Windows, supply the VM's SSH fingerprint from the Compute Engine serial output as `-HostKey`. On other platforms, verify the VM's public host key out of band and add it to OpenSSH's known hosts before deploying.
+## 2. Create the VMs and Gemini keys
 
 ```powershell
-./deploy/release.ps1 -Environment staging -Project YOUR_PROJECT -AdminEmail admin@example.org -HostKey 'SHA256:YOUR_STAGING_HOST_FINGERPRINT'
-./deploy/release.ps1 -Environment production -Project YOUR_PROJECT -AdminEmail admin@example.org -HostKey 'SHA256:YOUR_PRODUCTION_HOST_FINGERPRINT'
+foreach ($Environment in 'staging', 'production') {
+  $Instance = "ctde-$Environment"
+  gcloud compute addresses create $Instance --network-tier=STANDARD `
+    "--region=$Region" "--project=$Project"
+  $Ip = gcloud compute addresses describe $Instance "--region=$Region" `
+    "--project=$Project" '--format=value(address)'
+
+  gcloud compute instances create $Instance "--project=$Project" "--zone=$Zone" `
+    --machine-type=e2-micro --subnet=ctde-central "--address=$Ip" --network-tier=STANDARD `
+    --no-service-account --no-scopes --tags=ctde-web --metadata=block-project-ssh-keys=TRUE `
+    --image-family=ubuntu-2404-lts-amd64 --image-project=ubuntu-os-cloud `
+    --boot-disk-type=pd-standard --boot-disk-size=15GB `
+    "--metadata-from-file=startup-script=$(Join-Path $App 'deploy/startup.sh')"
+
+  gcloud iam service-accounts create "$Instance-gemini" "--project=$Project"
+  gcloud beta services api-keys create "--project=$Project" "--key-id=$Instance-app" `
+    "--display-name=CT Data Explorer $Environment Gemini" `
+    "--service-account=$Instance-gemini@$Project.iam.gserviceaccount.com" `
+    --api-target=service=generativelanguage.googleapis.com "--allowed-ips=$Ip" `
+    --quiet --verbosity=error *> $null
+}
 ```
 
-The script builds the app, applies migrations, starts the services, and verifies public HTTPS and database health. `-AdminEmail` bootstraps the first administrator and loads the public ACS sample on a new environment. Retrieve `/opt/ctde/admin-invite.txt` with `sudo` in a private IAP SSH session to set the administrator's password. The initial link expires after seven days. Use `scripts/reset-password.js` in the app container to issue a new one.
+Wait for [startup.sh](startup.sh) to install Docker. Read each VM’s Ed25519 SSH fingerprint from its Compute Engine serial output. Windows releases pass it as `-HostKey`. On systems using OpenSSH, verify the host key and add it to `known_hosts` before deploying.
 
-Run `node scripts/smoke-deployment.js` with `CTDE_SMOKE_ORIGIN`, `CTDE_SMOKE_PASSWORD`, and `CTDE_SMOKE_EMAIL` set to verify authenticated reporting and grounded Gemini chat. Keep passwords and setup links out of command history.
+A [Gemini spend cap](https://docs.cloud.google.com/billing/docs/how-to/budgets-spend-caps) applies to the Gemini API across all keys in the project, including any local key created there.
 
-The existing database and Caddy volumes persist across releases. Back up the database before migrations. Add any alternate provider credentials to the host's protected environment file and redeploy, then select the provider in AI settings.
+## 3. Release and verify
+
+The [release script](release.ps1) packages the current checkout, uploads it through IAP, builds the app, runs migrations, and checks HTTPS and database health.
+
+```powershell
+& (Join-Path $App 'deploy/release.ps1') -Environment staging -Project $Project -Zone $Zone `
+  -HostKey 'SHA256:STAGING_FINGERPRINT' -AdminEmail you@example.org
+```
+
+Use `-AdminEmail` on the first release to create the admin and load the four starter datasets. Retrieve `/opt/ctde/admin-invite.txt` with `sudo` over a private IAP SSH session and open the one-time setup link. For subsequent releases, omit `-AdminEmail`. MySQL and Caddy volumes persist across releases. Back up MySQL before applying new migrations.
+
+Pass `-GeminiKeyId` for a key with a custom or rotated ID. The default is `ctde-<environment>-app`.
+
+```powershell
+$env:CTDE_SMOKE_ORIGIN = 'https://STAGING_IP'
+$env:CTDE_SMOKE_GUEST_ONLY = '1'
+node (Join-Path $App 'scripts/smoke-deployment.js')
+```
+
+After staging passes, repeat the release with `-Environment production` and the production fingerprint, then run the smoke test against the production IP. For authenticated tests, clear `CTDE_SMOKE_GUEST_ONLY` and provide `CTDE_SMOKE_EMAIL` and `CTDE_SMOKE_PASSWORD` through your environment.

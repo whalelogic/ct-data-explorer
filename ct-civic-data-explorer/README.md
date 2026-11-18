@@ -1,206 +1,52 @@
 # CT Civic Data Explorer
 
-A civic data explorer for CTData Collaborative. Administrators upload datasets (organized by town or by any other row label), approve the fields users may access, then publish. Users build reports from approved fields in the report builder, then open them as interactive pages at `/explore/<report-name>.html` or export PDFs. Every view retains its dataset name, period and source.
+Follow the [local quickstart](../README.md#run-locally) to create your database and load sample data. Use the [Google Cloud guide](deploy/README.md) to host your own copy.
 
-The interactive workflow advances the dynamic reporting direction in `SRS.docx` (draft v1.1). Guests can build and export reports from published datasets and ask the data assistant. Sign in to save reports to your account and share them with other signed-in users. Jill Walsh's October 6 email and attached August 2025 brand guide define the palette and Poppins typography. Her September 30 data email asks for periods matching the existing town and housing profiles, rather than automatically selecting the newest data. Uploaded source data retains its declared period; this change does not silently replace datasets or fetch a newer vintage.
+## Use the app
 
-## Curate, build, explore
+1. **Publish data.** In **Admin → Datasets**, upload a CSV or Excel (`.xlsx`) file, enter its source and reporting period, and choose the field that identifies each row. Approve fields in **Settings** before publishing. Signed-in users can upload their own private files under **My datasets**.
+2. **Build a report.** In **Reports → Report builder**, choose a dataset and comparison values. Select fields and calculations under **Fields**, arrange charts, tables, and text under **Layout**, and save or export under **Finish**.
+3. **Reopen reports.** **Reports → Explore reports** shows saved work. Guest reports are stored in the current browser. Account reports can be opened by signed-in users with access to the data. A report that uses a private dataset is visible only to its creator.
 
-1. An administrator opens **Admin → Datasets** (`/admin`) and selects **+ Add dataset** (`/admin/datasets/new`). Upload a CSV or Excel workbook, enter its name, source and reporting period, then choose the field that identifies a row. A field can identify a program, product, reporting period, region or record ID. Connecticut place matching is available when the field contains names from the official list.
-2. On the dataset's **Settings** tab, approve the fields people can use, choose the primary field that new reports will compare by, and set any display names. Display names appear in the dataset and report builder while the original column headers and values are retained. Approve at least one report field before publishing. The **Data** and **Fields** tabs show the source rows and the available report fields.
-3. Open **Reports → Report builder**, review **Compare by** and choose which values to include. Use **Fields** to select fields and add calculations, **Layout** to arrange the results, and **Finish** to save the report or export a PDF. A selection with repeated primary values keeps the matching source rows separate. Connecticut benchmarks are available for supported geographic comparisons.
-4. **Save** stores a guest report in the current browser or saves a signed-in report to the account at `/explore/<report-name>.html`. Reopen saved work from **Reports → Explore reports**. PDF export is available in the builder and the account report viewer.
+The uploader keeps repeated source rows. It enables Connecticut place comparisons when every row in the chosen field matches a recognized place. To align different datasets, enable **Compare datasets or aggregate rows**, add the datasets, then choose **Match fields** and select columns whose values match.
 
-Older links to `/explore?dataset=…` open the builder with that dataset. Saved reports that stored `towns` are read as `rows`, so they keep working.
+Dataset **Settings** control the shared names, field order, formatting, and appearance. The builder can override those defaults per report. Charts and PDFs carry dataset source and reporting-period details.
 
-### Match fields across datasets
+## Set up AI
 
-Enable **Compare datasets or aggregate rows**, add the datasets, then choose **Match fields** under **Compare by**. Each dataset starts with its primary field. Pick another field in any dataset when its values match the values in the other datasets. The builder lists values shared by every dataset. If a value appears on several rows in one dataset, choose how to summarize those rows for each indicator.
+Open **AI chat** to ask about published datasets or start a report. Answers link to the datasets used and show the source, reporting period, and relevant fields or places when available. Owners can opt in to AI use of private uploads for the current chat.
 
-### Planning region example
+Add provider credentials to the app environment and restart it. Administrators choose the provider and model under **AI settings**.
 
-For `ACSDT5Y2024.B25003-Data_PlanningRegion.csv`, choose `Geographic Area Name` as the primary field and give it the display name **Planning region**. The CSV has nine region names and nine distinct `GeographyID` values. Use `GeographyID` as the primary field when a report should use Census identifiers. Approve `Total Occupied Housing Units`, give it the display name **Housing units**, and leave the margin-of-error fields unchecked if the report only needs estimates. A report on `Capitol Planning Region, Connecticut` shows **391,113** housing units, including **257,054** owner-occupied and **134,059** renter-occupied units when those fields are included.
-
-### Data assistant
-
-Open **AI chat** and ask a question. The assistant finds relevant published datasets and can compare their indicators. Answers with data link to the dataset versions the assistant used and show their sources, reporting periods and places when available. A publisher's link appears when its URL is known. Guests and signed-in users can open a proposed report in the builder.
-
-The assistant looks up published data. Signed-in owners can allow the configured AI provider to access their private uploads for the current chat. Chat history stays in the browser tab. Guests share 10 AI requests per network per 10 minutes across chat and report summaries. Signed-in chat allows 40 requests per account per 10 minutes.
-
-### AI settings
-
-Administrators choose the provider and model in **AI settings**. Each environment stores its choice in its own database and loads credentials from its server environment.
-
-| Provider | Server variables | Default model |
+| Provider | Environment variables | Default model |
 | --- | --- | --- |
-| Google Gemini (`google`) | `GEMINI_API_KEY` | `gemini-3.5-flash-lite` |
-| OpenAI (`openai`) | `OPENAI_API_KEY` | `gpt-5-mini` |
-| Anthropic (`anthropic`) | `ANTHROPIC_API_KEY` | `claude-haiku-5-5` |
-| OpenAI-compatible (`compatible`) | `AI_COMPATIBLE_API_KEY`, `AI_COMPATIBLE_BASE_URL` | Enter a model ID |
+| Gemini | `GEMINI_API_KEY` | `gemini-3.5-flash-lite` |
+| OpenAI | `OPENAI_API_KEY` | `gpt-5-mini` |
+| Anthropic | `ANTHROPIC_API_KEY` | `claude-haiku-5-5` |
+| OpenAI-compatible | `AI_COMPATIBLE_API_KEY`, `AI_COMPATIBLE_BASE_URL` | Set a model ID |
 
-For a compatible provider, use a trusted HTTPS API base URL such as `https://provider.example/v1`. The application calls its Chat Completions endpoint. Choose a model that supports function calling for chat. Set `AI_PROVIDER` and optionally `AI_MODEL` to override the initial Gemini settings, or choose **Disabled** to turn AI off.
+For compatible providers, use a trusted HTTPS API base such as `https://provider.example/v1` and a model with tool support. Set `AI_PROVIDER` and optionally `AI_MODEL` to choose initial defaults, or set `AI_PROVIDER=none` to start with AI disabled. Browsing, reporting, and PDF export work without an AI provider.
 
-### Calculated fields
+## Other local setups
 
-In the builder's **Show** step, **Add a calculated field › + New calculated field** first asks what to **Calculate**:
+**Existing MySQL server.** Create a database and a dedicated user with access to it. Set `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, and `DB_PASSWORD` in `.env`, then follow the quickstart from `npm ci` and skip the Compose command.
 
-- **One value for the whole report**, shown as a summary under the title in the preview, viewer and PDF together with how it was worked out:
-  - **Average per town** (or row, county…): the field added up across the report's rows ÷ how many there are, e.g. *average population per town* ("293,606 total Population ÷ 3 towns").
-  - **Median**, **Highest**, **Lowest** (naming the town or row, and ties) and **Total**.
-  - **Average per row with a value in a column**: the total ÷ the rows where that column is filled in.
-- **One value for each row**: one field divided by another, e.g. clients per staff member, charted and tabulated like any field.
-
-Each summary also shows the same figure for every comparable row as a benchmark, on by default: "Connecticut, all 169 towns: 21,447 (3,624,508 total Population ÷ 169 towns)", or Bridgeport for *Highest*. For town data that means every row of the same kind as those compared (all towns, or all counties), worked out from the towns themselves rather than the statewide row; for other data it is the whole dataset, after the report's category filters. It is omitted when the report already covers every row. Summaries default to whole numbers and ratios to two decimals. The statewide benchmark is never part of a summary. Summaries are never charted per row, and they only sum when you choose one, so source rows are still never combined implicitly.
-
-Ratios and averages can be shown as a number, a percentage (× 100) or per 1,000. Everything is computed on the server (`services/custom-indicators.js`), never stored, and never computed in the browser. A missing value or a zero divisor gives N/A, and every field used must be approved for the dataset.
-
-Migration `008_dataset_row_labels.sql` lets source rows have no town and records each dataset's row label column; `009_report_slugs.sql` adds unique report addresses, giving existing reports one made from their title and ID. Both are safe to apply to databases that already have a `reports.slug` column. `010_row_label_backfill.sql` records the Town column as the row label of source-row datasets uploaded before 008, adds a check that only those datasets carry a row label key, and rewrites saved report selections from `towns` to `rows` (the app still reads `towns`, so restored backups keep working).
-
-Source-row datasets support a configurable primary field. It starts with the field chosen at upload and can be changed in **Settings**. A saved single-dataset report keeps its comparison field when the dataset default changes, provided that field remains available. Observation-format datasets use their stored geography as their comparison field.
-
-A Town column may also hold Connecticut's 8 counties (e.g. "Fairfield County") and 9 planning regions (e.g. "Capitol Planning Region"), added by `011_county_region_geographies.sql`. Those rows are kept as their own rows, never added to towns, and in the ranking view are shown for reference rather than ranked against the towns they contain. Any other unmatched name still rejects the upload.
-
-Migration `005_dataset_curation.sql` preserves existing published fields until staff review them, and labels that state as review pending. All subsequent approvals apply on the server to options, dataset previews, chart/PDF/AI requests and saved reports. Reopening an older report after a field has been withdrawn requires a new valid selection.
-
-## Staff customization
-
-Open a dataset's **Details**, then **Customize names and display**. Staff can set a display name and description, rename approved fields, add field explanations, choose 0–4 decimal places, move fields up or down, and select a default chart style. Administrators can also prepare defaults for unpublished versions. Save applies these defaults to the dataset version; it never changes source names, field keys, values, units, approval or publication. Older versions keep their own settings. Conflicting saves ask the editor to reload rather than overwriting another staff member's work.
-
-The report builder's **Customize field labels for this report** section overrides a selected field's label, description or precision. A blank setting inherits its shared default. **Use shared field defaults** removes report-specific overrides; each chart also has an optional custom title. Field explanations are included as notes in previews and PDFs. New reports and new chart blocks use the dataset's chart default, while saved layouts and explicit report overrides remain intact. Shared field order controls the field picker; reports retain their chosen field order.
-
-Approved-field pickers in the builder and its chart/table blocks group choices by unit and show each field's unit. Counts, dollars, percentages and text categories are distinct groups; the report's chosen field order is preserved.
-
-### Chart colors and report appearance
-
-In dataset Details, **Shared report appearance** sets the six chart series colors, statewide benchmark color, heading color, table-header background, standard/large text, and comfortable/compact spacing. Its sample updates as you edit. Save shared defaults to apply them to reports that inherit those settings. **Use CTData styling** restores the original theme; save to apply it.
-
-In the builder, **Report appearance** offers an **Override** toggle for each setting. Disabled controls follow the dataset defaults, including later staff changes; enabled overrides are stored with the report and survive save, reopen and duplication. **Use all shared styling** removes every style override. Colors and presentation are resolved on the server and used by both browser previews and PDFs. Heading and table-header choices must retain readable text contrast. Source attribution stays visible.
-
-## Brand and embedding
-
-Poppins is bundled locally with its OFL license and embedded in PDFs. `src/shared/theme.js` and `public/css/app.css` use CTData navy `#262558`, teal `#39738C`, coral `#DE6F59` and the supporting brand palette. Charts avoid using teal and green together as required by the brand guide. No font CDN is needed.
-
-`/explore/<report-name>.html?embed=1` shows a saved report without site chrome for same-origin embedding. Authentication remains required. Cross-origin WordPress embedding or a public viewer requires the actual hosting origin and a decision about public versus signed-in access; the existing same-origin frame policy is retained. No WordPress credentials or hosting target are configured in this repository.
-
-Deploy from this application directory with `docker compose up -d --build`, which applies migrations automatically. Verify the configured local URL's `/healthz` and sign-in/exploration flow. Back up the database first and preserve the existing database volume. Migration `006_preserve_saved_reports.sql` renames the legacy saved-selection table to `reports` without copying or deleting saved selections; fresh databases already have the new table. Deploy the previous compatible report-based revision to roll back application code; do not roll back to a revision using the legacy table name against the renamed table without restoring its matching backup.
-
-## Quick start
-
-Requires Node.js 22+ and Docker, which runs MySQL 8.4. The app connects with the `mysql2` driver that `npm install` adds. To use a MySQL server you already have instead, see "Using your own MySQL" in the [root README](../README.md).
+**Run the app in Docker too.** In `.env`, set `DB_PASSWORD` and a random `SESSION_SECRET` such as the output of `openssl rand -hex 32`. Then run the following from this directory.
 
 ```sh
-cp .env.example .env               # set DB_PASSWORD and SESSION_SECRET (openssl rand -hex 32)
-npm install
-docker compose up -d --wait db     # MySQL 8.4 on 127.0.0.1:${DB_PORT}
-npm run migrate
-npm run create-admin -- --email you@example.org --first First --last Last
-npm run seed                       # loads ../sample-data/acs2024_sample.csv and activates it
-npm run dev                        # http://localhost:3000
+docker compose up -d --build
+docker compose exec app node scripts/create-admin.js --email you@example.org --first Site --last Admin
+docker compose cp ../sample-data app:/sample-data
+docker compose exec app npm run seed:samples
 ```
 
-`create-admin` prints a one-time link. Open it to set your password.
+Compose applies migrations at app startup. Wait for [localhost:3000/healthz](http://localhost:3000/healthz) to respond before creating the admin. If you publish a different port, use container port `3000` in the service environment and update `APP_BASE_URL` to the external URL.
 
-To run the app and database together in containers, use `docker compose up --build`. Migrations run on startup. Create the admin with `docker compose exec app node scripts/create-admin.js --email … --first … --last …`, then choose **Datasets › + Add dataset**. Selecting a CSV or `.xlsx` workbook reveals its name, source and reporting-period fields. A successful upload opens the dataset's **Settings** tab; clicking an existing dataset row opens its **Data** tab (drafts open on **Settings**).
+## Development
 
-Excel uploads import the first worksheet by default; enter a worksheet name to import another sheet. Choose the column that identifies each row; files with exactly one `Town` header (case-insensitive) work without a choice. Rows can repeat: each nonblank source row is retained separately. Blank rows are skipped and numeric cells use their underlying values rather than display formatting. Formula cells use values saved by Excel; the server does not recalculate formulas. Save the workbook in Excel before uploading. Files are limited to 10 MB, 10,000 rows and 100 columns. Legacy `.xls` files should be saved as `.xlsx` first.
+- `public/` contains the browser UI. `src/routes/`, `src/services/`, and `src/repositories/` handle HTTP, application logic, and MySQL access.
+- Add schema changes as new files under `migrations/`. Run `npm run migrate` to apply them.
+- Run `npm test` and `npm run lint`. With a migrated local database, use `CT_CURATION_INTEGRATION=1 CT_USAGE_INTEGRATION=1 npm test` to include database integration tests.
+- Use `npm run reset-password -- you@example.org` to generate a new one-time setup link from a Bash shell.
 
-**Repeated rows and mixed data.** The importer detects column types without requiring registration. `dataset_records` stores the original row number, matched town and JSON cell values; `datasets.column_definitions` keeps headings, types and display rules. Text employer names, missing values and populated unnamed columns are retained. Parenthetical town labels are matched only when the base name is a known town, with an import note and the original label retained. The overview displays source rows rather than merging them by town. Known single-row numeric indicator datasets still populate `observations`, preserving existing calculated indicators and reports.
-
-For example, Industry Jobs retains five industry rows for each town; its repeated Total Jobs value is never summed. Key Employers retains the employer names and Bridgewater's note explaining its blank entries. Population Within 45 Minutes detects the numeric population column despite its descriptive heading. A header explicitly indicating a decimal-format percentage is displayed as a percentage without changing its stored fraction.
-
-Reports over source rows offer category filters and select columns from that dataset. Charts use numeric columns; text-only datasets render as tables. Browser charts show 20 locations per page, indicator tables show 10 locations, and source tables show 50 rows. Page controls reach the complete selection. PDFs include all selected locations in readable chart and table sections, with source details on every page. The builder sums or averages source rows when you select that calculation.
-
-## Commands
-
-| Command | What it does |
-| --- | --- |
-| `npm run dev` / `npm start` | Start the server (dev mode restarts on file changes) |
-| `npm test` | Unit and HTTP tests (`node:test` + supertest); no database needed |
-| `node --test test/pdf.test.js` | Run one test file; add `--test-name-pattern="filenames"` for one test |
-| `npm run lint` | ESLint |
-| `npm run migrate` | Apply pending `migrations/NNN_*.sql` files in order |
-| `npm run create-admin -- --email … --first … --last …` | Create an admin and print a set-password link |
-| `npm run reset-password -- [-p] <email>` | Reset an account's password when nobody can sign in: prints a one-time link, or with `-p` prompts for a new password |
-| `npm run seed [-- file.csv]` | Upload a CSV as a new, active version of "ACS 5-Year Town Profile" (2024) |
-
-## How it works
-
-### Code style
-
-Use descriptive camelCase names for variables and functions, and UPPER_SNAKE_CASE for constants. Keep page initialization, event handlers, and rendering functions at the top level of each browser module. Build larger DOM sections one element at a time instead of nesting many element-builder calls. Prefer a plain loop or an `if` statement when a chain of callbacks or a nested conditional would be harder to follow. Use two-space indentation, braces around conditionals and loops, and one statement per line. Comments should explain a rule or a reason, rather than repeat the code.
-
-**Layers.** Code is split into routes, services and repositories, and each layer calls only the one below it:
-- `src/routes/*` handles HTTP, with zod validation at the boundary.
-- `src/services/*` holds the logic.
-- `src/repositories/*` holds hand-written, parameterized SQL through one `mysql2` pool (`src/db/pool.js`). There is no ORM.
-
-`src/app.js` puts middleware in this order: helmet, request log, static files, JSON body parsing, session, then `/api/auth`, then `requireAuth` and CSRF for the rest of `/api`. Role checks (`requireRole`) and ownership checks are applied per route. One central error handler returns safe messages; `HttpError` messages are shown to users.
-
-**MySQL.** The app targets MySQL 8.4 (8.0.19 or later works). A few things differ from what you might assume:
-- Every table uses the `utf8mb4_0900_as_cs` collation, so comparisons and unique keys are case-sensitive. Case-insensitive matching is written out explicitly: `LOWER()` for town names, emails and sources, and a `_ci` collation for report search.
-- Each connection is set to UTC and READ COMMITTED isolation (`src/db/pool.js`). `DATETIME` values are always UTC.
-- "One active version per name and vintage" and "source names unique ignoring case" are functional unique indexes, since MySQL has no partial indexes.
-- MySQL commits `CREATE`/`ALTER` statements immediately, so a migration that fails partway can leave some of its schema changes behind. Keep each migration file to one logical step, and check for partial changes before re-running a failed one.
-- `key` is a reserved word, so the `indicators.key` column is always written as `` `key` ``.
-
-**Long-format data.** Tables are `sources` (the agency or survey a dataset comes from, unique ignoring case), `datasets` (one row per uploaded version, referencing its source), `towns` (169 towns plus one `state` row), `indicators` and `observations` (one value per dataset × indicator × town). A new dataset or indicator is an insert, never a schema change. Uploads are validated in full before anything is written (`csv-validation.js`), and every problem is reported at once. Each upload becomes a new version. Versions are activated or deactivated, never edited or deleted, and only one version per name and vintage can be active.
-
-**Derived values are computed on the server.** Ratio indicators, such as poverty rate = `povnumerator / povdenominator`, are computed in `services/compute.js` when a report is built. They are never stored or computed in the browser. `src/shared/format.js` holds the number formatting rules. The browser (preview) and pdfkit (PDF) import the same file, so a figure looks identical on screen and on paper.
-
-**One selection object.** The report builder produces a *selection*: dataset, towns, benchmark, indicators, title, subtitle and a *layout*. The layout is an ordered list of text, chart and table blocks, and a report can hold any number of each (up to 30 blocks). `services/selection.js` validates it and `reports.selection` stores it. `buildReport()` resolves it into report data, and that one object is returned as JSON for the live preview and passed to the PDF renderer. Saved reports store only the selection, so reopening a report re-renders it against the currently active dataset version.
-
-**Town selection and chart groups.** A selection can include every available town, with no comparison-town limit. A chart block can request up to 25 selected fields; an empty field list includes every selected numeric field. The default grouped bar chart and line charts group fields by unit, then split groups into charts of at most six series. A bar chart produces one chart for each numeric field. One layout block can therefore become several rendered chart blocks, each with its own `chart.title`. All matching source rows and their original values remain in the report, including repeated town rows. Chart grouping never sums rows or drops measures.
-
-**Text blocks.** Text uses a small Markdown subset: `#`/`##`/`###` headings, paragraphs, `-` and `1.` lists, `**bold**`, `*italic*` and `[links](https://…)` (http, https and mailto only). `services/markup.js` parses it on the server into a node tree, which the preview renders with text-only DOM calls and the PDF draws with pdfkit, so user text never becomes HTML. Anything else (nested lists, images, raw HTML) shows as plain text. Reports saved before layouts existed are converted when read: their chart, table and notes become blocks in that order.
-
-**PDF.** `services/pdf/index.js` is the boundary. The current renderer draws with pdfkit vector primitives, needs no headless browser, and gives the same bytes for the same report data. Swap the renderer there if faithful HTML-to-PDF output is ever needed (SRS OQ-4).
-
-**AI summary (optional).** Draft two to four sentences from public geographic figures, then review the draft and accept it as a text block. The app checks numbers in the draft against report figures. Report generation and PDF export can run without AI.
-
-**Accounts and security.**
-- Accounts are invite-only; there is no self-registration. Passwords are hashed with bcrypt (cost 12, 12 characters to 72 bytes).
-- Invite and reset links are single-use. Only their hash is stored, and the token travels in the URL fragment so it never reaches server logs.
-- Sessions are stored server-side in MySQL (`src/db/session-store.js`) behind an HttpOnly cookie. Guest and account sessions expire after 30 minutes idle. Account sessions also expire after 8 hours.
-- Five failed sign-ins in 15 minutes lock the account for 15 minutes, and there is a per-IP rate limit on credential endpoints.
-- State-changing requests need a synchronizer CSRF token in `X-CSRF-Token`.
-- Chart.js is served from `node_modules`, not a CDN, so pages make no third-party requests.
-
-## Configuration
-
-| Variable | Default | Notes |
-| --- | --- | --- |
-| `PORT` | `3000` | |
-| `APP_BASE_URL` | `http://localhost:$PORT` | Used to build invite and reset links |
-| `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` | `localhost`, `3306` | MySQL connection. `.env.example` uses port `3307`, which is also the host port docker compose publishes |
-| `DB_POOL_MAX` | `10` | Maximum MySQL connections in the pool |
-| `SESSION_SECRET` | random per start (dev only) | Required when `NODE_ENV=production` |
-| `COOKIE_SECURE` | `true` in production | Set `false` only for plain-HTTP local development |
-| `TRUST_PROXY` | `false` | Set `true` behind Nginx |
-| `AI_PROVIDER` | `google` | Initial provider. See [AI settings](#ai-settings). |
-| `AI_MODEL` | Provider default | Optional initial model override |
-
-## Extending
-
-- **New data:** choose **Datasets › + Add dataset** and select a CSV or `.xlsx` file. Repeated rows and new column headings are supported automatically, and a town column is optional.
-- **Optional indicator definitions:** define known numeric keys when custom units or calculated ratios are needed. Definitions can also be added in the dataset overview. A ratio appears for compatible indicator datasets when both inputs have values.
-- **Schema change:** add `migrations/NNN_description.sql`. Migrations are forward-only; never edit one that has been applied.
-
-## Decisions to review with the client
-
-These choices go beyond, or resolve ambiguity in, SRS draft v1.0:
-
-- **No email is sent.** Admins choose **People** in the header to copy invite and password-reset links. The SRS assumes emailed reset tokens.
-- **Dataset uploads.** Administrators curate shared datasets. Signed-in users can upload their own private datasets from My datasets.
-- **Duplicating reports.** Signed-in users can duplicate reports they can access. Only the creator can rename, edit or delete a report.
-- **Source footer is mandatory.** It appears on every report and PDF page and cannot be removed from the layout.
-- **One unit per chart.** Mixed-unit selections produce separate charts automatically, so counts, percentages and currency keep their own scales.
-- **New unit and schema columns.** An `area` unit was added for land area. `users.password_hash` is nullable until an invite is accepted, and lockout state lives on `users`.
-- **Top-coded values shown as-is.** Values such as Darien's $250,001 median income are displayed unchanged; automatic data-quality notes (US013) are not built yet.
-
-## Planned
-
-- **AI-written text between charts.** The AI would write headings, paragraphs and lists from the report's own figures and place them between the user's charts and tables, as a proposal to review. Not built yet; see [docs/ai-assisted-reports.md](docs/ai-assisted-reports.md).
-
-## Google Cloud
-
-See [deployment instructions](deploy/README.md) for staging and production.
+See the [HTTP API](docs/api-routes.md) for endpoint access and request formats.

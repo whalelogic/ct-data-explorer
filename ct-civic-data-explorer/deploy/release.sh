@@ -67,8 +67,8 @@ if [[ -n $admin_email && ! -f $root/.admin-provisioned ]]; then
     "${compose[@]}" run --rm --no-deps -T app node scripts/create-admin.js \
       --email "$admin_email" --first "CT Data" --last "Admin" > "$root/admin-invite.txt"
   fi
-  "${compose[@]}" run --rm --no-deps -T -v "$release/acs2024_sample.csv:/tmp/sample.csv:ro" \
-    app node scripts/seed-acs.js /tmp/sample.csv
+  "${compose[@]}" run --rm --no-deps -T -v "$release/sample-data:/sample-data:ro" \
+    app npm run seed:samples
   touch "$root/.admin-provisioned"
 fi
 
